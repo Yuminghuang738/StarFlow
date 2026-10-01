@@ -47,11 +47,24 @@ export function readStoredTheme(): ThemeChoice {
   }
 }
 
-function persistTheme(choice: ThemeChoice): void {
+/**
+ * 写进 localStorage。**返回值表示这一次到底写进去了没有**。
+ *
+ * 为什么不干脆 void 掉：设置页的主题卡片上明写着「选择立即生效，并记住你的选择——
+ * 下次启动会在界面出现之前就应用好」。存储被禁用 / 配额满时这句话是假的，而静默失败
+ * 就等于让界面替用户宣布了一件没发生的事。把结果交回调用方，卡片才能把那句话收回去
+ * （与 R46 的「保存 Token 失败却清空输入框」是同一条约定：凡是"记住/保存"这类承诺，
+ * 都得由写成功来决定，不能由调用方自己假定）。
+ *
+ * 吞掉异常的口径不变：抛出去只会让一次点击炸掉，而且**本次会话的主题照样是切了的**
+ * ——坏掉的只是"下次还记得"这一半，该说的就是这一半。
+ */
+function persistTheme(choice: ThemeChoice): boolean {
   try {
     localStorage.setItem(THEME_STORAGE_KEY, choice)
+    return true
   } catch {
-    // 写不进去也不影响本次会话：state 已经更新，只是下次启动会回到默认。
+    return false
   }
 }
 
@@ -121,10 +134,16 @@ function commit(choice: ThemeChoice): void {
   for (const listener of listeners) listener()
 }
 
-/** 设置主题：写 localStorage + 立即生效。这是唯一的写入口。 */
-export function applyTheme(choice: ThemeChoice): void {
-  persistTheme(choice)
+/**
+ * 设置主题：写 localStorage + 立即生效。这是唯一的写入口。
+ *
+ * 返回值是"这一次记住了没有"（见 persistTheme）。**主题本身一定会切换**——
+ * 两个结果都不影响本次会话，差别只在下次启动。
+ */
+export function applyTheme(choice: ThemeChoice): boolean {
+  const persisted = persistTheme(choice)
   commit(choice)
+  return persisted
 }
 
 function subscribe(listener: () => void): () => void {

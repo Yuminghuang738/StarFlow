@@ -141,3 +141,8 @@ Linux 没有对应物；`roundedCorners` 在 Linux 上还依赖桌面环境是�
 
 eslint 不禁止 localStorage（`no-restricted-globals` 只拦 `process`/`require`/`__dirname`/
 `__filename`/`Buffer`）。除此之外，渲染进程的持久化一律走 IPC。
+
+`applyTheme(choice)` 返回**「这一次到底记进本机了没有」**（2026-10 从 `void` 改为 `boolean`）。
+写不进去时主题**照样切换**——两个结果都只影响下次启动，所以不能整个报成失败；但设置页
+的主题卡片上写着「并记住你的选择」，静默失败就等于让界面替用户宣布一件没发生的事，
+卡片据此把那句话收回去（与 `saveToken` 返回 boolean 是同一条约定）。
