@@ -147,16 +147,27 @@ function toReadableError(err: unknown, action: string): Error {
 }
 
 【1】fetchStarred(): Promise<Repo[]>
-- 用 octokit.rest.activity.listReposStarredByUser({ per_page: 100, page, mediaType: { format: 'star+json' } })
+- 用 octokit.rest.activity.**listReposStarredByAuthenticatedUser**({ per_page: 100, page, mediaType: { format: 'star+json' } })
+  ⚠️ 别写成 `listReposStarredByUser`（这条原来写错了，已更正）——那个要额外传 `username`，
+  打的是 `/users/{username}/starred`（别人的公开 Star），`tsc` 会直接报
+  `Property 'username' is missing`。本应用要的是「我自己」的 Star，对应 `GET /user/starred`，
+  也就是方法名里的 *ByAuthenticatedUser。
 - ⚠️ 这是最容易写错的地方：带 star+json 时，返回数组的每一项结构是 { starred_at, repo }，
   而不是仓库对象本身。必须写成防御式兼容，两种结构都要能处理：
-    for (const raw of items as any[]) {
-      const r = raw.repo ?? raw
-      const starredAt = raw.starred_at ?? r.pushed_at ?? new Date().toISOString()
+    const items: unknown[] = Array.isArray(res.data) ? res.data : []
+    for (const raw of items) {
+      const wrapper = raw as RawStarredItem        // { starred_at?: string; repo?: RawRepo }
+      const r = wrapper.repo ?? (raw as RawRepo)
+      const starredAt = wrapper.starred_at ?? r.pushed_at ?? new Date().toISOString()
       ...
     }
-  ⚠️ 这里的 `as any[]` 是**整个文件唯一被豁免的 any**（见铁律第 7 条）：star+json 下 GitHub 返回的是
-  `{ starred_at, repo }` 联合结构，@types 给不出准确类型。除此之外不要再出现任何 any。
+  ⚠️ **不要写 `items as any[]`**（这条原来写错了，已更正）：本仓库的 eslint 配置把
+  `@typescript-eslint/no-explicit-any` 设成了 **error**（来自 `tseslint.configs.recommended`，
+  不是 warning），照抄 `as any[]` 会让 `npm run lint` 直接失败、CI 变红。正确做法就是上面那样：
+  先把 `res.data` 收成 `unknown[]`，再为「只会读到的字段、且一律当作可能缺失」写几个窄化
+  interface（RawRepo / RawStarredItem / RawRelease / RawCommit），全文可以做到零 any。
+  另外注意 `res.data` 的静态类型本身就是骗人的：@octokit 只声明了 `minimal-repository[]`，
+  没有反映 star+json 下 `{ starred_at, repo }` 的真实形状——所以这里必须防御，不能信类型。
 - 分页：最多 3 页（每页 100，即最多 300 条）。当前页返回数量小于 100 就停止；到第 3 页也停止。
   每页之间不要 sleep。
 - 映射成 Repo，字段严格对应 types.ts：
@@ -217,6 +228,9 @@ function toReadableError(err: unknown, action: string): Error {
     topics 用 data.topics ?? []
     description / language 允许为 null
     stargazers_count 用 data.stargazers_count ?? 0
+    local 用 { forked_full_name: data.full_name, forked_at: 上面那个时间 }
+      ↑ 这条是实测补上的：mockFork 就会返回 local.forked_full_name，前端靠这个字段显示
+        「已 Fork」。真实现不填的话，两种模式的可观察行为对不上。
 - GitHub 的 fork 是异步的，接口可能返回一个还在创建中的仓库。不要轮询、不要 sleep、不要等待，
   直接返回即可（前端展示的是"已 Fork"状态和链接，不依赖仓库是否创建完成）
 - ⚠️ 不要自动 clone，clone 是独立操作
@@ -246,11 +260,16 @@ npm run typecheck && npm run lint
 MOCK_MODE=true npm run dev
 #   → 列表仍有 31 条（mock-data.json 全量），unstar/fork 仍正常
 
-# 真实模式冒烟（需要 .env 里填好真实 GITHUB_TOKEN）
-# .env: MOCK_MODE=false
+# 真实模式冒烟
+# .env 里只改: MOCK_MODE=false      ← token 不要写在 .env 里
 npm run dev
-#   → 设置页点「从 GitHub 同步」，再回首页，应能看到真实 Star 列表
+#   → 到设置页填入真实 GITHUB_TOKEN 并保存（走 store.saveToken），再点「从 GitHub 同步」，
+#     回首页应能看到真实 Star 列表
 #     （⚠️「测试连接」按钮是 P6 工作包里的活，现在还**不存在**，别去找它）
+#
+#   ⚠️ 原版这里写的「需要 .env 里填好真实 GITHUB_TOKEN」是**错的**（已更正）：全项目没有任何
+#     代码读 config.getEnv().githubToken（自己 grep 一下就知道了，零引用），token 的唯一来源是
+#     设置页 → store.getToken()。往 .env 里填 token 不会有任何效果，只会让你以为配好了。
 ```
 
 ```bash
@@ -266,6 +285,10 @@ git push origin feat/github-你的名字
 - [ ] 故意填一个错的 token → 前端看到「GitHub Token 无效或已过期」而不是英文报错
 - [ ] 故意 unstar 一个自己的测试仓库 → GitHub 上确实取消了，且列表里消失了（**只消失一次，不是两次**）
 - [ ] `fetchReadme` 对一个没有 README 的仓库返回空字符串，不抛错
+- [ ] `fork` 返回的 Repo 带 `local.forked_full_name` / `forked_at`（前端靠它显示「已 Fork」，
+      且要和 mock 模式一致）
+- [ ] `npm run lint` 也过——`github.ts` 里**一个 any 都不能有**，
+      `@typescript-eslint/no-explicit-any` 是 error
 - [ ] `MOCK_MODE=true` 时行为与骨架版完全一致（列表 31 条；unstar 后卡片消失且**重启不复活**）
 - [ ] `npm run build` 也过（`typecheck` 过了不代表 bundler 也过：`@shared/*` 别名由 electron.vite.config.ts 提供，
       打包路径和 tsc 的 `paths` 是两套配置）
