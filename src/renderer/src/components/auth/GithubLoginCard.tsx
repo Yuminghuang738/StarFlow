@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AuthUser, DeviceFlowInfo, LoginOutcome } from '@shared/types'
-import { unwrap } from '../../lib/api'
+import { unwrap, ipcErrorMessage } from '../../lib/api'
 import { Button } from '../common/Button'
 import { Card } from '../common/Card'
 import { ConfirmDialog } from '../common/ConfirmDialog'
@@ -37,6 +37,12 @@ export function GithubLoginCard({ onAuthChange }: GithubLoginCardProps): React.J
   const [user, setUser] = useState<AuthUser | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmLogout, setConfirmLogout] = useState(false)
+  /**
+   * 「本机存着一条 Token，但这一次读不出它」（换机器 / 系统密钥环变更，见
+   * main/store.ts 的 hasToken）——与「确实没配过」是两回事，但**都不该挡住登录按钮**。
+   * 这里只把原因留在按钮上方，视图照常走未登录态。
+   */
+  const [tokenError, setTokenError] = useState<string | null>(null)
 
   // 倒计时用本地 deadline 自己算，而不是每秒钟去问一次主进程：
   // pending.expiresIn 是收到那一刻的剩余秒数，直接用会定格不动。
@@ -60,6 +66,8 @@ export function GithubLoginCard({ onAuthChange }: GithubLoginCardProps): React.J
     if (outcome.status === 'success') {
       setUser(outcome.user)
       setView('loggedIn')
+      // 新的 token 已经写进去了，之前那条"解不开"的告警随之作废
+      setTokenError(null)
       // login 为空串是"授权成功但没能取到用户名"的降级路径，别显示成 "已登录 @"
       pushToast({
         type: 'success',
@@ -109,7 +117,22 @@ export function GithubLoginCard({ onAuthChange }: GithubLoginCardProps): React.J
           return
         }
 
-        const hasToken = await unwrap(window.api.store.hasToken())
+        // ⚠️ hasToken 要与上面的 getState 分开 catch：getState 失败是"读不到登录环境"，
+        // 那张卡片无处可去（所以下面显示 unavailable）；而 hasToken 失败有个明确的
+        // 特例——本机存着一条 token 但这次解不开（换机器 / 密钥环变更，见 main/store.ts）。
+        // 那**不是**"读取登录状态失败"，把它并进 unavailable 会把这个卡片变成死胡同：
+        // 它恰恰是唯一能就地解决问题的入口（重新登录写一条新的，覆盖掉解不开的那条）。
+        // 所以照常显示未登录态 + 登录按钮，另把原因与出路留在按钮上方。
+        // unwrap 已经弹过那条带原因的 toast，这里只需要把话说在界面上。
+        let hasToken = false
+        try {
+          hasToken = await unwrap(window.api.store.hasToken())
+        } catch (err) {
+          if (cancelled) return
+          setTokenError(ipcErrorMessage(err))
+          setView('idle')
+          return
+        }
         if (cancelled) return
         if (hasToken) {
           setView('loggedIn')
@@ -183,6 +206,8 @@ export function GithubLoginCard({ onAuthChange }: GithubLoginCardProps): React.J
       await unwrap(window.api.store.clearToken())
       setUser(null)
       setView('idle')
+      // 凭据已经真的被清掉了（clearToken 失败会抛到这里之前），那条"解不开"的告警一并作废
+      setTokenError(null)
       pushToast({ type: 'success', message: '已退出登录' })
       onAuthChangeRef.current?.()
     } catch {
@@ -301,6 +326,13 @@ export function GithubLoginCard({ onAuthChange }: GithubLoginCardProps): React.J
         点一下按钮，浏览器会自动打开 GitHub 的授权页；把页面里显示的 8 位验证码粘进去、点
         Authorize 就行，不需要再回本应用点确认。
       </p>
+      {/* 只在「本机有凭据、但这一次读不出」时出现。不挡按钮：重新登录正是那条出路。 */}
+      {tokenError ? (
+        <p className="mt-2 text-xs text-warning">
+          本机存着一条 GitHub 凭据，但这一次读不出它。重新登录会写一条新的进去、覆盖掉它
+          （下面「GitHub Token」那张卡片也可以直接重填）。原因：{tokenError}
+        </p>
+      ) : null}
       <div className="mt-3">
         <Button variant="primary" onClick={() => void start()} loading={busy}>
           用 GitHub 登录
