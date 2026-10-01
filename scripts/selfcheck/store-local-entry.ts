@@ -50,11 +50,13 @@ async function main(): Promise<void> {
 
   if ((process.env.SAFESTORAGE_MODE ?? 'available') === 'none') {
     await store.saveToken('test-token-123')
+    // (c)：无加密后端时 token 只留内存、一个字节都不写盘——所以这里断言的是"磁盘上什么都没有"，
+    // 而不是旧结论 (a) 的"明文必须带 PLAIN: 前缀落盘"。
     const raw = readDb()
-    check('A4 无 keyring 时带 PLAIN: 前缀', raw.includes('PLAIN:test-token-123'))
-    check('A4 无 keyring 时不出现裸明文', !raw.includes('"test-token-123"'))
+    check('A4 无 keyring 时不写盘', !raw.includes('test-token-123') && !raw.includes('PLAIN:'), raw.slice(0, 80))
     check('hasToken 保存后为 true', (await store.hasToken()) === true)
-    check('getToken 能剥离 PLAIN: 前缀', (await store.getToken()) === 'test-token-123')
+    // 名字必须如实：这个 PASS 靠的是"内存优先"，跟 PLAIN: 前缀已经没有任何关系。
+    check('A4 无 keyring 时同进程内 getToken 返回内存中的 token', (await store.getToken()) === 'test-token-123')
   } else {
     await store.saveToken('test-token-123')
     const raw = readDb()

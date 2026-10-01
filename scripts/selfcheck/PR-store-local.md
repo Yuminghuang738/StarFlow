@@ -14,8 +14,9 @@ P3 的自检当时落在了 `out/`（已被 .gitignore 忽略），等于这份�
 
 | 文件 | 说明 |
 |---|---|
-| `scripts/selfcheck/store-local.mjs` | 新增。统一驱动器：esbuild 打包 + 按场景起子进程 |
-| `scripts/selfcheck/store-local-entry.ts` | 新增。打桩自检（A1~A7 / B0~B3），26 项断言 |
+| `scripts/selfcheck/store-local.mjs` | 新增。统一驱动器：esbuild 打包 + 按场景起子进程；stub 模式每个场景后再起一个**跨进程复查**进程 |
+| `scripts/selfcheck/store-local-entry.ts` | 新增。打桩自检（A1~A7 / B0~B3），25 项断言 |
+| `scripts/selfcheck/store-local-token-restart.ts` | 新增。跨进程 token 断言（2 项）：换一个进程、复用同一数据目录再查一次 token |
 | `scripts/selfcheck/store-local-real-entry.ts` | 新增。真机自检：真实 Electron + 真实 safeStorage |
 | `scripts/selfcheck/store-local-clone.ts` | 新增。`clone` / `openDir` 的真实分支（联网） |
 | `scripts/selfcheck/store-local-e2e.mjs` | 新增。端到端：构建产物 + CDP 驱动渲染进程（mock） |
@@ -46,7 +47,7 @@ node scripts/selfcheck/ai.mjs mock     # → 全部通过
 ## 用法
 
 ```bash
-node scripts/selfcheck/store-local.mjs              # 打桩自检（无 keyring / 有 keyring 两个场景）
+node scripts/selfcheck/store-local.mjs              # 打桩自检（无 keyring / 有 keyring；每个场景后自动跨进程复查）
 node scripts/selfcheck/store-local.mjs real         # 真机：真实 Electron + 真实 safeStorage
 node scripts/selfcheck/store-local.mjs clone        # 真实 clone（需能访问 github.com）
 node scripts/selfcheck/store-local.mjs e2e          # 端到端（需先 npm run build）
@@ -55,12 +56,18 @@ node scripts/selfcheck/store-local.mjs e2e-clone    # 端到端 + 真实 clone
 
 产物统一放 `out/selfcheck/`（已 gitignore）。**不接入 CI**。
 
+> ⚠️ **合并顺序**：stub 自检里的 token 断言按 issue #9 的决议 **(c)** 编写
+> ——「加密后端不可用时 token 只留内存、一个字节都不写盘」。
+> 若 `src/main/store.ts` 还是旧结论 (a)（明文 + `PLAIN:` 前缀落盘），这些断言会红 3 条；
+> 需 **#12（store.ts 改造）先落地**，本 PR 才是绿的、才能作为 (c) 的验收资产。
+> 两者都只动 `scripts/`（#12 动 `src/main/store.ts`），互不阻塞评审。
+
 ## 验收结果（本机实测全绿）
 
 | 模式 | 覆盖 | 结果 |
 |---|---|---|
-| `stub`（无 keyring） | A1~A7 / B0~B3 | 26 项 PASS |
-| `stub`（有 keyring） | 同上 | 26 项 PASS |
+| `stub`（无 keyring） | A1~A7 / B0~B3 + 跨进程复查 | 25 + 2 = **27 项 PASS** |
+| `stub`（有 keyring） | 同上 | 26 + 2 = **28 项 PASS** |
 | `real` | 真实 Electron 44.5.1 + 真实 DPAPI | 9 项 PASS |
 | `clone` | 真实 git clone | 6 项 PASS |
 | `e2e` | 构建产物 + CDP + 完整 IPC | 11 项 PASS |
@@ -68,8 +75,13 @@ node scripts/selfcheck/store-local.mjs e2e-clone    # 端到端 + 真实 clone
 
 关键实证：
 
-- **落盘 token**：有 keyring → 60 字符 DPAPI 密文（`djEwJrn…`，可解回原文）；
-  无 keyring → `PLAIN:test-token-123`，**文件中不含裸明文**
+- **落盘 token（方案 (c)）**：
+  - 有 keyring → 落盘为 base64 密文（真实机器上是 60 字符 DPAPI 密文，可解回原文）；
+  - 无 keyring → **不写盘**：`starpilot.mock.db.json` 里 grep 不到 token，也 grep 不到 `PLAIN:`；
+    同进程内 `getToken()` 仍返回原文，**重启进程后为 `null`、`hasToken()` 为 `false`**。
+- **跨进程断言**：驱动器复用同一 `RUN_ID`（同一库文件）起第二个进程复查——
+  无 keyring → `null` / `false`；有 keyring → 原样解回 `test-token-123` / `true`。
+  这是 (c) 与 (a) 唯一真正可观测的区别，**同进程内查不出来**。
 - **播种** 31 条；二次读取返回副本（非同一引用）；unstar 后不复活且缓存同步
 - **`updateLocalState`**：找不到仓库只 warn 不抛；两字段都在；传 `undefined` 不抹已有值；缓存与磁盘一致
 - **`clone`**：真实克隆成功返回完整绝对路径（约 3.9s，`.git` 与工作区文件均检出）；

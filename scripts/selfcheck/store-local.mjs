@@ -3,6 +3,7 @@
 //
 // 用法：
 //   node scripts/selfcheck/store-local.mjs             打桩自检：无 keyring / 有 keyring 两个场景
+//                                                      （每个场景跑完会再用**另一个进程**复查一次 token）
 //   node scripts/selfcheck/store-local.mjs real        真机自检：真实 Electron + 真实 safeStorage
 //   node scripts/selfcheck/store-local.mjs clone       真实 clone（需要能访问 github.com）
 //   node scripts/selfcheck/store-local.mjs e2e         端到端（mock）：构建产物 + CDP 驱动渲染进程
@@ -114,9 +115,12 @@ function ensureFakeHome() {
 
 async function runStub() {
   const out = await bundle('store-local-entry.ts', 'store-local-bundle.mjs')
+  // 第二个入口：同一个数据目录，换一个进程再查一次 token 还在不在。
+  const restart = await bundle('store-local-token-restart.ts', 'store-local-token-restart-bundle.mjs')
   const scenarios = [
-    { id: 'stub-nokeyring', keyring: 'none' },
-    { id: 'stub-keyring', keyring: 'available' }
+    // expect 是"重启后应当拿到什么"：无 keyring → 什么都没有（(c) 的核心）；有 keyring → 原样解回。
+    { id: 'stub-nokeyring', keyring: 'none', expect: '' },
+    { id: 'stub-keyring', keyring: 'available', expect: 'test-token-123' }
   ]
   let failed = 0
   for (const s of scenarios) {
@@ -130,6 +134,19 @@ async function runStub() {
       SAFESTORAGE_MODE: s.keyring
     })
     if (code !== 0) failed++
+
+    // 必须紧接着本场景跑，且必须复用同一个 RUN_ID（同一个库文件）——
+    // 这里唯一变的就是"进程换了"，这正是方案 (c) 与 (a) 的唯一区别所在。
+    console.log(`\n######## 场景 ${s.id}：跨进程复查（换进程，同一数据目录）########`)
+    const restartCode = await run([restart], {
+      ...process.env,
+      RUN_ID: s.id,
+      MOCK_MODE: 'true',
+      SAFESTORAGE_MODE: s.keyring,
+      EXPECT_TOKEN: s.expect,
+      SCENARIO: s.id
+    })
+    if (restartCode !== 0) failed++
   }
   return failed
 }
@@ -183,5 +200,5 @@ if (!runner) {
 }
 
 const failed = await runner()
-console.log(`\n== 驱动器汇总：${failed === 0 ? '全部通过' : `${failed} 个场景失败`} ==`)
+console.log(`\n== 驱动器汇总：${failed === 0 ? '全部通过' : `${failed} 项失败`} ==`)
 process.exit(failed === 0 ? 0 : 1)
