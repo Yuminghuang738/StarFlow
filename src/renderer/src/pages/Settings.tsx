@@ -110,13 +110,18 @@ export function Settings(): React.JSX.Element {
     setAiNotice(null)
     try {
       // apiKey 留空表示「不修改现有 key」——契约里缺省即不动，清除走单独的按钮。
-      // baseUrl / model 允许传空串，表示退回 .env 默认。
+      // baseUrl / model 只在**用户改过**时才提交：否则会把从 .env 回落来的值固化进
+      // store，之后改 .env 就不生效了（界面存的优先级更高）。传空串则表示清空要退回 .env。
       const key = apiKey.trim()
+      const nextBase = aiBaseUrl.trim()
+      const nextModel = aiModel.trim()
+      const initialBase = aiConfig?.baseUrl ?? ''
+      const initialModel = aiConfig?.model ?? ''
       await unwrap(
         window.api.store.saveAiConfig({
           apiKey: key ? key : undefined,
-          baseUrl: aiBaseUrl.trim(),
-          model: aiModel.trim()
+          baseUrl: nextBase === initialBase ? undefined : nextBase,
+          model: nextModel === initialModel ? undefined : nextModel
         })
       )
       setApiKey('')
