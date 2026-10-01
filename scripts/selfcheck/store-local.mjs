@@ -153,6 +153,8 @@ async function runReal() {
   // 真机：不打桩，让 bundle 里的 import 'electron' 落到真实 Electron 上。
   const out = await bundle('store-local-real-entry.ts', 'store-local-real-bundle.mjs', { stubElectron: false })
   console.log('\n######## 真机：真实 Electron + 真实 safeStorage ########')
+  // 这个入口不需要 --user-data-dir：store-local-real-entry.ts 自己就 mkdtemp 后
+  // app.setPath('userData', ...)，而且 setPath 在启动之后跑，命令行开关压不过它。
   return asFailure(
     await runUntil([electronCli, out], electronEnv({ MOCK_MODE: 'true' }), '== 真实 Electron 全部通过 ==')
   )

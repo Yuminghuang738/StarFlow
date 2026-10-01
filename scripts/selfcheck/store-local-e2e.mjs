@@ -5,6 +5,7 @@
 import { spawn } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { join } from 'node:path'
+import { freshProfileFlag } from './e2e-profile.mjs'
 
 const PORT = 9333
 let failures = 0
@@ -25,6 +26,9 @@ const child = spawn(
     'node_modules/electron/cli.js',
     '.',
     `--remote-debugging-port=${PORT}`,
+    // 必须隔离 userData：本脚本会真写 token 与 updateLocalState，默认会打到
+    // 开发者自己的 starflow.db.json 上（详见 e2e-profile.mjs）。顺带保证可重复。
+    freshProfileFlag('e2e-mock'),
     '--no-sandbox',
     '--disable-gpu-sandbox',
     ...(extraFlags.length > 0 ? extraFlags : ['--in-process-gpu'])
