@@ -1040,3 +1040,66 @@ Token 报错原文。一句诊断里三个错误结论，而真相与本地数�
 排查时什么都没有。两个字段各司其职更诚实。
 
 验证：tsc 干净、eslint 干净、npm run build 通过。
+
+## R41 · Phase 2：「AI 解释」出错后要能重试，三条失败分支都要就地留字（优先级 5）
+done · commit 92ce17e
+
+`RepoExplain` 的按钮逻辑是「text 非空 = 已经有解释了，这次点击只是展开/收起」。
+问题是三条失败分支（README 读不到 / README 太短 / AI 返回空）也会往 `text` 里写
+一句失败说明——于是那句"可以稍后再试"成了空话：按钮只把错误说明收起来，根本
+发不出第二次请求，唯一的出路是切走页面再切回来（组件因此重挂）。这正好是"界面
+在安静地说谎"的最典型形态：它承诺了一个它做不到的动作。
+
+- 短路条件加上 `status !== 'error'`：出错之后这个按钮必须能再发一次请求。
+- `readme === null` 分支原来**什么都不写**（只弹 toast，3 秒后消失）。现在与另两条
+  一样就地留字，否则这一行看起来与"从没点过"完全一样。
+- 按钮标签在 error 态显示「重试」而不是「AI 解释」——否则用户点开一段错误说明，
+  会以为那是一次解释的结果。
+- 顶部注释把"三条失败分支都必须就地留字 + 之后必须能重试"写成约定。
+
+验证：tsc 干净、eslint 干净、npm run build 通过。
+
+## R42 · Phase 2/6：中英 README 里一批过期的实现状态与通道清单（优先级 6）
+done · commit 08cb020
+
+README 是外部读者判断"这东西现在能干什么"的唯一入口，里面几处断言与代码不符：
+
+- 通道数写 41（中文）/ 39（英文），三处都是；实际三端一致为 **43**（含
+  `github:star` 英文版漏了、`ai:analyzeCollection`、`recommend:forYou`）。
+- 「实现状态说明」说 `recommend.ts` 与 `local:cancelClone` 是占位——两者都已落地，
+  真正剩下的只有 `tracker.ts` 的真实模式分支。
+- AI 配置那段说"持久化待实现"，而 `store:getAiConfig / saveAiConfig / clearAiKey`
+  与 `safeStorage` 加密路径早已就位。
+- 「为你推荐」的说明仍是旧的"挑一个种子仓库找相似"，现在是按整份收藏的画像搜
+  未 Star 过的仓库（`similar` 通道保留但界面已不用）。
+- 演示路径让人去「发现仓库」找按钮，实际入口在「收藏管理」。
+
+英中两份同步改，避免只改一边造成新的不一致。
+
+验证：tsc 干净、eslint 干净、npm run build 通过。
+
+## R43 · Phase 2/6：主进程签名契约里一批过期的"落地状态"（优先级 6）
+done · commit 24c908a
+
+`docs/module-signatures.md` 被各处源码注释当作冻结契约引用，但里面残留着 Phase 0
+骨架期的断言，其中几条**与现在的实现相反**，最有代表性的是 local.ts 那三行：
+
+    在取消克隆那个 PR 落地之前，现有实现只会返回路径、从不返回 null
+    （落地状态：Phase 0 的 cancelClone 是恒返回 false 的桩。）
+
+实际（src/main/local.ts:230）`cancelClone` 按 fullName 查 AbortController，有就
+`abort()` 并返回 true；`false` 只表示"那一刻没人在跑"，是正常竞态。`clone` 取消时
+返回 null 也已落地。照这段契约读代码的人会以为取消克隆没人实现，从而绕开
+`cancelClone` 自己造一套——这是文档比没有更坏的典型。
+
+同批修正：
+- ai.ts / config.ts：两处"Phase 0 只有桩""覆盖层待落地"已不成立；
+- ai-prompts.ts / recommend.ts：导出面缺了一整批已实现的函数与常量；
+- report.ts：补上"日历周 vs 滚动 7 天"两个窗口的说明（同页两个"周"不同窗）；
+- tracker.ts：点明真实模式下两个导出都抛 NOT_IMPLEMENTED；
+- store.ts：补 `getAiKey` 条目，并写明 `AiConfigView` 没有 apiKey 是**有意的**
+  （不让明文回传这件事由类型保证，而不是靠调用方自觉）。
+
+签名一个字没改，改的只是"当前实现到哪一步"的叙述。
+
+验证：tsc 干净、eslint 干净、npm run build 通过（纯文档改动）。
