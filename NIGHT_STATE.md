@@ -209,7 +209,7 @@ tasks:
   weekActivity 里写死的 `'未分类'` 换成 collectionStats 的 UNCATEGORIZED_LABEL
 - ~~本分支基于**未合并**的 feat/ai-endpoint-agnostic（PR #31），若开 PR 到 main 会带上
   PR #31 的改动，需在描述里显著标注~~ → **已不成立**：PR #31 已合并进 main
-  （origin/main 的 c8b9442 "Merge pull request #31"），本分支相对 origin/main 的 52 个
+  （origin/main 的 c8b9442 "Merge pull request #31"），本分支相对 origin/main 的 76 个
   提交全部是夜间优化，开 PR 到 main 是干净的，描述里不必再提堆叠。
 - IPC 表面三处一致（R37 顺手核对）：shared/ipc.ts 通道数 = index.ts handle() 调用数
   = preload 的 invoke 数 = 43，没有"声明了没注册/注册了没暴露"的通道
@@ -220,9 +220,21 @@ tasks:
   （store-local-e2e / store-local-e2e-realclone）。跑法：
   `node scripts/selfcheck/<名字>.mjs`，最后一行是汇总。
   （曾误写「13 个」：github-paging 是 R45 新增的，计数相应 +1。）
+  **收尾时又整跑了一遍（本轮结束时）：16/16 全绿**，另加 tsc / eslint / build 全绿。
 - 自检的经验教训（新增脚本时照做）：跑真实 Electron 的脚本必须带
   `--user-data-dir`（用 e2e-profile.mjs），且必须自己清干净目标目录再建，
   否则要么污染开发者数据、要么第二次跑就红/假绿
+
+## 本轮收尾（autonomous 阶段结束时）
+- 最后一次提交：R52 的日志（见 git log）。工作区**干净**，所有改动都已提交，
+  `NIGHT_STATE.md` 与 `OPTIMIZATION_LOG.md` 都是最新的。
+- 本轮（Phase 1 T1–T7 + Phase 2 R1–R52）全部落在
+  `night/auto-optimize-20261002-0019`，相对 origin/main 领先 76 个提交。
+- **没有推送、也没有开 PR**：推送是对外动作，等你的话。要开 PR 的话这个分支是干净的
+  （PR #31 早已合并进 main，不必再标注堆叠）。
+- 未修的东西都写在上面的「已知的收尾事项」里（6 条），另有一条只有主进程自检能覆盖、
+  组件层一条自检都没有——这是本仓库当前最大的盲区：**渲染进程没有 DOM 测试环境**，
+  这一半的缺陷只能靠人工验收，本轮里 R46–R52 有 6 轮属于这一半。
 
 ## 约束备忘
 - 不跑 `npm run dev`（GUI 需用户终端），验证靠 tsc / eslint / build / selfcheck
