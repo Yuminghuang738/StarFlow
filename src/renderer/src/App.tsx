@@ -1,10 +1,17 @@
+import { useState } from 'react'
+import { AppShell, type AppTab } from './components/layout/AppShell'
+import { Dashboard } from './pages/Dashboard'
+import { Report } from './pages/Report'
+import { Settings } from './pages/Settings'
+
 export default function App(): React.JSX.Element {
+  const [tab, setTab] = useState<AppTab>('dashboard')
+
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-slate-950 text-slate-100">
-      <div className="text-center">
-        <h1 className="text-5xl font-bold tracking-tight">StarPilot</h1>
-        <p className="mt-4 text-lg text-slate-400">骨架就绪</p>
-      </div>
-    </div>
+    <AppShell current={tab} onNavigate={setTab}>
+      {tab === 'dashboard' ? <Dashboard /> : null}
+      {tab === 'report' ? <Report /> : null}
+      {tab === 'settings' ? <Settings /> : null}
+    </AppShell>
   )
 }
