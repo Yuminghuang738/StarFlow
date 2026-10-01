@@ -88,6 +88,20 @@ tasks:
 - [x] 优先级 5（R41，1 轮）：「AI 解释」出错后按钮真的能重试（92ce17e）——
       原来 error 态被当成"有内容"短路掉，那句"可以稍后再试"根本点不动；
       顺带补上 README 读不到那条分支的就地留字
+- [x] 优先级 5（R44，1 轮）：本地标记没落盘 ≠ Fork / Clone 失败（de10c28）——
+      R37 修的是主进程那侧，渲染进程这侧的 `updateLocalState` 还是走 unwrap，
+      失败了照样报成"Fork 失败/克隆失败"，可 fork 已经建出来、目录已经在磁盘上。
+      新增 persistLocalState()（不抛错，返回错误文案），两处都改成把后果说清；
+      clone 那处刻意不更新内存态（假装已克隆会让"删除本地副本"必然失败）
+- [x] 优先级 5（R45，1 轮）：**Star 列表在 300 条处静默截断**（7aad97f）——
+      `fetchStarred` 的 MAX_PAGES=3 依据的那句"首页加载不能被无限翻页拖死"不成立
+      （首屏读的是本地库，这条通道只在显式同步/测试连接时调用）；危害是双层：
+      ① 界面报"已同步 300 个"看不出是截断；② mergeRepos 以远端为基准，
+      第 300 名之外的仓库连同 cloned_path / forked_full_name 一起从本地列表消失，
+      主进程对账也救不回来（真数据丢失）。循环本来就"不满一页就 break"，
+      松阀门即可：3 → 20 页（2000 条）+ 撞上限时留 warn。
+      新增 github-paging 自检（真实模式 + 打桩 fetch），**反向探针实测**：
+      改回 3 页时前三条断言如期变红
 - [ ] 优先级 5：错误处理、日志、边界条件（继续；组件层是主战场）
 - [x] 优先级 6：文档与注释（含 recommend.ts:271 那个粘在 export 上的 `*/`，已随
       d72df77 清掉）
@@ -118,6 +132,11 @@ tasks:
   4. 「AI 总结」正文可能出自本地模板而不是模型（见 R39）。要精确标注就得给
      `WeeklyReport` 加字段 + 改 `generateReport` 的返回签名（均冻结，且契约里
      明写"任何失败都要返回兜底文案"）。本轮只在卡片上加了一行说明。
+  5. **Star 列表在 2000 条以上仍会截断**（见 R45）：阀门从 3 页放到 20 页之后，
+     个人账号基本不可能撞上，但撞上时界面依然看不出是截断的——`fetchStarred` 的
+     返回类型是契约冻结的 `Promise<Repo[]>`，没有"还有更多"的位置可放，
+     主进程只能留一条 warn。要真正解决得动契约（比如返回 `{ repos, truncated }`），
+     连带 index.ts / preload / renderer 四方一起改，不属于原子改进。
 - **偶发（已解决）**：mock e2e 的「两个字段都在且 undefined 没抹掉值」在 R18
   定位到根因并修掉（ad230d1）。教训值得留着：**"连跑 N 次全绿"不等于不是 bug**，
   尤其是竞态——只差一个让其中一方变慢的条件（比如机器正被十几个自检进程压着）。
@@ -132,11 +151,12 @@ tasks:
 - IPC 表面三处一致（R37 顺手核对）：shared/ipc.ts 通道数 = index.ts handle() 调用数
   = preload 的 invoke 数 = 43，没有"声明了没注册/注册了没暴露"的通道
 - 全量自检口径（R26–R33 之后跑过，全绿）：
-  13 个非 Electron 驱动器（ai / ai-config / ai-concurrency / ai-provider / auth /
-  clone-cancel / clone-progress / collection-stats / local-manage / recommend-search /
-  repo-query / store-local / week-report）+ 2 个 Electron e2e
+  14 个非 Electron 驱动器（ai / ai-config / ai-concurrency / ai-provider / auth /
+  clone-cancel / clone-progress / collection-stats / github-paging / local-manage /
+  recommend-search / repo-query / store-local / week-report）+ 2 个 Electron e2e
   （store-local-e2e / store-local-e2e-realclone）。跑法：
   `node scripts/selfcheck/<名字>.mjs`，最后一行是汇总。
+  （曾误写「13 个」：github-paging 是 R45 新增的，计数相应 +1。）
 - 自检的经验教训（新增脚本时照做）：跑真实 Electron 的脚本必须带
   `--user-data-dir`（用 e2e-profile.mjs），且必须自己清干净目标目录再建，
   否则要么污染开发者数据、要么第二次跑就红/假绿
