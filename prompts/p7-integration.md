@@ -1323,13 +1323,16 @@ React 19 已移除全局 `JSX` 命名空间（坑 #15）。p7 第 4 节要求"�
 `lib/api.ts` 与 `store/repoStore.ts` 都依赖它，契约却没有。这是**能直接打断构建**的缺口。
 → 建议同上，补进 `docs/renderer-contracts.md` 的 Toast 一节。
 
-**③ `saveToken` 在无 keyring 的 Linux 上存**裸明文**，与契约第 21 行「禁止明文落盘」冲突**
-`docs/module-signatures.md:21` 写的是"用 safeStorage 加密后存本地，禁止明文落盘"。
-但 Linux 无 keyring 时 `isSafeStorageAvailable()` 为 false，严格"禁止明文"就只能抛错，
-而 `saveToken` / `getToken` 在启动路径上——抛错会让**应用直接打不开**。
-骨架选了"降级 + `console.warn`"（`store.ts:69-76`，且**没有** `PLAIN:` 前缀），README 里也披露了。
-→ 二选一：**(a)** 维持降级 + 补上 `PLAIN:` 前缀 + 改契约第 21 行的措辞；
-**(b)** 改成抛错，但演示机必须事先确认有 keyring。P3 的提示词里已按 (a) 预设，等他来问。
+**③ 无 keyring 的 Linux 上 safeStorage 不可用，token 怎么办 —— ✅ 已定：方案 (c)**
+`docs/module-signatures.md:21` 原文只写了"用 safeStorage 加密后存本地，禁止明文落盘"，
+**没有覆盖「加密后端不可用」这个分支**——它和实现的关系不是"矛盾"，是"没写全"。
+P3 当初按 (a) 落地（`PLAIN:` + 明文 + 告警，见 issue #9 与 PR #7），与契约字面冲突。
+现已拍板改为 **(c)：加密不可用时 token 只保存在主进程内存中，一个字节都不写盘**，
+契约第 21 行已同步改写。`src/main/store.ts` 的改造见 **issue #12**（P3 负责）。
+⚠️ 原文此处说"`saveToken` / `getToken` 在启动路径上，抛错会让应用直接打不开"是**错的**；
+`isSafeStorageAvailable()` 这个函数也不存在（正确的是 `safeStorage.isEncryptionAvailable()`）。
+这两个函数都不在 `app.whenReady()` 路径上，抛错只会变成一条 toast——所以 (b) 的真正代价是
+"真实模式不可用"，不是"应用打不开"。详见 issue #9 里的核实评论。
 
 **④ `npm run format` 会重排冻结契约**（坑 #21）
 `.prettierrc` 是 `semi: false`，契约带分号。目前只是"明令禁止跑"，没有根治。

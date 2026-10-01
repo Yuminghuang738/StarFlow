@@ -18,7 +18,8 @@ export function updateLocalState(fullName: string, state: Partial<LocalState>): 
 说明：
 - MOCK_MODE=true 时读写 starpilot.mock.db.json，否则读写 starpilot.db.json（避免污染真实数据）
 - getRepos() 在读到的列表为空且 MOCK_MODE=true 时，用 mockStarred() 的结果做种子并落盘
-- saveToken 用 Electron safeStorage 加密后存本地，禁止明文落盘
+- saveToken 优先用 Electron safeStorage 加密后存本地（base64 密文），禁止以任何形式把明文写入磁盘
+- safeStorage.isEncryptionAvailable() 为 false（例如没装 keyring 的 Linux）时，token 只保存在主进程内存中、不写盘，重启后需在设置页重新填写
 
 ## src/main/mock.ts —— 负责人 P7
 export function mockStarred(): Promise<Repo[]>
