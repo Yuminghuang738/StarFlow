@@ -888,3 +888,68 @@ done · commit 3510da8
 
 验证：tsc 干净、eslint 干净、npm run build 通过。
 （徽章的三态渲染同样只能人工验收。）
+
+## R34 · Phase 2：「为你推荐」空态分叉 + 失败的「换一批」不再吃掉一批（优先级 5）
+done · commit a59adc2
+
+两条都属于**推荐页在安静地说谎**，和 R31/R33 同一族。
+
+1. `Similar.tsx` 在 `repos.length === 0` 时只有一种空态：「还没有可以参照的收藏，
+   先去配 Token」。可列表为空有两个来源，下一步动作正好相反——**读盘失败**时
+   该点「重试」，不该去重配 Token、重新同步（那条路走完也还是空的）。
+   现在按 `repoStore.error` 分叉：失败一侧显示原始报错 + 「这不代表你的收藏是空的」
+   + 重试按钮（重试成功后 repos 变非空，上面那个 autoRan 的 effect 会自动补推荐）。
+
+2. `loadForYou` 原先**乐观地**把 offset 写进 store，失败也照样"消耗"掉一批：
+   页面提示"再点「换一批」重试"，而按钮走的是 `offset + 1`，重试搜到的是再下一批。
+   被跳过的那批用户永远不会看到，界面上也没有任何东西提示漏了一批。
+   改成成功后才写 offset——失败时它停在最后一次成功的位置，重试的就是原来那批。
+   （`searchSeq` / `forYouSeq` 的竞态保护原样保留。）
+
+验证：tsc 干净、eslint 干净、npm run build 通过。
+
+## R35 · Phase 2：Star 成功后回读失败不再谎报「Star 失败」（优先级 5）
+done · commit 8082b9b
+
+`star()` 原先是**一个大 try**：`PUT /user/starred/{owner}/{repo}`（204 即成功）
+之后紧跟 `repos.get` 回读，用来拼出返回给前端的 `Repo`。回读失败时，catch 统一
+抛「Star xxx 失败：…」——而 Star 早就真的生效了。
+
+这是把一次**成功**说成失败，代价比沉默高一档：用户会去重试（对幂等的 PUT 无害，
+但他不知道）、去 GitHub 上核对（会看到确实 Star 了，于是怀疑是这个应用坏了），
+最糟的是他可能反过来再点一次「取消 Star」"清理"。
+
+拆成两段 try：第一段失败才是真的失败；第二段失败换成一句说清现状的话——
+「已经在 GitHub 上 Star 了 X，但没能读回它的详细信息（…）。到「收藏管理」点一次
+「从 GitHub 同步」就能把它拉进列表。」同步一次确实能补上（`fetchStarred` 走的是
+`/user/starred`，与这次回读无关），所以给出的下一步是真能走通的。
+
+验证：tsc 干净、eslint 干净、npm run build 通过。
+
+## R36 · 优先级 6（文档）：`GITHUB_TOKEN` 这个键当前不被读取
+done · commit 8483ff5
+
+README（中/英）把它标成「真实模式必需（或改用应用内登录）」，`.env.example` 给了
+一个裸的 `GITHUB_TOKEN=`，`config.ts` 也照样 `process.env.GITHUB_TOKEN ?? ''` 读进
+`getEnv()`——**但全仓库没有任何调用方读 `getEnv().githubToken`**（grep 过 `src/` 与
+`scripts/`，对该键的引用只有声明与赋值两处）。
+
+真实生效的 token 只有两条来路：应用内「用 GitHub 登录」（Device Flow，`auth.ts`）
+或设置页手填，两者都写进本地数据文件，由 `store.getToken()` 读出。
+
+后果是文档指了一条死路：照 README 做的人填好 `.env` 启动，然后在应用里看到
+「未配置 GitHub Token」，无从知道该怀疑哪一步——而这正是本轮的贯穿原则要收的那类
+缺陷（把"这里不通"说成"你没配"）。
+
+改法：
+- `README.md` / `README.en.md` 的表格行如实写「当前版本不读这个键」+ token 的真实来路；
+- `.env.example` 在那行上方加注释说明为什么不生效；
+- `config.ts` 的 `githubToken` **字段不能删**（`getEnv()` 的返回形状被
+  `docs/module-signatures.md` 冻结），所以就地留一条注释封住"它是个死字段"这件事，
+  免得下一个人又照着它写文档。
+
+【后续候选，本轮不做】也可以反过来让 env 真的生效（`store.getToken()` 里加一层
+`?? getEnv().githubToken` 兜底），那是新增行为、且会让一份过期的 `.env` token 伪装成
+"已配置"（然后 401）。应用内登录才是设计意图，所以选改文档。
+
+验证：tsc 干净、eslint 干净、npm run build 通过。
