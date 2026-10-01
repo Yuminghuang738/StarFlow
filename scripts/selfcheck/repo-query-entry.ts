@@ -19,7 +19,10 @@ import {
   type LanguageFilter
 } from '../../src/renderer/src/lib/repoQuery'
 import {
+  ACTIVE_WINDOW_DAYS,
+  STALE_WINDOW_DAYS,
   activityBucket,
+  buildAiDigest,
   computeCollectionStats,
   isRealCategory,
   starredBucket,
@@ -38,10 +41,12 @@ function isSorted(values: number[], desc = true): boolean {
   return values.every((v, i) => i === 0 || (desc ? values[i - 1]! >= v : values[i - 1]! <= v))
 }
 
-/** 固定「此刻」。活跃度是 90 / 365 天的阈值，绝不读真实时钟，否则断言会随日期漂移 */
+/** 固定「此刻」。活跃度按 ACTIVE_WINDOW_DAYS / STALE_WINDOW_DAYS 判，绝不读真实时钟，否则断言会随日期漂移 */
 const NOW = Date.parse('2026-10-02T00:00:00Z')
 const DAY = 86_400_000
 const daysAgo = (n: number): string => new Date(NOW - n * DAY).toISOString()
+/** 活跃度三档之间那段「没有名字」的区间里的一个点，见 fixture 里 e 的说明 */
+const MID_BAND_DAYS = Math.round((ACTIVE_WINDOW_DAYS + STALE_WINDOW_DAYS) / 2)
 
 const names = (repos: Repo[]): string => repos.map((r) => r.full_name).join(',')
 const F = (over: Partial<RepoFilters> = {}): RepoFilters => ({ ...DEFAULT_FILTERS, ...over })
@@ -49,13 +54,17 @@ const vis = (over: Partial<RepoFilters> = {}): Repo[] => filterRepos(REPOS, F(ov
 
 // —— fixture ——
 // 六条各自承担一个边界：
-//   a  星标最多 + 已停更（2000 天没 push）
+//   a  星标最多 + 已停更（远超 STALE_WINDOW_DAYS 没 push）
 //   b  最近收藏（starred_at 最新）+ 近期活跃（3 天前 push）
 //   c  拿不到推送时间（pushed_at = null）+ 没有 ai_category（未分类）
 //   d  starred_at 解析不出来 + 星标第二多 + 没有 ai_category（未分类）
-//   e  落在 90~365 天的空档里（既不算活跃也不算停更）——这一条专门守
-//      「三档不是划分」这件事
+//   e  落在 ACTIVE_WINDOW_DAYS ~ STALE_WINDOW_DAYS 的空档里（既不算活跃也不算停更）
+//      ——这一条专门守「三档不是划分」这件事
 //   f  语言名字就叫 "unknown"，用来验证语言筛选的 name: 前缀确实区分了保留字
+//
+// ⚠️ 与阈值有关的那几个 pushed_at 一律**用常量算**，不写死天数：
+// 写死的话，改了阈值这条 fixture 就悄悄跑到别的档里去了，
+// 后面「三档不是划分」那条断言会跟着一起失效（而且失效得毫无提示）。
 function makeRepo(over: Partial<Repo> & { full_name: string }): Repo {
   return {
     id: Math.abs([...over.full_name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 1_000_000, 7)),
@@ -75,7 +84,7 @@ const REPOS: Repo[] = [
   makeRepo({
     full_name: 'a/old-but-many-stars',
     starred_at: '2021-03-01T00:00:00Z',
-    pushed_at: daysAgo(2000),
+    pushed_at: daysAgo(STALE_WINDOW_DAYS * 5),
     stargazers_count: 900,
     language: 'Rust',
     description: '一个终端编辑器',
@@ -110,7 +119,7 @@ const REPOS: Repo[] = [
   makeRepo({
     full_name: 'e/middle-band',
     starred_at: '2025-07-07T00:00:00Z',
-    pushed_at: daysAgo(200), // 90 < 200 < 365：三档都不算它
+    pushed_at: daysAgo(MID_BAND_DAYS), // ACTIVE_WINDOW_DAYS < MID_BAND_DAYS < STALE_WINDOW_DAYS：三档都不算它
     stargazers_count: 300,
     language: 'Go',
     ai_category: '后端'
@@ -118,7 +127,7 @@ const REPOS: Repo[] = [
   makeRepo({
     full_name: 'f/language-named-unknown',
     starred_at: '2025-01-01T00:00:00Z',
-    pushed_at: daysAgo(500),
+    pushed_at: daysAgo(STALE_WINDOW_DAYS + 100),
     stargazers_count: 50,
     language: 'unknown', // 真的有个语言叫这个
     ai_category: '其他'
@@ -229,37 +238,46 @@ check(
     activityBucket(REPOS[5]!, NOW) === 'stale',
   REPOS.map((r) => activityBucket(r, NOW)).join(',')
 )
-check('active 筛出 90 天内推送的', names(vis({ health: 'active' })) === 'b/newest-star,d/invalid-date')
-check('stale 筛出一年以上没推送的', names(vis({ health: 'stale' })) === 'a/old-but-many-stars,f/language-named-unknown')
+check('active 筛出 ACTIVE_WINDOW_DAYS 天内推送的', names(vis({ health: 'active' })) === 'b/newest-star,d/invalid-date')
+check('stale 筛出 STALE_WINDOW_DAYS 天以上没推送的', names(vis({ health: 'stale' })) === 'a/old-but-many-stars,f/language-named-unknown')
 check('unknown 筛出拿不到推送时间的', names(vis({ health: 'unknown' })) === 'c/middle')
 check('health 为 all 时不过滤', vis({ health: 'all' }).length === REPOS.length)
 
-// ⚠️ 三档**不是划分**：90~365 天之间（e/middle-band）哪一档都不算。
+// ⚠️ 三档**不是划分**：中间那段空档（e/middle-band）哪一档都不算。
 // 这条断言是为了防止有人"顺手"把三档改成互斥且完备——那样上面的卡片就不对了。
 check(
-  '90~365 天之间的仓库不属于任何一档',
+  '两档之间的仓库不属于任何一档',
   vis({ health: 'active' }).every((r) => r.full_name !== 'e/middle-band') &&
     vis({ health: 'stale' }).every((r) => r.full_name !== 'e/middle-band') &&
     vis({ health: 'unknown' }).every((r) => r.full_name !== 'e/middle-band')
 )
 check(
-  '三档相加小于总数（因为有 90~365 天这段空档）',
+  '三档相加小于总数（因为有中间那段空档）',
   ['active', 'stale', 'unknown'].reduce<number>((n, h) => n + vis({ health: h as 'active' }).length, 0) <
     REPOS.length
 )
-// 边界：刚好 90 天不算 active（判据是 age < 90d），刚好 365 天算 stale
+// 边界：刚好 ACTIVE_WINDOW_DAYS 天不算 active（判据是 age < N），刚好 STALE_WINDOW_DAYS 天算 stale（判据是 age >= N）
 check(
-  '刚好 90 天前推送的**不算**近期活跃',
-  activityBucket(makeRepo({ full_name: 'x/90d', pushed_at: daysAgo(90) }), NOW) === 'middle'
+  '刚好 ACTIVE_WINDOW_DAYS 天前推送的**不算**近期活跃',
+  activityBucket(makeRepo({ full_name: 'x/active-edge', pushed_at: daysAgo(ACTIVE_WINDOW_DAYS) }), NOW) === 'middle'
 )
 check(
-  '刚好 365 天前推送的**算**已停更',
-  activityBucket(makeRepo({ full_name: 'x/365d', pushed_at: daysAgo(365) }), NOW) === 'stale'
+  '刚好 STALE_WINDOW_DAYS 天前推送的**算**已停更',
+  activityBucket(makeRepo({ full_name: 'x/stale-edge', pushed_at: daysAgo(STALE_WINDOW_DAYS) }), NOW) === 'stale'
 )
 check(
-  '365 天差一毫秒不算停更',
-  activityBucket(makeRepo({ full_name: 'x/365m', pushed_at: new Date(NOW - 365 * DAY + 1).toISOString() }), NOW) ===
-    'middle'
+  'STALE_WINDOW_DAYS 天差一毫秒不算停更',
+  activityBucket(
+    makeRepo({ full_name: 'x/stale-1ms', pushed_at: new Date(NOW - STALE_WINDOW_DAYS * DAY + 1).toISOString() }),
+    NOW
+  ) === 'middle'
+)
+check(
+  'ACTIVE_WINDOW_DAYS 天差一毫秒仍算近期活跃',
+  activityBucket(
+    makeRepo({ full_name: 'x/active-1ms', pushed_at: new Date(NOW - ACTIVE_WINDOW_DAYS * DAY + 1).toISOString() }),
+    NOW
+  ) === 'active'
 )
 
 // —— 本轮最重要的一条：**总览卡片上的数字必须等于这里筛出来的条数** ——
@@ -721,6 +739,63 @@ check(
   names(visR({ onlyRecent: true, keyword: 'today' })) === 'w/today' &&
     visR({ onlyRecent: true, category: '后端' }).length === 0 &&
     visR({ onlyRecent: true, onlyCloned: true }).length === 0
+)
+
+// ============================================================
+console.log('\n== 11. 天数的文案与阈值同源 ==')
+// ============================================================
+// 这一节守的是「文案和阈值分家」这一类错：改常量的人不会去看下拉框和卡片提示里
+// 写了什么，而两处一旦分家，界面就在描述一件代码没在做的事——
+// 「近期活跃（90 天内）」实际筛的却是 60 天内。
+//
+// 断言写成"文案必须含常量"，它的价值在于**常量一改就红**：硬编码的 90 会被逮住。
+// 这与 `stats.recent7 === filterRepos(...).length` 是同一个套路。
+const activeLabel = HEALTH_OPTIONS.find((h) => h.value === 'active')?.label ?? ''
+const staleLabel = HEALTH_OPTIONS.find((h) => h.value === 'stale')?.label ?? ''
+check(
+  '健康筛选 active 的文案含 ACTIVE_WINDOW_DAYS',
+  activeLabel.includes(String(ACTIVE_WINDOW_DAYS)),
+  activeLabel
+)
+check(
+  '健康筛选 stale 的文案含 STALE_WINDOW_DAYS',
+  staleLabel.includes(String(STALE_WINDOW_DAYS)),
+  staleLabel
+)
+check(
+  '健康筛选的文案不含别的天数（旧文案「一年以上」这种换算不算数）',
+  !/一年|一月|个月/.test(activeLabel + staleLabel),
+  activeLabel + ' / ' + staleLabel
+)
+
+// 给模型的摘要同理：摘要里的天数与卡片、下拉必须是同一个数。
+// 模型拿着一个过期口径去解读，比界面上写错更难发现。
+const digest = buildAiDigest(stats, NOW)
+check('AI 摘要里的活跃天数含 ACTIVE_WINDOW_DAYS', digest.includes(`${ACTIVE_WINDOW_DAYS} 天内`))
+check('AI 摘要里的停更天数含 STALE_WINDOW_DAYS', digest.includes(`${STALE_WINDOW_DAYS} 天以上`))
+
+// 文案的措辞与判据的严格性必须一致：active 写「N 天内」（不含整 N），
+// stale 写「N 天以上」（含整 N）。措辞反了的话，边界那一条条断言还是绿的，
+// 只有用户会看到「筛选说 90 天内，可 90 天整的那个没进来」。
+const edgeActive = makeRepo({ full_name: 'x/edge-active', pushed_at: daysAgo(ACTIVE_WINDOW_DAYS) })
+const edgeStale = makeRepo({ full_name: 'x/edge-stale', pushed_at: daysAgo(STALE_WINDOW_DAYS) })
+check(
+  '文案说「N 天内」时，整 N 天的确实不在里面',
+  activeLabel.includes('内') &&
+    activityBucket(edgeActive, NOW) !== 'active' &&
+    filterRepos([edgeActive], F({ health: 'active' }), NOW).length === 0
+)
+check(
+  '文案说「N 天以上」时，整 N 天的确实在里面',
+  staleLabel.includes('以上') &&
+    activityBucket(edgeStale, NOW) === 'stale' &&
+    filterRepos([edgeStale], F({ health: 'stale' }), NOW).length === 1
+)
+// 三个数字（卡片 / 筛选 / 摘要）在同一个 fixture 上必须互相印证
+check(
+  '卡片、筛选、摘要三处的活跃数一致',
+  digest.includes(`有过提交的 ${stats.activeRecently} 个`) &&
+    stats.activeRecently === vis({ health: 'active' }).length
 )
 
 console.log(`\n== 结果：${failures === 0 ? '全部通过' : `${failures} 项失败`} ==`)

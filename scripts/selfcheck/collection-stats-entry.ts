@@ -8,7 +8,14 @@
 //
 // ⚠️ 时间口径必须是 UTC 日历天，与 Repo.starred_at / report.ts 一致。
 //    用本地时间算的话东八区深夜的记录会前后差一天，这个自检就会开始飘。
-import { computeCollectionStats, utcDayStart, isRealCategory, buildAiDigest } from '../../src/renderer/src/lib/collectionStats'
+import {
+  ACTIVE_WINDOW_DAYS,
+  STALE_WINDOW_DAYS,
+  computeCollectionStats,
+  utcDayStart,
+  isRealCategory,
+  buildAiDigest
+} from '../../src/renderer/src/lib/collectionStats'
 import type { Repo } from '@shared/types'
 
 let failures = 0
@@ -240,13 +247,43 @@ console.log('\n=== 7) buildAiDigest：喂给模型的摘要 ===')
   check('分类分布只列非空桶', digest.includes('前端 2') && digest.includes('后端 1'))
   check('空桶不进摘要（否则模型会对着 0 说事）', !digest.includes('DevOps'))
   check('本周新增与上周一起给，模型才能比趋势', /本周新增 \d+ 个，上周 \d+ 个/.test(digest))
-  check('活跃度三态都带上了', digest.includes('90 天内有过提交') && digest.includes('超过一年没提交'))
+  // 这条原来钉的是旧措辞「90 天内有过提交 / 超过一年没提交」。措辞这次是有意改的
+  // （天数要跟常量走，且「一年」和 365 天到底等不等得让读的人自己换算），
+  // 所以断言跟着改写——但**不是放松**：天数改成引用常量，摘要里再写死一个 90
+  // 就会被逮住；而"拿不到时间的要单独说一句"挪到下面那个专门的数据集上钉。
+  check(
+    '活跃度的两个天数来自常量（改常量摘要就该跟着改）',
+    digest.includes(`${ACTIVE_WINDOW_DAYS} 天内有过提交的`) &&
+      digest.includes(`${STALE_WINDOW_DAYS} 天以上没提交的`)
+  )
   check('最热仓库作为锚点出现', digest.includes('星标最多的一个'))
   check(
     '只给出一个仓库全名，不把列表倒给模型',
     digest.split('\n').filter((l) => l.includes('owner/repo-')).length === 1
   )
   check('摘要不含未分类的误导性措辞', !digest.includes('undefined') && !digest.includes('NaN'))
+}
+
+{
+  // 「拿不到提交时间」必须与「已停更」分开说。上面那个数据集全是有效的 pushed_at，
+  // 走不到这一句，所以单独给一个能触发的数据集——把"不知道"混进"死了"，
+  // 模型会把它当成一个事实复述出来。
+  const stats = computeCollectionStats(
+    [repo({ pushed_at: null }), repo({ pushed_at: iso(NOW - (STALE_WINDOW_DAYS + 1) * DAY) })],
+    NOW
+  )
+  const digest = buildAiDigest(stats, NOW)
+  const line = digest.split('\n').find((l) => l.startsWith('活跃度')) ?? ''
+  check(
+    '拿不到提交时间的仓库在摘要里单独一句',
+    stats.unknownPush === 1 && digest.includes('另有 1 个拿不到提交时间'),
+    line
+  )
+  check(
+    '摘要里的三个数字就是统计出来的三个数字',
+    stats.activeRecently === 0 && stats.stale === 1 && line.includes('有过提交的 0 个') && line.includes('没提交的 1 个'),
+    line
+  )
 }
 
 {

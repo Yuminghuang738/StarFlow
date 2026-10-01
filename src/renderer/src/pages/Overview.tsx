@@ -7,6 +7,8 @@ import { LanguagePie } from '../components/charts/LanguagePie'
 import { StarTrendChart } from '../components/charts/StarTrendChart'
 import { formatStars, languageColor } from '../components/repo/repoFormat'
 import {
+  ACTIVE_WINDOW_DAYS,
+  STALE_WINDOW_DAYS,
   buildAiDigest,
   computeCollectionStats,
   isRealCategory,
@@ -154,7 +156,9 @@ export function Overview(): React.JSX.Element {
         <StatCard
           label="近期活跃"
           value={stats.activeRecently}
-          hint="90 天内有过提交"
+          // 天数从常量拼出来：这两句提示与筛选下拉里那两个选项是同一件事的两种说法，
+          // 各自写死「90 天」「一年」的话，改了阈值就开始三处一起撒谎
+          hint={`${ACTIVE_WINDOW_DAYS} 天内有过提交`}
           tone={stats.activeRecently > 0 ? 'up' : 'flat'}
           onClick={() => drill({ health: 'active' })}
         />
@@ -162,7 +166,11 @@ export function Overview(): React.JSX.Element {
         <StatCard
           label="可能已停更"
           value={stats.stale}
-          hint={stats.unknownPush > 0 ? `另有 ${stats.unknownPush} 个拿不到提交时间` : '超过一年没有提交'}
+          hint={
+            stats.unknownPush > 0
+              ? `另有 ${stats.unknownPush} 个拿不到提交时间`
+              : `${STALE_WINDOW_DAYS} 天以上没有提交`
+          }
           tone={stats.stale > stats.total / 3 ? 'warn' : 'flat'}
           onClick={() => drill({ health: 'stale' })}
         />

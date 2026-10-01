@@ -12,7 +12,13 @@
  */
 
 import type { AiCategory, Repo } from '@shared/types'
-import { activityBucket, starredBucket, type ActivityBucket } from './collectionStats'
+import {
+  ACTIVE_WINDOW_DAYS,
+  STALE_WINDOW_DAYS,
+  activityBucket,
+  starredBucket,
+  type ActivityBucket
+} from './collectionStats'
 
 /**
  * 列表排序方式。
@@ -78,15 +84,19 @@ export function languageOptions(repos: Repo[], current: LanguageFilter): string[
  * 活跃度筛选。三档各自对应总览页上的一个数字，判定复用 collectionStats 的
  * `activityBucket`——**只有一处阈值**，否则卡片写 40、这里筛出 38，页面在安静地撒谎。
  *
- * 刻意不把 'middle'（90~365 天）也做成一个选项：总览页上没有它对应的数字，
- * 单独放一个下拉项只会让人问「这是个啥」。它仍然能被「全部」看到。
+ * 刻意不把 'middle'（ACTIVE_WINDOW_DAYS ~ STALE_WINDOW_DAYS 之间）也做成一个选项：
+ * 总览页上没有它对应的数字，单独放一个下拉项只会让人问「这是个啥」。它仍然能被
+ * 「全部」看到。
  */
 export type HealthFilter = 'all' | Extract<ActivityBucket, 'active' | 'stale' | 'unknown'>
 
+// 文案里的天数一律从 collectionStats 的常量拼出来，不写死。
+// 「90 天内」这种字样一旦和阈值分家，用户看到的就是一条筛不出来的选项——
+// 阈值改成 60 之后，下拉里还写着 90，而它实际筛的是 60 天内。
 export const HEALTH_OPTIONS: readonly { value: HealthFilter; label: string }[] = [
   { value: 'all', label: '全部活跃度' },
-  { value: 'active', label: '近期活跃（90 天内）' },
-  { value: 'stale', label: '可能已停更（一年以上）' },
+  { value: 'active', label: `近期活跃（${ACTIVE_WINDOW_DAYS} 天内）` },
+  { value: 'stale', label: `可能已停更（${STALE_WINDOW_DAYS} 天以上）` },
   { value: 'unknown', label: '拿不到提交时间' }
 ] as const
 
@@ -144,7 +154,7 @@ export const DEFAULT_FILTERS: RepoFilters = {
  *    react-hooks/exhaustive-deps 的误报，也不需要写 eslint-disable。
  *
  * `now` 必须显式传入（与 collectionStats 同一条约定）：活跃度是按「距今多久」判的，
- * 藏在函数里读时钟就没法喂假数据卡 90 / 365 天的边界。
+ * 藏在函数里读时钟就没法喂假数据卡 ACTIVE_WINDOW_DAYS / STALE_WINDOW_DAYS 的边界。
  */
 export function filterRepos(repos: Repo[], filters: RepoFilters, now: number): Repo[] {
   const keyword = filters.keyword.trim().toLowerCase()

@@ -13,15 +13,28 @@ import type { Repo, AiCategory } from '@shared/types'
 import { AI_CATEGORIES } from '@shared/types'
 
 const DAY = 86_400_000
-/** 多久没 push 算「近期活跃」——比 star 时间更能反映项目还活着 */
-const ACTIVE_WINDOW_DAYS = 90
-/** 多久没 push 算「已停更」 */
-const STALE_WINDOW_DAYS = 365
+
+/**
+ * 多久没 push 算「近期活跃」——比 star 时间更能反映项目还活着。
+ *
+ * 导出（而不是只在本文件里用）是因为**四处的文案都要提到这个天数**：
+ * 总览的卡片提示、筛选下拉的选项、给模型的摘要、自检里的边界。
+ * 从前它们各自写死「90 天」，常量改成别的值之后，四处文案会一起开始骗人，
+ * 而代码本身跑得好好的——与 RECENT_WINDOW_DAYS 是同一条理由。
+ *
+ * 同理，文案里一律写数字（「90 天」）而不是「三个月」这类说法：
+ * 「一年」和 365 天到底等不等，读代码的人得先替我们做一次换算。
+ */
+export const ACTIVE_WINDOW_DAYS = 90
+
+/** 多久没 push 算「已停更」。同样导出，理由见上。 */
+export const STALE_WINDOW_DAYS = 365
 
 /**
  * 一个仓库的活跃度分档。
  *
- * ⚠️ 四档**不是划分**：90 天到 365 天之间没有名字，会落到 'middle'。
+ * ⚠️ 四档**不是划分**：ACTIVE_WINDOW_DAYS 到 STALE_WINDOW_DAYS 之间没有名字，
+ * 会落到 'middle'。
  * 四个名字各自对应总览页上的一个数字（'middle' 不对应任何数字），
  * 所以列表筛选可以直接拿它当条件，筛出来的条数必然与卡片上的数字一致。
  */
@@ -62,9 +75,9 @@ export interface CollectionStats {
   total: number
   /** 有语言标记的不同语言数（language 为 null 的不计，也进不了语言分布） */
   languageCount: number
-  /** 最近 7 个 UTC 日（含今天）新增的 Star 数 */
+  /** 最近 RECENT_WINDOW_DAYS 个 UTC 日（含今天）新增的 Star 数 */
   recent7: number
-  /** 再往前 7 天的新增数，用来和 recent7 比出趋势 */
+  /** 再往前整整一个窗口的新增数，用来和 recent7 比出趋势 */
   prev7: number
   cloned: number
   forked: number
@@ -206,7 +219,8 @@ export function computeCollectionStats(repos: Repo[], now: number): CollectionSt
         activeRecently += 1
         break
       case 'middle':
-        // 90~365 天之间：两个数字都不算它，页面上也没有它对应的卡片
+        // ACTIVE_WINDOW_DAYS ~ STALE_WINDOW_DAYS 之间：两个数字都不算它，
+        // 页面上也没有它对应的卡片
         break
     }
   }
@@ -303,8 +317,11 @@ export function buildAiDigest(stats: CollectionStats, now: number): string {
 
   lines.push(`本周新增 ${stats.recent7} 个，上周 ${stats.prev7} 个`)
   lines.push(`星标总数 ${stats.totalStars}，平均每个 ${stats.avgStars}`)
+  // 天数从常量拼出来，与总览卡片、筛选下拉的文案同源：
+  // 摘要里写「90 天」而卡片按 60 天算，模型就会照着一个过期口径去解读。
   lines.push(
-    `活跃度：90 天内有过提交的 ${stats.activeRecently} 个，超过一年没提交的 ${stats.stale} 个` +
+    `活跃度：${ACTIVE_WINDOW_DAYS} 天内有过提交的 ${stats.activeRecently} 个，` +
+      `${STALE_WINDOW_DAYS} 天以上没提交的 ${stats.stale} 个` +
       (stats.unknownPush > 0 ? `，另有 ${stats.unknownPush} 个拿不到提交时间` : '')
   )
   lines.push(`本地操作：已 clone ${stats.cloned} 个，已 fork ${stats.forked} 个`)
