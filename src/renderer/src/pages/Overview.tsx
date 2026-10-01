@@ -44,7 +44,9 @@ export function Overview(): React.JSX.Element {
   // 只有空态用得上：一条数据都没有时，得先分清是"读失败"还是"确实没同步过"。
   // 订阅 error 是必要的——读取失败时 repos 不变（保持上一次读到的那份，
   // 也可能是空数组），只有 error 会变，页面得靠它才知道该显示哪一半。
-  const loadError = useRepoStore((s) => s.error)
+  // ⚠️ 读 loadError 而不是 error：后者是"任何操作最近一次的失败"，Star / Clone
+  // 失败也会往里写，拿它当"列表为什么是空的"的判据会把两件事张冠李戴。
+  const loadError = useRepoStore((s) => s.loadError)
   const load = useRepoStore((s) => s.load)
   const { goTo } = useNav()
 

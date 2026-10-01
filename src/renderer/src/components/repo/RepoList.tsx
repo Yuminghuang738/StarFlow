@@ -24,7 +24,7 @@ export interface RepoListProps {
 export function RepoList({ visible }: RepoListProps): React.JSX.Element {
   const repos = useRepoStore((s) => s.repos)
   const loading = useRepoStore((s) => s.loading)
-  const error = useRepoStore((s) => s.error)
+  const error = useRepoStore((s) => s.loadError)
   const load = useRepoStore((s) => s.load)
   const setFilters = useRepoStore((s) => s.setFilters)
 

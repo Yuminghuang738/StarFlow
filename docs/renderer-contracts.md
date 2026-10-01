@@ -25,6 +25,13 @@ export interface RepoStore {
   visibleRepos(): Repo[];
   setFilters(patch: Partial<RepoFilters>): void;
   load(): Promise<void>;
+  // —— 错误字段是两个，别混用 ——
+  // error：最近一次**任何**操作的失败原文（star / clone / saveToken 也会写），供排查用
+  // loadError：**只有 load() 会写**，表示"读取收藏列表这一次"的结果。
+  //   页面的空态分叉（"读失败"还是"确实没有"）必须读它——读 error 会把
+  //   一次 Star 失败渲染成「读取本地数据失败，本地数据都在」
+  error: string | null;
+  loadError: string | null;
   refreshFromGitHub(): Promise<void>;
   enrich(): Promise<void>;
   unstar(fullName: string): Promise<void>;

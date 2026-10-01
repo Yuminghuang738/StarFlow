@@ -14,7 +14,18 @@ export interface RepoStore {
   loading: boolean
   // —— 新增（非契约成员；契约允许新增，见 renderer-contracts.md）——
   enriching: boolean
+  /** 最近一次**任何**操作的失败原文（给排查用）。界面的空态分叉别读它，读下面的 loadError */
   error: string | null
+  /**
+   * **只表示「读取收藏列表这一次」的结果**，只有 load() 会写它。
+   *
+   * 为什么不能和上面那个 error 合并：error 是"最近一次任何操作的失败原文"，
+   * star / unstar / clone / saveToken 失败都会往里写。而读它的三处界面
+   * （RepoList / Overview / Similar 的空态分叉）问的是「列表为什么是空的」——
+   * 拿一个通用的最后错误去回答，就会出现"Star 失败（未配置 Token）"被渲染成
+   * 「读取本地数据失败，本地数据都在」这种张冠李戴。
+   */
+  loadError: string | null
   filters: RepoFilters
   visibleRepos(): Repo[]
   setFilters(patch: Partial<RepoFilters>): void
@@ -77,6 +88,7 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
   loading: false,
   enriching: false,
   error: null,
+  loadError: null,
   filters: { ...DEFAULT_FILTERS },
 
   visibleRepos() {
@@ -91,17 +103,18 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
   },
 
   async load() {
-    // error 必须在这里清掉：它是"这一次读取的结果"，不是"历史上出过错"。
-    // 不清的话，重试成功之后 error 还挂着，而下面几个页面现在会**把它画出来**
-    // ——那就会在一次成功的加载之后继续显示"读取失败"。
-    set({ loading: true, error: null })
+    // loadError 必须在这里清掉：它是"这一次读取的结果"，不是"历史上出过错"。
+    // 不清的话，重试成功之后它还挂着，而页面会**把它画出来**——那就会在一次成功的
+    // 加载之后继续显示"读取失败"。
+    set({ loading: true, error: null, loadError: null })
     let loaded = false
     try {
       set({ repos: await unwrap(window.api.store.getRepos()) })
       loaded = true
     } catch (err) {
-      // unwrap 已经弹过 toast；这里只写 error 字段、保留旧数据，不把 repos 清空
-      set({ error: ipcErrorMessage(err) })
+      // unwrap 已经弹过 toast；这里只写错误字段、保留旧数据，不把 repos 清空
+      const message = ipcErrorMessage(err)
+      set({ error: message, loadError: message })
     } finally {
       set({ loading: false })
     }

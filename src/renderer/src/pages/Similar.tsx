@@ -32,7 +32,8 @@ export function Similar(): React.JSX.Element {
   const repos = useRepoStore((s) => s.repos)
   // 与总览/收藏管理同一套空态分叉：repos 为空时，"这一次没读到"和"确实还没有收藏"
   // 给用户的下一步动作正好相反（重试 vs 去配 Token），不能长得一模一样。
-  const loadError = useRepoStore((s) => s.error)
+  // 判据必须是 loadError（只有 load() 会写）——见 repoStore 里那个字段的说明。
+  const loadError = useRepoStore((s) => s.loadError)
   const load = useRepoStore((s) => s.load)
 
   const results = useRecommendStore((s) => s.forYouResults)
