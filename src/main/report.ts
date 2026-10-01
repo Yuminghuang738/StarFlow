@@ -1,4 +1,4 @@
-// 负责人：P4 ｜ 规格见 guide.md 第 10 节
+// 负责人：P4 ｜ 接口规格见 docs/module-signatures.md（冻结），任务说明见 prompts/
 // 这是骨架里唯一"提前实现"的业务逻辑——因为周报页需要有东西可渲染。
 
 import type { WeeklyReport } from '@shared/types'

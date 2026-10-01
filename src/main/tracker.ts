@@ -1,4 +1,4 @@
-// 负责人：P4 ｜ 规格见 guide.md 第 10 节
+// 负责人：P4 ｜ 接口规格见 docs/module-signatures.md（冻结），任务说明见 prompts/
 // mock 下真的用 node-cron 起一个任务，但任务体里只打日志。
 
 import cron, { type ScheduledTask } from 'node-cron'

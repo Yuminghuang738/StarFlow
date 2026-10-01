@@ -1,4 +1,4 @@
-// 负责人：P1 ｜ 规格见 guide.md 第 10 节
+// 负责人：P1 ｜ 接口规格见 docs/module-signatures.md（冻结），任务说明见 prompts/
 // 骨架阶段：mock 分支直接调 mock.ts，真实实现留 throw。
 // P1 接手时只需把每个 throw 换成真实实现，签名不要动。
 

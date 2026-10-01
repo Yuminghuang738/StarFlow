@@ -1,4 +1,4 @@
-// 负责人：P3 ｜ 规格见 guide.md 第 10 节
+// 负责人：P3 ｜ 接口规格见 docs/module-signatures.md（冻结），任务说明见 prompts/
 // chooseDir / clone 的真实实现（dialog.showOpenDialog、simple-git）由 P3 补，
 // 本轮只给 mock 分支。openDir 例外：它必须真的能打开目录，所以不走 mock。
 

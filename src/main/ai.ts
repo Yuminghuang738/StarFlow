@@ -1,4 +1,4 @@
-// 负责人：P2 ｜ 规格见 guide.md 第 10 节
+// 负责人：P2 ｜ 接口规格见 docs/module-signatures.md（冻结），任务说明见 prompts/
 // 真实实现要点（P2 补）：用 openai SDK，key 从 config.getEnv() 取；
 // enrichRepos 内部用 p-limit 3 并发，结果写回 store.saveRepos() 后返回完整列表。
 
