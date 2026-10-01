@@ -96,12 +96,17 @@ export const useRecommendStore = create<RecommendStore>((set) => ({
   },
 
   async loadForYou(offset) {
-    set({ forYouOffset: offset, forYouLoading: true, forYouError: null })
+    // ⚠️ 没有成功之前**不动 forYouOffset**。原来是在这里就乐观地写进去的，
+    // 于是失败也照样"消耗掉"一批：页面提示"再点「换一批」重试"，可那个按钮走的是
+    // offset + 1，重试搜到的是再下一批，被跳过的那一批用户永远不会看到——
+    // 而界面上没有任何东西提示漏了一批。现在失败后 offset 停在最后一次成功的位置，
+    // 「换一批」重试的就是原来那一批。
+    set({ forYouLoading: true, forYouError: null })
     const seq = ++forYouSeq
     try {
       const { items, profile } = await unwrap(window.api.recommend.forYou(offset))
       if (seq !== forYouSeq) return // 已经被更新的那一次取代，丢弃
-      set({ forYouResults: items, forYouProfile: profile })
+      set({ forYouResults: items, forYouProfile: profile, forYouOffset: offset })
     } catch (err) {
       if (seq !== forYouSeq) return
       // unwrap 已经弹过 toast（限频、没有 token 这类都得让用户看见），

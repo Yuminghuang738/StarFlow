@@ -30,6 +30,10 @@ import type { RecommendProfile } from '@shared/recommend'
  */
 export function Similar(): React.JSX.Element {
   const repos = useRepoStore((s) => s.repos)
+  // 与总览/收藏管理同一套空态分叉：repos 为空时，"这一次没读到"和"确实还没有收藏"
+  // 给用户的下一步动作正好相反（重试 vs 去配 Token），不能长得一模一样。
+  const loadError = useRepoStore((s) => s.error)
+  const load = useRepoStore((s) => s.load)
 
   const results = useRecommendStore((s) => s.forYouResults)
   const profile = useRecommendStore((s) => s.forYouProfile)
@@ -53,10 +57,25 @@ export function Similar(): React.JSX.Element {
     return (
       <PageContainer>
         <Header />
-        <EmptyState
-          title="还没有可以参照的收藏"
-          description="先到「设置」页配好 GitHub Token，再到「收藏管理」同步一次你的 Star 列表，这里就会按你的口味推"
-        />
+        {/* ⚠️ 读失败时**不能**说"你还没有收藏"：那会把用户引去重配 Token、重新同步，
+            而真正的问题（本地库读不出来）一直没被说出来。原文照登，另给一个重试——
+            重试成功后 repos 变非空，上面那个 effect 会自动把推荐补上。 */}
+        {loadError !== null ? (
+          <EmptyState
+            title="读取本地数据失败"
+            description={`${loadError}——这不代表你的收藏是空的，是这一次没读到。`}
+            action={
+              <Button size="sm" variant="primary" onClick={() => void load()}>
+                重试
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            title="还没有可以参照的收藏"
+            description="先到「设置」页配好 GitHub Token，再到「收藏管理」同步一次你的 Star 列表，这里就会按你的口味推"
+          />
+        )}
       </PageContainer>
     )
   }
