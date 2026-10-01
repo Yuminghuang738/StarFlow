@@ -162,7 +162,7 @@ export function Report(): React.JSX.Element {
     <div className="mx-auto max-w-4xl">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">周报</h1>
+          <h1 className="text-xl font-semibold">每周回顾</h1>
           {report ? (
             <p className="mt-1 text-sm text-fg-muted">
               {formatMonthDay(report.weekStart)} ~ {formatMonthDay(report.weekEnd)}

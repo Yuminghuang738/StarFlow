@@ -5,7 +5,7 @@ import { FilterBar } from '../components/repo/FilterBar'
 import { RepoList } from '../components/repo/RepoList'
 
 /**
- * Star 管理：筛选 + 列表 + 批量操作（同步 / AI 补全）。
+ * 收藏管理：筛选 + 列表 + 批量操作（同步 / AI 补全）。
  *
  * ⚠️ 这里**不**调 `load()`，初始加载统一在 App.tsx 里跑一次（原因见 Overview 顶部注释）。
  * 同步 / 补全按钮本身不涉及初始加载，留在本页是对的——它们是明确的用户动作。
@@ -52,7 +52,7 @@ export function Manage(): React.JSX.Element {
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <h1 className="text-xl font-semibold">Star 管理</h1>
+          <h1 className="text-xl font-semibold">收藏管理</h1>
           <span className="rounded-full border border-border-strong bg-surface-2 px-2 py-0.5 text-xs tabular-nums text-fg-muted">
             {visible.length} / {repos.length}
           </span>

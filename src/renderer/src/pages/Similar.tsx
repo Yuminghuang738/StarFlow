@@ -10,7 +10,7 @@ import { SkeletonCard, SKELETON_COUNT } from '../components/common/SkeletonCard'
 import { RecommendRepoCard } from '../components/repo/RecommendRepoCard'
 
 /**
- * 猜你喜欢：以某个已 Star 的仓库为种子，找出风格相近的项目。
+ * 为你推荐：以某个已 Star 的仓库为种子，找出风格相近的项目。
  *
  * 主进程只用本地语料的信号（topics / language / 分类）拼查询，**不调 AI**，
  * 所以只要有 GitHub Token 就能用。
@@ -38,12 +38,12 @@ export function Similar(): React.JSX.Element {
     return (
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
         <header>
-          <h1 className="text-xl font-semibold">猜你喜欢</h1>
+          <h1 className="text-xl font-semibold">为你推荐</h1>
           <p className="mt-1 text-sm text-fg-muted">根据你已经 Star 的仓库，找出风格相近的项目</p>
         </header>
         <EmptyState
           title="还没有可以参照的仓库"
-          description="先到「设置」页配好 GitHub Token，再到「Star 管理」同步一次你的 Star 列表"
+          description="先到「设置」页配好 GitHub Token，再到「收藏管理」同步一次你的 Star 列表"
         />
       </div>
     )
@@ -52,7 +52,7 @@ export function Similar(): React.JSX.Element {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
       <header>
-        <h1 className="text-xl font-semibold">猜你喜欢</h1>
+        <h1 className="text-xl font-semibold">为你推荐</h1>
         <p className="mt-1 text-sm text-fg-muted">
           以某个已 Star 的仓库为参照，找出语言、主题标签相近的项目
         </p>

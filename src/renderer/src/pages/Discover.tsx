@@ -17,7 +17,7 @@ const EXAMPLES = [
 ]
 
 /**
- * 仓库推荐：一句话 → AI 翻译成搜索条件 → GitHub 搜索 → 结果可直接 Star。
+ * 发现仓库：一句话 → AI 翻译成搜索条件 → GitHub 搜索 → 结果可直接 Star。
  *
  * 输入与结果都放在 recommendStore（模块级），所以切到别的板块再切回来，
  * 输入框和上一次的结果都还在。
@@ -44,7 +44,7 @@ export function Discover(): React.JSX.Element {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
       <header>
-        <h1 className="text-xl font-semibold">仓库推荐</h1>
+        <h1 className="text-xl font-semibold">发现仓库</h1>
         <p className="mt-1 text-sm text-fg-muted">
           用一句话描述你要找什么，AI 把它翻成 GitHub 搜索条件，结果可以直接 Star
         </p>

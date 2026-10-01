@@ -3,7 +3,7 @@ import type { Repo } from '@shared/types'
 import { unwrap, ipcErrorMessage } from '../lib/api'
 
 /**
- * 「仓库推荐」与「猜你喜欢」两个页面的状态。
+ * 「发现仓库」与「为你推荐」两个页面的状态。
  *
  * 为什么不塞进 repoStore：两者的生命周期完全不同。推荐结果在重跑一次搜索时就整个
  * 替换，塞进 repoStore 会让管理页/总览页跟着重渲染几百个节点。Star 动作仍然走

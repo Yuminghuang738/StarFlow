@@ -16,7 +16,7 @@ function StatCard({ label, value }: { label: string; value: number }): React.JSX
 }
 
 /**
- * Star 总览：统计卡片 + 两个图表。
+ * 收藏总览：统计卡片 + 两个图表。
  *
  * ⚠️ 这里**不**调 `load()`。初始加载已经提到 App.tsx 里全局跑一次了——
  * 总览和管理页拆开之后，两边各留一份就是双重拉取 + 双重 prune IPC
@@ -59,14 +59,14 @@ export function Overview(): React.JSX.Element {
         />
         <div className="relative flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold">Star 总览</h1>
+            <h1 className="text-xl font-semibold">收藏总览</h1>
             <p className="mt-1 text-sm text-fg-muted">
               你已经收藏了 <span className="font-medium text-primary">{stats.total}</span> 个仓库
             </p>
           </div>
           {stats.uncategorized > 0 ? (
             <p className="text-xs text-fg-subtle">
-              还有 {stats.uncategorized} 个未分类，可到「Star 管理」跑一次 AI 补全
+              还有 {stats.uncategorized} 个未分类，可到「收藏管理」跑一次 AI 补全
             </p>
           ) : null}
         </div>
