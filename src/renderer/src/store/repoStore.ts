@@ -83,6 +83,28 @@ function withoutClonedPath(repo: Repo): Repo {
   return { ...repo, local }
 }
 
+/**
+ * 把本地标记（cloned_path / forked_full_name）写进库文件。
+ *
+ * **不抛错**：成功返回 null，失败返回错误文案。为什么不用 unwrap()——它失败时弹一条
+ * 光秃秃的报错 toast，而这两个调用点的共同点是「事情本体已经真的发生了」：仓库已经
+ * 克隆到磁盘上、fork 已经在你账号下建出来（主进程调的是 createFork）。唯一失败的
+ * 是"本机把这件事记下来"这一步。报成"操作失败"会诱发用户再点一次，还会让人以为
+ * fork 根本没建成。与主进程 index.ts 里 star / unstar 两个 handler 是同一条约定：
+ * 吞掉报错可以，但"已经成立的事实"不能被说成"没成"。
+ */
+async function persistLocalState(
+  fullName: string,
+  state: Partial<LocalState>
+): Promise<string | null> {
+  try {
+    const res = await window.api.store.updateLocalState(fullName, state)
+    return res.ok ? null : res.error
+  } catch (err) {
+    return ipcErrorMessage(err)
+  }
+}
+
 export const useRepoStore = create<RepoStore>((set, get) => ({
   repos: [],
   loading: false,
@@ -210,13 +232,25 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
             : r
         )
       }))
-      // 落盘用的键是**原仓库**的 fullName、值是 fork 名，与主进程 index.ts 的约定一致
-      await unwrap(
-        window.api.store.updateLocalState(fullName, {
-          forked_full_name: forkedFullName,
-          forked_at: forkedAt
+      // 落盘用的键是**原仓库**的 fullName、值是 fork 名，与主进程 index.ts 的约定一致。
+      // 这一步失败不能报成"Fork 失败"：fork 已经真的在你账号下建出来了，失败的只是
+      // "本机记住它"。所以内存态保持在已 Fork（它此刻是真的），另把后果说清楚——
+      // 这个标记没落盘，重启后就没了。给一条真能走的补救路径：重启后按钮会回到
+      // 「Fork」，再点一次即可（对已 fork 的仓库 GitHub 返回的是同一个 fork，不会重复建）。
+      const persistError = await persistLocalState(fullName, {
+        forked_full_name: forkedFullName,
+        forked_at: forkedAt
+      })
+      if (persistError !== null) {
+        set({ error: persistError })
+        pushToast({
+          type: 'error',
+          message:
+            `已经在 GitHub 上 Fork 到 ${forkedFullName}，但本地没能记住这个标记（${persistError}）。` +
+            '重启应用后这一行会回到「Fork」按钮的状态，再点一次就能把标记补回来。'
         })
-      )
+        return
+      }
       pushToast({ type: 'success', message: `已 Fork 到 ${forkedFullName}` })
     } catch (err) {
       set({ error: ipcErrorMessage(err) })
@@ -241,8 +275,25 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
 
       const path = res.data
       // 主进程的 local.clone 只建目录，不写 db；cloned_path 必须由这里落盘，
-      // 否则 onlyCloned 筛选永远命中不到任何仓库
-      await unwrap(window.api.store.updateLocalState(fullName, { cloned_path: path }))
+      // 否则 onlyCloned 筛选永远命中不到任何仓库。
+      // ⚠️ 落盘失败同样**不能**报成"克隆失败"：目录已经真的在磁盘上了。而且这一条
+      // 比 fork 更麻烦——主进程的磁盘对账的数据源正是这份记录，记录没写进去，
+      // 对账也就找不到这个目录（它只会成为一份应用不知道的孤儿目录）。
+      // 内存态刻意**不**更新：假装已克隆会让「打开目录」能用、而「删除本地副本」
+      // 因为主进程没有记录必然失败，那一行就成了半真半假的状态。宁可这一行保持
+      // 未克隆 + 一句把后果说全的提示。
+      const persistError = await persistLocalState(fullName, { cloned_path: path })
+      if (persistError !== null) {
+        set({ error: persistError })
+        pushToast({
+          type: 'error',
+          message:
+            `已经克隆到 ${path}，但本地没能记住这个路径（${persistError}）。` +
+            '这一行仍会显示成未克隆，重启后应用也不知道这个目录的存在；' +
+            '要重新接管它，先手动删掉那个目录，再点一次 Clone。'
+        })
+        return
+      }
       set((s) => ({
         repos: s.repos.map((r) =>
           r.full_name === fullName ? { ...r, local: { ...r.local, cloned_path: path } } : r
