@@ -953,3 +953,25 @@ README（中/英）把它标成「真实模式必需（或改用应用内登录�
 "已配置"（然后 401）。应用内登录才是设计意图，所以选改文档。
 
 验证：tsc 干净、eslint 干净、npm run build 通过。
+
+## R37 · Phase 2：Star / 取消 Star 的本地落盘失败不再报成「操作失败」（优先级 5）
+done · commit 70072df
+
+R35 修的是 `github.ts` 里"回读失败"那一层，这一轮是同一类缺陷在**再下一层**：
+`index.ts` 的 `GITHUB_STAR` / `GITHUB_UNSTAR` handler 把「GitHub 侧调用」和
+「写本地列表」放在同一个 try 里，于是 `saveRepos` 失败（库文件不可写、磁盘满）时，
+用户看到的是「Star 失败」——而 GitHub 上的 Star 早就生效了。
+
+unstar 那侧更刺眼：GitHub 上已经取消了，界面报"取消失败"，而列表里那张卡还在
+（本地没删成），两件事合起来把用户推向"再点一次"——他不会知道**第一次其实成功了**。
+
+改法：两段 try 分开报错。GitHub 那一步失败才是真的失败；本地落盘失败则明说
+「已经在 GitHub 上 Star/取消了，只是本地列表没更新（原因）」，并给出真能走通的
+下一步（到「收藏管理」同步一次：「从 GitHub 同步」是拿 `/user/starred` 整份重建，
+两个方向都能靠它纠正回来）。顺带把包装器里取错误文案的那行提成 `errText()`，
+两处共用（只有这一处复制，不值得再抽 lib）。
+
+验证：tsc 干净、eslint 干净、npm run build 通过；
+全量自检重跑——13 个非 Electron 驱动器全绿 + `store-local-e2e`（真实 IPC 通道）全绿。
+另核对了 IPC 表面三处一致：`shared/ipc.ts` 的通道数、`index.ts` 的 handle() 调用数、
+`preload` 的 invoke 数都是 43，没有"声明了没注册"或"注册了没暴露"的通道。

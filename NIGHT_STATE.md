@@ -6,7 +6,8 @@ total_budget_seconds: 28800
 deadline_epoch: 1790899952
 
 branch: night/auto-optimize-20261002-0019
-base: feat/ai-endpoint-agnostic (PR #31, 未合并) —— 基于它而非 main，避免与已合并的 main 冲突，也不会改动 PR #31 分支本身
+base: feat/ai-endpoint-agnostic（PR #31）——**该 PR 已于本轮期间合并进 main**，
+      所以本分支现在相对 origin/main 是干净的一批夜间提交（见「已知的收尾事项」）
 
 tasks:
 - T1: done      # 栏目命名统一化（83c28bb）
@@ -75,7 +76,9 @@ tasks:
 - [x] 优先级 5（R34–R36，共 3 轮）：推荐页两处「安静地说谎」+ Star 回读失败谎报
       ——「为你推荐」空态分叉（读盘失败不再说「你还没有收藏」，a59adc2）、
       失败的「换一批」不再吃掉一批（offset 改成成功后才写，a59adc2）、
-      Star 的 PUT 已成立但回读失败时不再报成「Star 失败」（8082b9b）；
+      Star 的 PUT 已成立但回读失败时不再报成「Star 失败」（8082b9b）、
+      同一类缺陷的下一层：Star/取消 Star 的**本地落盘**失败也不再说成
+      「操作失败」（70072df）；
       另按优先级 6 记录修掉一处文档说谎：`GITHUB_TOKEN` 当前不被任何代码读取
       （8483ff5，中英 README + .env.example + config.ts 注释）
 - [ ] 优先级 5：错误处理、日志、边界条件（继续；组件层是主战场）
@@ -100,8 +103,12 @@ tasks:
   同类教训：写自检数据时，凡是要落进 store 的路径，就写一个真的存在的。
 - recommend.ts:271 那个粘在 export 上的 `*/` 已清（d72df77）；同批还顺手把
   weekActivity 里写死的 `'未分类'` 换成 collectionStats 的 UNCATEGORIZED_LABEL
-- 本分支基于**未合并**的 feat/ai-endpoint-agnostic（PR #31），若开 PR 到 main 会带上
-  PR #31 的改动，需在描述里显著标注
+- ~~本分支基于**未合并**的 feat/ai-endpoint-agnostic（PR #31），若开 PR 到 main 会带上
+  PR #31 的改动，需在描述里显著标注~~ → **已不成立**：PR #31 已合并进 main
+  （origin/main 的 c8b9442 "Merge pull request #31"），本分支相对 origin/main 的 52 个
+  提交全部是夜间优化，开 PR 到 main 是干净的，描述里不必再提堆叠。
+- IPC 表面三处一致（R37 顺手核对）：shared/ipc.ts 通道数 = index.ts handle() 调用数
+  = preload 的 invoke 数 = 43，没有"声明了没注册/注册了没暴露"的通道
 - 全量自检口径（R26–R33 之后跑过，全绿）：
   13 个非 Electron 驱动器（ai / ai-config / ai-concurrency / ai-provider / auth /
   clone-cancel / clone-progress / collection-stats / local-manage / recommend-search /
