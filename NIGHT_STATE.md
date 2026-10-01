@@ -9,7 +9,7 @@ branch: night/auto-optimize-20261002-0019
 base: feat/ai-endpoint-agnostic (PR #31, 未合并) —— 基于它而非 main，避免与已合并的 main 冲突，也不会改动 PR #31 分支本身
 
 tasks:
-- T1: pending   # 栏目命名统一化
+- T1: done      # 栏目命名统一化
 - T2: pending   # star 总览：增加 AI 统计分析栏目
 - T3: pending   # star 管理：GitHub 式横条布局 + AI 一句话解释
 - T4: pending   # 猜你喜欢：从「选单个仓库」改为基于全部 star 动态推送
