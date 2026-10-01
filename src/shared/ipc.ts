@@ -29,6 +29,7 @@ export const IPC = {
   STORE_SAVE_TOKEN: 'store:saveToken',
   STORE_HAS_TOKEN: 'store:hasToken',
   STORE_UPDATE_LOCAL_STATE: 'store:updateLocalState',
+  STORE_CLEAR_TOKEN: 'store:clearToken',
 
   // 周报 —— 负责人 P4
   REPORT_GENERATE: 'report:generate',
@@ -39,6 +40,12 @@ export const IPC = {
   // 定时追踪 —— 负责人 P4
   TRACKER_START: 'tracker:start',
   TRACKER_STOP: 'tracker:stop',
+
+  // 登录（GitHub OAuth Device Flow）—— 负责人 P7
+  AUTH_GET_STATE: 'auth:getState',
+  AUTH_START_DEVICE_FLOW: 'auth:startDeviceFlow',
+  AUTH_WAIT_FOR_LOGIN: 'auth:waitForLogin',
+  AUTH_CANCEL_DEVICE_FLOW: 'auth:cancelDeviceFlow',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

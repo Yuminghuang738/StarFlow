@@ -7,7 +7,10 @@ import type {
   AiCategory,
   LocalState,
   IpcResult,
-  WeeklyReport
+  WeeklyReport,
+  AuthState,
+  DeviceFlowInfo,
+  LoginOutcome
 } from '@shared/types'
 
 const api = {
@@ -49,7 +52,8 @@ const api = {
       ipcRenderer.invoke(IPC.STORE_SAVE_TOKEN, token),
     hasToken: (): Promise<IpcResult<boolean>> => ipcRenderer.invoke(IPC.STORE_HAS_TOKEN),
     updateLocalState: (fullName: string, state: Partial<LocalState>): Promise<IpcResult<void>> =>
-      ipcRenderer.invoke(IPC.STORE_UPDATE_LOCAL_STATE, fullName, state)
+      ipcRenderer.invoke(IPC.STORE_UPDATE_LOCAL_STATE, fullName, state),
+    clearToken: (): Promise<IpcResult<void>> => ipcRenderer.invoke(IPC.STORE_CLEAR_TOKEN)
   },
   report: {
     generate: (): Promise<IpcResult<WeeklyReport>> => ipcRenderer.invoke(IPC.REPORT_GENERATE)
@@ -61,6 +65,16 @@ const api = {
   tracker: {
     start: (): Promise<IpcResult<void>> => ipcRenderer.invoke(IPC.TRACKER_START),
     stop: (): Promise<IpcResult<void>> => ipcRenderer.invoke(IPC.TRACKER_STOP)
+  },
+  auth: {
+    getState: (): Promise<IpcResult<AuthState>> => ipcRenderer.invoke(IPC.AUTH_GET_STATE),
+    startDeviceFlow: (): Promise<IpcResult<DeviceFlowInfo>> =>
+      ipcRenderer.invoke(IPC.AUTH_START_DEVICE_FLOW),
+    // 这个 invoke 最长会挂 15 分钟（设备码的有效期），由主进程的 expiryTimer 强制收敛
+    waitForLogin: (): Promise<IpcResult<LoginOutcome>> =>
+      ipcRenderer.invoke(IPC.AUTH_WAIT_FOR_LOGIN),
+    cancelDeviceFlow: (): Promise<IpcResult<void>> =>
+      ipcRenderer.invoke(IPC.AUTH_CANCEL_DEVICE_FLOW)
   }
 }
 

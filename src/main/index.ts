@@ -14,6 +14,7 @@ import * as store from './store'
 import * as report from './report'
 import * as recommend from './recommend'
 import * as tracker from './tracker'
+import * as auth from './auth'
 import { isMockMode } from './config'
 
 // ESM 下没有 __dirname，用 import.meta.url 推导
@@ -43,7 +44,7 @@ function handle<T>(channel: string, fn: AnyFn<T>): void {
 }
 
 // ============================================================
-// 22 个通道，一个都不能少也不能多
+// 27 个通道，一个都不能少也不能多
 // ============================================================
 
 function registerHandlers(): void {
@@ -81,6 +82,7 @@ function registerHandlers(): void {
   handle(IPC.STORE_UPDATE_LOCAL_STATE, (fullName: string, state: Partial<LocalState>) =>
     store.updateLocalState(fullName, state)
   )
+  handle(IPC.STORE_CLEAR_TOKEN, () => store.clearToken())
 
   // 周报 —— P4
   handle(IPC.REPORT_GENERATE, () => report.generate())
@@ -91,6 +93,15 @@ function registerHandlers(): void {
   // 定时追踪 —— P4。刻意不在启动时自动 start，由前端显式调用
   handle(IPC.TRACKER_START, () => tracker.start())
   handle(IPC.TRACKER_STOP, () => tracker.stop())
+
+  // 登录 —— P7
+  handle(IPC.AUTH_GET_STATE, () => auth.getState())
+  handle(IPC.AUTH_START_DEVICE_FLOW, () => auth.startDeviceFlow())
+  // 这个 handler 会一直挂到用户完成授权、超时或取消为止（最长 15 分钟）。
+  // 渲染进程 reload 会丢掉这个 invoke，但主进程的流程继续跑，
+  // 重新挂载时靠 AUTH_GET_STATE 的 pending 字段恢复并重新挂上等待。
+  handle(IPC.AUTH_WAIT_FOR_LOGIN, () => auth.waitForLogin())
+  handle(IPC.AUTH_CANCEL_DEVICE_FLOW, () => auth.cancelDeviceFlow())
 }
 
 // ============================================================
@@ -129,4 +140,10 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+// 登录流程挂着一个 setTimeout 链（轮询 + 有效期兜底），退出前必须清掉，
+// 否则定时器会在进程拆解期间触发。
+app.on('before-quit', () => {
+  auth.dispose()
 })

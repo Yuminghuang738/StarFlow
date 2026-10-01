@@ -50,7 +50,7 @@ CI 的 `check` job 只跑 typecheck / lint / build，不需要这个二进制，
 
 ## 环境变量
 
-5 个变量，全部在 `.env` 里（`.env` 已被 gitignore）。
+6 个变量，全部在 `.env` 里（`.env` 已被 gitignore）。
 
 | 变量 | 说明 | Mock 模式下 |
 | --- | --- | --- |
@@ -59,8 +59,34 @@ CI 的 `check` job 只跑 typecheck / lint / build，不需要这个二进制，
 | `OPENAI_BASE_URL` | 兼容 OpenAI 协议的自建网关地址；留空则走官方 | 不需要，留空 |
 | `MODEL_NAME` | 模型名，如 `gpt-4o-mini` | 不需要，留空 |
 | `GITHUB_TOKEN` | GitHub PAT，见下 | 不需要，留空 |
+| `GITHUB_OAUTH_CLIENT_ID` | OAuth App 的 Client ID，用于「用 GitHub 登录」，见下 | 不需要，留空 |
 
-> **`MOCK_MODE=true` 时以上 4 个 Key 全部不需要填。** 演示环境请务必用 Mock 模式。
+> **`MOCK_MODE=true` 时以上 5 个 Key 全部不需要填。** 演示环境请务必用 Mock 模式。
+
+---
+
+## 用 GitHub 登录（OAuth Device Flow）
+
+设置页除了手填 PAT，还有一个「用 GitHub 登录」按钮：点一下 → 应用自动打开浏览器到
+`github.com/login/device` → 把应用里显示的 8 位码粘进去、点 Authorize → **应用自己发现
+授权完成并变成已登录**，不需要再回应用点确认。登录后可以一键退出登录。
+
+用的是 **Device Flow**，不是常见的回调式 Web Flow，原因只有一个：**Device Flow 不需要
+`client_secret`**。Web Flow 至今把 `client_secret` 标为 Required，那意味着要么把密钥编进
+应用（公开仓库不可接受），要么自建一个转发后端。Device Flow 的代价只是用户多粘一次码。
+
+### 你需要先注册一个 OAuth App（在仓库外做，10 分钟）
+
+1. 打开 [Settings → Developer settings → OAuth Apps → New OAuth App](https://github.com/settings/developers)
+2. Application name 随便填；Homepage URL 填仓库地址即可（Device Flow 不用回调地址）
+3. **勾上 "Enable Device Flow"** —— ⚠️ 不勾的话，用户点登录后在轮询阶段会收到
+   `device_flow_disabled`，表现为「登录直接失败」
+4. 创建后页面上会显示 **Client ID**，复制它（**Client secrets 那个不用管，Device Flow 用不到**）
+5. 填进 `.env`：`GITHUB_OAUTH_CLIENT_ID=你的ClientID`
+
+> 还没有配 Client ID 时，设置页的登录块会显示「未配置 client_id」的不可用状态，这是预期行为。
+> **`MOCK_MODE=true` 时该功能一律显示不可用**：本项目铁律是 `mock.ts` 是唯一的假数据源，
+> 不为登录再造一套假的设备流。要看完整登录流程需要真实模式 + 真实 GitHub 账号。
 
 ---
 
@@ -86,7 +112,7 @@ CI 的 `check` job 只跑 typecheck / lint / build，不需要这个二进制，
 | 目录 | 一句话 |
 | --- | --- |
 | `src/main/` | 主进程：GitHub 读写、本地 git、AI、存储、周报、推荐、定时追踪，以及 IPC handler 注册 |
-| `src/preload/` | 唯一的跨进程桥：把 22 个 IPC 通道包成 `window.api` |
+| `src/preload/` | 唯一的跨进程桥：把 27 个 IPC 通道包成 `window.api` |
 | `src/renderer/` | React 界面（Zustand 状态 + Tailwind） |
 | `src/shared/` | **冻结契约**：数据结构与 IPC 通道名。**不要修改** |
 | `docs/` | 冻结的模块签名契约与渲染进程契约 |
@@ -134,7 +160,7 @@ CI 的 `check` job 只跑 typecheck / lint / build，不需要这个二进制，
 
 | 模块 | 负责人 | GitHub 账号 |
 | --- | --- | --- |
-| `src/shared/`、`src/preload/`、`src/main/index.ts`、`config.ts`、`mock.ts`、`mock-data.json`、渲染进程脚手架（`renderer/index.html`、`src/main.tsx`、`index.css`、`env.d.ts`）、全部配置文件 | P7 | [@Yuminghuang738](https://github.com/Yuminghuang738) |
+| `src/shared/`、`src/preload/`、`src/main/index.ts`、`config.ts`、`mock.ts`、`auth.ts`、`mock-data.json`、渲染进程脚手架（`renderer/index.html`、`src/main.tsx`、`index.css`、`env.d.ts`）、全部配置文件 | P7 | [@Yuminghuang738](https://github.com/Yuminghuang738) |
 | `src/main/github.ts` | P1 | [@xiaoyu8745](https://github.com/xiaoyu8745) |
 | `src/main/ai.ts` | P2 | [@xiaoran77-web](https://github.com/xiaoran77-web) |
 | `src/main/local.ts`、`src/main/store.ts` | P3 | [@Chang-66](https://github.com/Chang-66) |

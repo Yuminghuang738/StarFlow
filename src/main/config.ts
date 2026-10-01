@@ -9,11 +9,13 @@ export function getEnv(): {
   openaiBaseUrl: string
   modelName: string
   githubToken: string
+  githubOauthClientId: string
 } {
   return {
     openaiKey: process.env.OPENAI_API_KEY ?? '',
     openaiBaseUrl: process.env.OPENAI_BASE_URL ?? '',
     modelName: process.env.MODEL_NAME ?? '',
-    githubToken: process.env.GITHUB_TOKEN ?? ''
+    githubToken: process.env.GITHUB_TOKEN ?? '',
+    githubOauthClientId: process.env.GITHUB_OAUTH_CLIENT_ID ?? ''
   }
 }

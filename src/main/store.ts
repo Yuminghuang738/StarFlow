@@ -182,6 +182,32 @@ export async function hasToken(): Promise<boolean> {
   }
 }
 
+/**
+ * 退出登录。（P7 为 OAuth 登录新增，改的是 P3 的文件，契约见 docs/module-signatures.md）
+ *
+ * 为什么必须在这里实现而不是绕过去调 saveToken('')：saveToken 会拒绝空串，
+ * 而 memoryToken 是本模块的私有变量，外面清不掉。
+ *
+ * 顺序是**先写盘、再清内存**，和 saveToken 正好相反，这是刻意的：
+ * getToken() 内存优先，如果写盘失败却已经清了内存，下一次 getToken() 会读到磁盘上
+ * 残留的 token，等于悄悄把会话复活了。宁可失败得响一点。
+ *
+ * 不清 reposCache：仓库列表（AI 结果、clone 路径、fork 标记）是用户的本地数据，
+ * 按 full_name 索引、跟 token 无关，登出时清掉是纯数据损失。
+ */
+export async function clearToken(): Promise<void> {
+  try {
+    const db = await getDb()
+    db.data.token = null
+    await db.write()
+    // 无加密后端时 token 只活在内存里，这一行才是真正让它失效的地方
+    memoryToken = null
+    console.log('[store] Token 已清除')
+  } catch (err) {
+    fail('清除 Token', err)
+  }
+}
+
 /** 只更新 local 字段，其余字段（含 AI 结果）原样保留 */
 export async function updateLocalState(
   fullName: string,
