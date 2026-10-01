@@ -132,14 +132,16 @@ CI 的 `check` job 只跑 typecheck / lint / build，不需要这个二进制，
 
 ### 谁负责什么
 
-| 模块 | 负责人 |
-| --- | --- |
-| `src/shared/`、`src/preload/`、`src/main/index.ts`、`config.ts`、`mock.ts`、`mock-data.json`、全部配置文件 | 集成工程师（P7） |
-| `src/main/github.ts` | P1 |
-| `src/main/ai.ts` | P2 |
-| `src/main/local.ts`、`src/main/store.ts` | P3 |
-| `src/main/report.ts`、`recommend.ts`、`tracker.ts` | P4 |
-| `src/renderer/src/pages/Dashboard.tsx`、`components/repo/`、`components/charts/` | P5 |
-| `src/renderer/src/App.tsx`、`store/`、`lib/`、`components/common/`、`components/layout/`、`pages/Report.tsx` | P6 |
+| 模块 | 负责人 | GitHub 账号 |
+| --- | --- | --- |
+| `src/shared/`、`src/preload/`、`src/main/index.ts`、`config.ts`、`mock.ts`、`mock-data.json`、渲染进程脚手架（`renderer/index.html`、`src/main.tsx`、`index.css`、`env.d.ts`）、全部配置文件 | 集成工程师（P7） | [@xiaoyu8745](https://github.com/xiaoyu8745) |
+| `src/main/github.ts` | P1 | [@Yuminghuang738](https://github.com/Yuminghuang738) |
+| `src/main/ai.ts` | P2 | [@xiaoran77-web](https://github.com/xiaoran77-web) |
+| `src/main/local.ts`、`src/main/store.ts` | P3 | [@Chang-66](https://github.com/Chang-66) |
+| `src/main/report.ts`、`recommend.ts`、`tracker.ts` | P4 | [@nothing6741](https://github.com/nothing6741) |
+| `src/renderer/src/pages/Dashboard.tsx`、`components/repo/`、`components/charts/` | P5 | [@syeu-oss](https://github.com/syeu-oss) |
+| `src/renderer/src/App.tsx`、`store/`、`lib/`、`components/common/`、`components/layout/`、`pages/Report.tsx`、`pages/Settings.tsx` | P6 | [@zoushiying](https://github.com/zoushiying) |
+
+这份表也同步在 `.github/CODEOWNERS`（GitHub 用它在 PR 里 @ 到人）和各文件的头注释里，三处保持一致。
 
 各模块的函数签名已冻结在 `docs/module-signatures.md`，骨架里是「mock 分支 + `throw NOT_IMPLEMENTED`」，直接把自己的实现填进 `throw` 的位置即可，不会互相阻塞。

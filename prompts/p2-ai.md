@@ -5,7 +5,7 @@
 > **干净克隆后第一次跑之前，先执行 `npx install-electron --no`。** `electron@44.5.1` 的 package.json 里没有
 > `scripts` 字段，所以它没有 postinstall 钩子，`npm install` / `npm ci` 都**不会**下载 Electron 二进制，
 > 直接 `npm run dev` 会报 `Electron failed to install correctly`。这是必然的，不是网络问题。
-> 有问题在 GitHub issue #2 里问，不要私聊等回复。
+> 有问题直接在你收到这份工作包的那个 issue 里问，不要私聊等回复。
 
 ---
 
