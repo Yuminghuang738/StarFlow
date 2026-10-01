@@ -22,7 +22,7 @@ StarFlow's approach is to move that list onto your own machine and add the layer
 - Have AI assign each repo a category (one of 7 fixed values) and a one-line Chinese summary, solving "I starred it but forgot why".
 - Roll up new stars by week and generate a language breakdown, a daily trend, and a short written summary.
 - Clone repos locally and fork them to your own account, turning "saved" into "usable".
-- Surface similar repositories among the ones you have already starred, based on language and topics.
+- Recommend new repositories you have not starred yet, based on the profile of your **whole collection** (top languages, frequent topics, dominant category), with the reasoning shown alongside the results.
 
 ---
 
@@ -135,7 +135,7 @@ How secrets are handled:
 
 - **The GitHub token is encrypted with Electron's `safeStorage` before it is written to disk**, going through the OS keyring; it is never stored in plaintext. When encryption is unavailable (e.g. a Linux box without a keyring), the token is kept only in main-process memory and not a single byte is written to disk — you must re-enter it on the Settings page after a restart. This is a deliberate trade-off: better to make the user re-enter it than to write plaintext to disk.
 - **The AI key can be set in `.env` or entered directly in the app's Settings page**, with the Settings-page value taking precedence over `.env` (falling back to the environment variable only when unset). Its storage is designed to follow the same `safeStorage` encryption path as the token (OS keyring, no plaintext on disk), and the key is write-only: the config view type shown in Settings has no `apiKey` field at all, so not echoing the key back to the UI is guaranteed at the type level.
-  - Note: the IPC channels for this "UI overrides `.env`" flow (`store:getAiConfig` / `saveAiConfig` / `clearAiKey`) and the preload interface are already in place; the main-process persistence implementation in `src/main/store.ts` is still marked as pending.
+  - Note: this "UI overrides `.env`" flow is fully implemented: the three channels (`store:getAiConfig` / `saveAiConfig` / `clearAiKey`), the preload interface, and the persistence in `src/main/store.ts` (`safeStorage` encryption, with the UI value taking precedence over `.env`).
 
 ---
 
@@ -148,7 +148,7 @@ The Electron app is split into three layers with hard boundaries:
 | Process | Responsibility | What it can touch |
 | --- | --- | --- |
 | **Main** `src/main/` | All business logic: GitHub reads/writes, AI calls, local git, persistence, weekly report, recommendations, scheduled tracking, OAuth sign-in, and IPC handler registration | The full Node API, the filesystem, the network, Electron main-process APIs |
-| **preload** `src/preload/` | The only cross-process bridge: wraps the 39 IPC channels into a typed `window.api` for the renderer | `ipcRenderer` (`invoke` only), `contextBridge` |
+| **preload** `src/preload/` | The only cross-process bridge: wraps the 43 IPC channels into a typed `window.api` for the renderer | `ipcRenderer` (`invoke` only), `contextBridge` |
 | **Renderer** `src/renderer/` | The React UI: list, filters, charts, report page, Settings page, custom title bar | Browser APIs and `window.api` only; **no Node API access whatsoever** |
 | **Shared** `src/shared/` | The single definition of data structures (`types.ts`) and IPC channel names (`ipc.ts`) | Pure types and constants, imported by all three sides |
 
@@ -160,17 +160,17 @@ preload is loaded with `contextIsolation: true` and `nodeIntegration: false`. Th
 
 `src/shared/ipc.ts` and `src/shared/types.ts` are the single source of truth for channel names and data shapes, imported by all three sides. Channels are named `module:camelCase`, e.g. `github:fetchStarred`, `local:cloneProgress`.
 
-There are currently **39 channels**:
+There are currently **43 channels**:
 
 | Namespace | Count | Channels |
 | --- | --- | --- |
-| `github:` | 6 | `fetchStarred`, `fetchReadme`, `fetchReleases`, `fetchCommits`, `unstar`, `fork` |
+| `github:` | 7 | `fetchStarred`, `fetchReadme`, `fetchReleases`, `fetchCommits`, `unstar`, `fork`, `star` |
 | `local:` | 7 | `chooseDir`, `clone`, `openDir`, `cloneProgress`, `removeClone`, `pruneClones`, `cancelClone` |
-| `ai:` | 5 | `summarize`, `classify`, `enrichRepos`, `generateReport`, `testConnection` |
+| `ai:` | 6 | `summarize`, `classify`, `enrichRepos`, `generateReport`, `testConnection`, `analyzeCollection` |
 | `store:` | 6 | `getRepos`, `saveRepos`, `saveToken`, `hasToken`, `updateLocalState`, `clearToken` |
 | `store:` (AI config) | 3 | `getAiConfig`, `saveAiConfig`, `clearAiKey` |
 | `report:` | 1 | `generate` |
-| `recommend:` | 1 | `similar` |
+| `recommend:` | 3 | `similar`, `forQuery`, `forYou` |
 | `tracker:` | 2 | `start`, `stop` |
 | `auth:` | 4 | `getState`, `startDeviceFlow`, `waitForLogin`, `cancelDeviceFlow` |
 | `window:` | 4 | `minimize`, `toggleMaximize`, `close`, `isMaximized` |
@@ -187,8 +187,8 @@ On the main-process side, handlers are registered through a single `handle()` wr
 | Path | Description |
 | --- | --- |
 | `src/main/` | Main process. Business modules (`github.ts` / `ai.ts` / `local.ts` / `store.ts` / `report.ts` / `recommend.ts` / `tracker.ts` / `auth.ts` / `mock.ts` / `config.ts`) plus the IPC handler entry point `index.ts` |
-| `src/preload/` | The only cross-process bridge. `index.ts` wraps the 39 channels into `window.api`; `index.d.ts` adds the global types for the renderer |
-| `src/renderer/` | The React UI. `src/pages/` (Dashboard / Report / Settings), `src/components/` (repo / charts / common / layout / auth), `src/store/` (Zustand), `src/lib/api.ts` |
+| `src/preload/` | The only cross-process bridge. `index.ts` wraps the 43 channels into `window.api`; `index.d.ts` adds the global types for the renderer |
+| `src/renderer/` | The React UI. `src/pages/` (Discover / Overview / Manage / Similar / Report / Settings), `src/components/` (repo / charts / common / layout / auth / settings), `src/store/` (Zustand), `src/lib/` (api / theme / cn) |
 | `src/shared/` | `types.ts` defines all data structures, `ipc.ts` defines the channel names. The single contract shared by all three sides |
 | `docs/` | Main-process module signatures (`module-signatures.md`) and renderer contracts (`renderer-contracts.md`) |
 | `scripts/selfcheck/` | GUI-free self-check scripts (see below) |
@@ -196,13 +196,13 @@ On the main-process side, handlers are registered through a single `handle()` wr
 | `out/` | Build output (gitignored) |
 | `dist/` | electron-builder packaging output (gitignored) |
 
-> Implementation status: `recommend.ts` (similar repos) and `tracker.ts` (scheduled tracking) are still placeholders in real mode and only have a working branch under mock mode; `local:cancelClone` currently returns `false` unconditionally. Every other module is implemented in both modes.
+> Implementation status: `tracker.ts` (scheduled tracking) is still a placeholder in real mode and only has a working branch under mock mode (its real-mode `start` / `stop` throw `NOT_IMPLEMENTED`). Every other module is implemented in both modes — including `recommend.ts` (similar repos / one-line search / for-you recommendations) and `local:cancelClone` (it really does abort a running clone); both used to be listed here as placeholders and have since landed.
 
 ### A data flow: syncing starred repositories from GitHub
 
-Take clicking "Sync from GitHub" on the Dashboard and follow one call across the three processes and onto disk:
+Take clicking "Sync from GitHub" on the Manage page and follow one call across the three processes and onto disk:
 
-1. The Dashboard button triggers `repoStore.refreshFromGitHub()`.
+1. The Manage page button triggers `repoStore.refreshFromGitHub()`.
 2. The store calls `window.api.github.fetchStarred()`. That is a preload-exposed method which runs `ipcRenderer.invoke('github:fetchStarred')` with no arguments.
 3. The main process `handle()` wrapper receives the call, discards the leading `event` argument, and dispatches to `github.fetchStarred()`.
    - Mock mode: returns the data from `mock-data.json` directly.

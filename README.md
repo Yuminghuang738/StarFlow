@@ -22,7 +22,7 @@ StarFlow 的做法是把这份列表搬到本地，补上 GitHub 不提供的几
 - 用 AI 给每个仓库生成分类（7 个固定枚举之一）和一句中文摘要，解决「收藏了但忘了为什么」。
 - 按周汇总新增 Star，生成语言分布、每日趋势和一段文字总结。
 - 把仓库 clone 到本地、fork 到自己的账号，把「收藏」变成「能用」。
-- 根据语言和主题找出你已经 Star 过的相似仓库。
+- 根据你**整份收藏**的画像（主要语言、高频主题、主分类）去 GitHub 搜你还没 Star 过的新仓库，并把推荐理由摊开显示。
 
 ---
 
@@ -135,7 +135,7 @@ npm run dev               # 启动 Electron + Vite 开发环境（热重载）
 
 - **GitHub Token 用 Electron 的 `safeStorage` 加密后落盘**，走系统密钥环，不会明文写入磁盘。加密能力不可用时（例如没装 keyring 的 Linux），Token 只保留在主进程内存中、一个字节都不落盘，重启应用后需要在设置页重新填写——这是刻意的取舍：宁可让用户重填，也不把明文写到磁盘上。
 - **AI 的 Key 可以在 `.env` 里配，也可以直接在应用的设置页里填**，设置页填的优先于 `.env`（缺省才回落到环境变量）。它的存储设计走与 Token 相同的 `safeStorage` 加密路径（系统密钥环、不落明文），且密钥只进不出：设置页展示的配置视图类型里根本没有 `apiKey` 字段，界面上不回显密钥是类型层面就保证的。
-  - 说明：这套「界面覆写 `.env`」的 IPC 通道（`store:getAiConfig` / `saveAiConfig` / `clearAiKey`）与 preload 接口已经就位，主进程侧的持久化实现在 `src/main/store.ts` 里仍标记为待补全。
+  - 说明：这套「界面覆写 `.env`」的实现是完整的：`store:getAiConfig` / `saveAiConfig` / `clearAiKey` 三条通道、preload 接口与 `src/main/store.ts` 里的持久化（`safeStorage` 加密 + 界面值优先于 `.env`）都已就位。
 
 ---
 
@@ -148,7 +148,7 @@ Electron 应用被拆成三层，边界是硬的：
 | 进程 | 职责 | 能碰什么 |
 | --- | --- | --- |
 | **主进程** `src/main/` | 全部业务逻辑：GitHub 读写、AI 调用、本地 git、落盘、周报、推荐、定时追踪、OAuth 登录，以及 IPC handler 注册 | 完整的 Node API、文件系统、网络、Electron 主进程 API |
-| **preload** `src/preload/` | 唯一的跨进程桥：把 41 条 IPC 通道包成类型化的 `window.api`，暴露给渲染进程 | `ipcRenderer`（只做 `invoke`），`contextBridge` |
+| **preload** `src/preload/` | 唯一的跨进程桥：把 43 条 IPC 通道包成类型化的 `window.api`，暴露给渲染进程 | `ipcRenderer`（只做 `invoke`），`contextBridge` |
 | **渲染进程** `src/renderer/` | React 界面：列表、筛选、图表、周报页、设置页、自绘标题栏 | 只有浏览器 API 和 `window.api`；**碰不到任何 Node API** |
 | **共享层** `src/shared/` | 数据结构（`types.ts`）与 IPC 通道名（`ipc.ts`）的唯一定义 | 纯类型与常量，三端都 import |
 
@@ -160,17 +160,17 @@ preload 以 `contextIsolation: true`、`nodeIntegration: false` 加载。渲染�
 
 `src/shared/ipc.ts` 与 `src/shared/types.ts` 是通道名与数据结构的唯一来源，三端都从这里 import。通道命名统一为 `模块:camelCase`，例如 `github:fetchStarred`、`local:cloneProgress`。
 
-当前共 **41 条通道**：
+当前共 **43 条通道**：
 
 | 命名空间 | 条数 | 通道 |
 | --- | --- | --- |
 | `github:` | 7 | `fetchStarred`、`fetchReadme`、`fetchReleases`、`fetchCommits`、`unstar`、`fork`、`star` |
 | `local:` | 7 | `chooseDir`、`clone`、`openDir`、`cloneProgress`、`removeClone`、`pruneClones`、`cancelClone` |
-| `ai:` | 5 | `summarize`、`classify`、`enrichRepos`、`generateReport`、`testConnection` |
+| `ai:` | 6 | `summarize`、`classify`、`enrichRepos`、`generateReport`、`testConnection`、`analyzeCollection` |
 | `store:` | 6 | `getRepos`、`saveRepos`、`saveToken`、`hasToken`、`updateLocalState`、`clearToken` |
 | `store:`（AI 配置） | 3 | `getAiConfig`、`saveAiConfig`、`clearAiKey` |
 | `report:` | 1 | `generate` |
-| `recommend:` | 2 | `similar`、`forQuery` |
+| `recommend:` | 3 | `similar`、`forQuery`、`forYou` |
 | `tracker:` | 2 | `start`、`stop` |
 | `auth:` | 4 | `getState`、`startDeviceFlow`、`waitForLogin`、`cancelDeviceFlow` |
 | `window:` | 4 | `minimize`、`toggleMaximize`、`close`、`isMaximized` |
@@ -187,7 +187,7 @@ preload 以 `contextIsolation: true`、`nodeIntegration: false` 加载。渲染�
 | 路径 | 说明 |
 | --- | --- |
 | `src/main/` | 主进程。各业务模块（`github.ts` / `ai.ts` / `local.ts` / `store.ts` / `report.ts` / `recommend.ts` / `tracker.ts` / `auth.ts` / `mock.ts` / `config.ts`）与 IPC handler 注册入口 `index.ts` |
-| `src/preload/` | 唯一的跨进程桥。`index.ts` 把 41 条通道包成 `window.api`，`index.d.ts` 给渲染进程补上全局类型 |
+| `src/preload/` | 唯一的跨进程桥。`index.ts` 把 43 条通道包成 `window.api`，`index.d.ts` 给渲染进程补上全局类型 |
 | `src/renderer/` | React 界面。`src/pages/`（Discover / Overview / Manage / Similar / Report / Settings）、`src/components/`（repo / charts / common / layout / auth / settings）、`src/store/`（Zustand）、`src/lib/`（api / theme / cn） |
 | `src/shared/` | `types.ts` 定义全部数据结构，`ipc.ts` 定义通道名。三端共用的唯一契约 |
 | `docs/` | 主进程模块签名（`module-signatures.md`）与渲染进程契约（`renderer-contracts.md`） |
@@ -196,11 +196,11 @@ preload 以 `contextIsolation: true`、`nodeIntegration: false` 加载。渲染�
 | `out/` | 构建产物（已 gitignore） |
 | `dist/` | electron-builder 打包产物（已 gitignore） |
 
-> 实现状态说明：`recommend.ts`（相似仓库）与 `tracker.ts`（定时追踪）在真实模式下目前仍是占位，只在 Mock 模式下有可运行的分支；`local:cancelClone` 也暂时恒返回 `false`。其余模块在两种模式下都有实现。
+> 实现状态说明：`tracker.ts`（定时追踪）在真实模式下仍是占位，只在 Mock 模式下有可运行的分支（真实模式的 `start` / `stop` 会抛 `NOT_IMPLEMENTED`）。其余模块在两种模式下都有实现——包括 `recommend.ts`（相似仓库 / 一句话搜索 / 为你推荐）与 `local:cancelClone`（真的会中止正在跑的 clone），这两处曾经也标着"占位"，已经落地了。
 
 ### 一条数据流：从 GitHub 同步 Star 列表
 
-以「Star 管理」页上点「从 GitHub 同步」为例，看一次调用如何穿过三进程并落盘：
+以「收藏管理」页上点「从 GitHub 同步」为例，看一次调用如何穿过三进程并落盘：
 
 1. `Manage` 的按钮触发 `repoStore.refreshFromGitHub()`。
 2. store 调 `window.api.github.fetchStarred()`。这是 preload 暴露的方法，内部执行 `ipcRenderer.invoke('github:fetchStarred')`，不传任何参数。
