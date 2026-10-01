@@ -18,13 +18,21 @@ interface DbSchema {
 }
 
 /**
- * 无加密后端（例如没装 keyring 的 Linux）时的明文标记。
- * 明文落盘时必须带这个前缀，getToken() 靠它识别并剥离；否则密文和明文无法区分。
+ * 历史上无加密后端时明文落盘用的标记，现在只剩「读」这一处引用。
+ *
+ * 结论（issue #9 决议 (c)、issue #12）：无加密后端时 token 一律不落盘，所以不再有写入方。
+ * 保留它是为了兼容别人机器上遗留的 'PLAIN:xxx' 旧数据——按前缀判断而不是看
+ * isEncryptionAvailable()，换机器之后加密后端可能又可用了，但文件里躺着的仍是明文，
+ * 用后端能力判断会读错。
  */
 const PLAIN_PREFIX = 'PLAIN:'
 
 // 模块级缓存：lowdb 的实例要复用，否则并发调用会各自读一遍文件
 let dbPromise: Promise<Low<DbSchema>> | null = null
+
+// 无加密后端（例如没装 keyring 的 Linux）时，token 只存活在这个变量里，绝不落盘。
+// 进程退出即丢失，这是刻意的：宁可让用户重填一次，也不把明文写到磁盘上。
+let memoryToken: string | null = null
 
 // 读缓存：进程内缓存最近一次读到的 repos，避免每次 IPC 都同步读盘。
 // 刻意不做定时失效——单进程内一致性就够，也没人会绕过 store 直接改文件。
@@ -106,17 +114,27 @@ export async function saveToken(token: string): Promise<void> {
     const encrypted = safeStorage.isEncryptionAvailable()
     if (encrypted) {
       db.data.token = safeStorage.encryptString(token).toString('base64')
+      // 后端可用时要清掉内存里的残留，否则 getToken() 会优先命中旧的内存值
+      memoryToken = null
     } else {
-      // Linux 上没有 keyring 时 isEncryptionAvailable() 返回 false。
-      // 这里刻意降级成明文 + 警告，而不是抛错——saveToken 在启动路径上，抛错会让应用直接打不开。
-      // 加 'PLAIN:' 前缀让明文在 db 文件里可识别（DoD：不允许出现裸的 test-token-123）。
-      // 【未决事项】"降级还是抛错"由 P7 决定，见 prompts/p3-store-local.md 的 A4，先不要删这个分支。
-      console.warn('[store] 系统未提供加密后端，token 将以明文保存')
-      db.data.token = PLAIN_PREFIX + token
+      // Linux 上没有 keyring 时 isEncryptionAvailable() 返回 false，此时一个字节都不写盘，
+      // token 只留在主进程内存里（契约见 docs/module-signatures.md 的 saveToken 说明）。
+      //
+      // 为什么不抛错：代价是「无 keyring 的机器上真实模式完全不可用」。顺带纠正一句早先的
+      // 错误说法——saveToken / getToken **不在启动路径上**（调用点是 IPC.STORE_SAVE_TOKEN
+      // ← 设置页的保存按钮、IPC.STORE_HAS_TOKEN ← 打开设置页、getToken ← github.client()），
+      // app.whenReady() 一处都不碰，详见 issue #9 的核实评论。
+      // 为什么不降级成带前缀的明文：那仍然把明文写进了磁盘，契约字面「禁止以任何形式把明文
+      // 写入磁盘」满足不了，前缀也不提供任何保护（issue #12 的 (a)/(b)/(c) 比较）。
+      console.warn('[store] 系统未提供加密后端，token 仅保存在内存中，重启后需重新填写')
+      memoryToken = token
+      // 置 null 是本次的迁移路径：把历史上可能已经写进文件的 'PLAIN:' 明文抹掉
+      db.data.token = null
     }
+    // 两种情况都要写盘：true 分支落密文，false 分支落 null（清掉旧明文）
     await db.write()
     // 只打印是否加密，绝不打印 token 本身
-    console.log(`[store] Token 已保存（${encrypted ? 'safeStorage 加密' : '明文降级'}）`)
+    console.log(`[store] Token 已保存（${encrypted ? 'safeStorage 加密' : '仅内存，未落盘'}）`)
   } catch (err) {
     fail('保存 Token', err)
   }
@@ -124,10 +142,14 @@ export async function saveToken(token: string): Promise<void> {
 
 export async function getToken(): Promise<string | null> {
   try {
+    // 内存优先：无加密后端时 token 只活在这里，磁盘上什么都没有
+    if (memoryToken !== null) return memoryToken
+
     const db = await getDb()
     const stored = db.data.token
     if (!stored) return null
 
+    // 只读不写：兼容别人机器上遗留的 'PLAIN:xxx' 旧数据。
     // 按前缀识别明文，而不是看 isEncryptionAvailable()：
     // 换机器之后加密后端可能又可用了，但文件里躺着的仍然是明文，用后端能力判断会读错。
     if (stored.startsWith(PLAIN_PREFIX)) {
@@ -138,7 +160,9 @@ export async function getToken(): Promise<string | null> {
       return safeStorage.decryptString(Buffer.from(stored, 'base64'))
     } catch (err) {
       // 换机器 / keyring 变更会导致解不开。这里只降级成"没有 token"，绝不往外抛——
-      // getToken / hasToken 在启动路径上，抛错等于应用打不开。
+      // 抛错的实际后果只是「点同步」那一步弹一条错误提示，不影响应用启动：
+      // getToken 由 github.client() 调用、hasToken 由设置页调用，都不在启动路径上
+      // （早先此处写作「getToken / hasToken 在启动路径上，抛错等于应用打不开」，经 issue #9 核实为误）。
       const message = err instanceof Error ? err.message : String(err)
       console.error(`[store] Token 解密失败，已忽略：${message}`)
       return null
@@ -151,7 +175,8 @@ export async function getToken(): Promise<string | null> {
 /** 渲染进程只需要判断"要不要让用户填 token"，返回布尔值即可，不要把 token 本身送过去 */
 export async function hasToken(): Promise<boolean> {
   try {
-    return (await getToken()) !== null
+    // 内存里有就直接返回，省掉一次读盘（getToken() 内部也是内存优先，这里只是短路）
+    return memoryToken !== null || (await getToken()) !== null
   } catch (err) {
     return fail('检查 Token', err)
   }
