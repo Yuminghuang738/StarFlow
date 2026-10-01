@@ -231,11 +231,23 @@ export async function summarize(readme: string): Promise<string> {
   }
 }
 
-export async function classify(repo: Repo): Promise<AiCategory> {
+/**
+ * classify 的内部版本：除了分类结果，还告诉调用方**这一次是不是降级出来的**。
+ *
+ * 为什么非要这个信号：`classify` 对外承诺不抛错（非配置类失败一律降级），而
+ * `'其他'` 同时也是一个**合法分类**——用户完全分不出「AI 挂了」和「这些仓库确实
+ * 属于其他」。enrichRepos 靠这个信号数出失败数，才不会把一整份全 `'其他'` 的结果
+ * 当成补全成功写进磁盘。
+ *
+ * 返回的 failure 是给日志和最终报错用的原文，不是给用户看的成品文案。
+ */
+async function classifyOnce(
+  repo: Repo
+): Promise<{ category: AiCategory | null; failure: string | null }> {
   if (isMockMode()) {
     const result = mockClassify(repo)
     // 兜底：分类必须落在 AI_CATEGORIES 内，越界一律归到"其他"
-    return AI_CATEGORIES.includes(result) ? result : '其他'
+    return { category: AI_CATEGORIES.includes(result) ? result : '其他', failure: null }
   }
 
   try {
@@ -248,15 +260,58 @@ export async function classify(repo: Repo): Promise<AiCategory> {
     // 模型可能回裸词，也可能回 JSON / 围栏，extractContent 两种都兼容（见 ai-prompts.ts 顶部契约）
     const category = normalizeCategory(extractContent(res.choices[0]?.message?.content))
     console.log(`[ai] classify ${repo.full_name} -> ${category}`)
-    return category
+    return { category, failure: null }
   } catch (err) {
+    // 配置类错误照旧冒泡：它是"该怎么修"的明确指路，不能被降级掉
     if (isConfigError(err)) throw err
-    console.error(`[ai] classify 失败，已降级为"其他"：${repo.full_name}`, errorMessage(err))
-    return '其他'
+    const message = errorMessage(err)
+    console.error(`[ai] classify 失败，已降级为"其他"：${repo.full_name}`, message)
+    return { category: null, failure: message }
   }
 }
 
+export async function classify(repo: Repo): Promise<AiCategory> {
+  const { category } = await classifyOnce(repo)
+  // 降级值仍然是 '其他'：这个函数（IPC AI_CLASSIFY）的对外契约就是"要么给一个分类，
+  // 要么抛配置错误"，不抛错的承诺不能在这里破。区分失败的责任在 enrichRepos。
+  return category ?? '其他'
+}
+
+/**
+ * 把这一轮的 AI 结果贴回**库里当前那份**仓库列表，返回合并后的整份列表。
+ *
+ * 为什么不直接 saveRepos(入参派生的那份)：补全要跑几分钟，这期间用户完全可能已经
+ * Star 了新仓库、取消收藏了旧的、clone 完了一个仓库，而 saveRepos 是整份替换——
+ * 写进去的会是补全开始那一刻的旧快照，把这几分钟里的改动全抹掉，而且会落盘。
+ *
+ * 三个刻意的取舍：
+ *  1. 以**库为准**遍历，不是以结果为准：补全期间被取消收藏的那些自然不会被复活。
+ *  2. 只贴 ai_category / ai_summary，其余字段（cloned_path、forked_full_name、
+ *     星标数…）一律保留库里的值。
+ *  3. 只在结果里**有值**时才贴：分类失败的那种带着 undefined 回来（见 enrichOne），
+ *     拿它覆盖会把上一轮已经算好的分类抹掉。
+ * 用 full_name 而不是 id 做键：本文件其余写路径（updateLocalState、clearClonedPaths）
+ * 也都是这个口径。
+ */
+async function mergeAiResults(results: Repo[]): Promise<Repo[]> {
+  const byFullName = new Map(results.map((r) => [r.full_name, r]))
+  const current = await store.getRepos()
+  return current.map((repo) => {
+    const fresh = byFullName.get(repo.full_name)
+    if (fresh === undefined) return repo
+    const next: Repo = { ...repo }
+    if (fresh.ai_category !== undefined) next.ai_category = fresh.ai_category
+    if (fresh.ai_summary !== undefined) next.ai_summary = fresh.ai_summary
+    return next
+  })
+}
+
 export async function enrichRepos(repos: Repo[]): Promise<Repo[]> {
+  // 这一轮真正去问了模型的有几个、其中失败几个。用来在最后判断是不是「全军覆没」
+  let attempted = 0
+  let failed = 0
+  let firstFailure: string | null = null
+
   // 跳过逻辑必须写在 mock 分支之外：MOCK_MODE=true 时 mockEnrich 内部同样带跳过，
   // 这样两种模式的可观察行为才一致（骨架版 mockEnrich 每次都重算，见 mock.ts）。
   const enrichOne = async (repo: Repo): Promise<Repo> => {
@@ -264,7 +319,12 @@ export async function enrichRepos(repos: Repo[]): Promise<Repo[]> {
     if (repo.ai_category && repo.ai_summary) return repo
 
     // 2. 分类
-    const category = await classify(repo)
+    attempted += 1
+    const { category, failure } = await classifyOnce(repo)
+    if (failure !== null) {
+      failed += 1
+      if (firstFailure === null) firstFailure = failure
+    }
 
     // 3. 摘要：已有的不动，缺的才去读 README
     let summary = repo.ai_summary ?? ''
@@ -279,7 +339,12 @@ export async function enrichRepos(repos: Repo[]): Promise<Repo[]> {
       }
     }
 
-    return { ...repo, ai_category: category, ai_summary: summary || undefined }
+    const next: Repo = { ...repo, ai_summary: summary || undefined }
+    // ⚠️ 分类失败时**不写假值**：留着原来那个 ai_category（通常是 undefined，界面上
+    // 显示「未分类」），下次补全会重试。拿 '其他' 顶上等于替用户下了个结论——
+    // 而真相是我们根本没问到。
+    if (category !== null) next.ai_category = category
+    return next
   }
 
   if (isMockMode()) return mockEnrich(repos)
@@ -299,12 +364,39 @@ export async function enrichRepos(repos: Repo[]): Promise<Repo[]> {
 
   try {
     const enriched = await Promise.all(tasks)
-    await store.saveRepos(enriched)
-    return enriched
+
+    // 一个都没分类成功 = 全军覆没。这几乎一定是整体性问题（Key 错、模型名错、
+    // 本地端点没起、中转挂掉、限频），而不是"这些仓库恰好都归其他"。
+    // 把这样一份结果写盘、再弹一句「AI 补全完成」，就是在替用户确认一件没发生过的事——
+    // 而且它会被落盘污染，重跑一次照样如此。宁可整批失败，让用户看见真话。
+    if (attempted > 0 && failed === attempted) {
+      throw new Error(
+        `${attempted} 个仓库一个都没分类成功（${firstFailure ?? '未知原因'}）`
+      )
+    }
+
+    // ⚠️ 不能直接 store.saveRepos(enriched)。enriched 是从**本函数收到的那份入参**
+    // 派生的，而补全要跑几分钟——这期间用户完全可能已经 Star 了新仓库、取消收藏了旧的、
+    // 或者 clone 完了一个仓库。saveRepos 是"整份替换"，写进去的会是那份旧快照：
+    // 刚 Star 的没了、刚取消收藏的又回来了、clone 路径退回到没记录。属于纯数据丢失，
+    // 而且会落盘。
+    //
+    // 所以按 id 合并**当前**库里的那份：只把 AI 结果贴上去，其余字段一律以库里为准；
+    // 库里已经没有的（补全期间被取消收藏）自然不会被复活，库里新出现的（补全期间 Star 的）
+    // 保持原样、下次补全再处理。返回合并后的整份列表——渲染层会拿它直接替换内存里的列表，
+    // 返回旧的 enriched 等于把上面这些覆盖又在界面上重演一遍。
+    const merged = await mergeAiResults(enriched)
+    await store.saveRepos(merged)
+    if (failed > 0) {
+      // 部分失败：写盘的是成功那部分，失败的那几条保持「未分类」，下次会重试
+      console.warn(`[ai] 有 ${failed}/${attempted} 个仓库分类失败，已保持未分类状态`)
+    }
+    return merged
   } catch (err) {
-    // 只有配置类错误（缺 Key / 缺模型名）会从 classify 冒泡上来，此时把原文透给用户，
-    // 让他知道该去设置页改哪个字段；其余失败才套一层「AI 补全失败」。
-    // 两种情况都不该把半截结果写库。
+    // 能落到这里的只有两种：
+    //   1) 配置类错误（缺 Key / 缺模型名）——把原文透给用户，让他知道该去设置页改哪个字段；
+    //   2) 上面那个「全军覆没」——它的文案自带数量和原因，套一层前缀正好读得通。
+    // 两种情况都不写库：半截结果（尤其是一份全 '其他' 的结果）比什么都没有更坏。
     if (isConfigError(err)) throw err
     console.error('[ai] enrichRepos 失败:', errorMessage(err))
     throw new Error(`AI 补全失败: ${errorMessage(err)}`)
