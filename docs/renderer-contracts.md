@@ -89,6 +89,32 @@ Linux 没有对应物；`roundedCorners` 在 Linux 上还依赖桌面环境是�
 所以 Fedora 上很可能既没有阴影圆角、也拖不动窗口边缘。真拖不动的话要补 8 条自绘缩放热区，
 那需要多开一条 `window:setBounds`（通道数 39 → 40）。
 
+## src/renderer/src/App.tsx —— 页面保活（负责人 P7）
+
+三个页面（Dashboard / Report / Settings）**首次访问之后不再卸载**，切 tab 只是给它加
+`hidden`（`display: none`）。Dashboard 是首屏，一开始就挂载。
+
+为什么不是条件渲染：切一次 tab 就整个重挂，代价是两条真实的用户可见 bug——
+**周报生成到一半切走，`await` 回来时组件已经不在，跑了半天的结果被整个丢弃**；
+**克隆进行中切走，`RepoActions` 的 `pendingAction` 跟着重置，进度条和「克隆中」一起消失**
+（克隆本身在主进程里跑，不受影响，丢的只是界面状态）。
+
+三条不能改的地方：
+
+1. **首次访问才挂载**。一开始把三页全挂上，Report / Settings 的 effect 会在启动时白跑一遍，
+   而且 echarts 会在 0×0 的容器里初始化。
+2. **渲染用的是派生值，不是 state 本身**。把"记下新 tab"只交给 `useEffect`，新页面会先渲染
+   一帧空、effect 跑完才出现，肉眼能看见闪一下。
+3. **不要换用 React 的 `<Activity>`**：它的 hidden 模式会清掉副作用，正好会掐断
+   `CloneProgressBar` 的轮询——那恰恰是这个改动要保住的东西。
+
+`display: none` 不会让图表画成空白：`echarts-for-react` 用 `size-sensor` 监听容器，
+它优先用 `ResizeObserver`，容器从 0×0 变回正常尺寸时会自动 `resize()`。
+
+⚠️ **对页面切换动效的硬约束**：正因为页面不能卸载，**页面级过渡不能用
+`AnimatePresence mode="wait"` + `motion.div key={tab}`**（那套的前提就是出场动画播完即卸载）。
+要做只能做"进入"方向的动效，或者改用纯 CSS 过渡。这条是给界面重做那个 PR 的。
+
 ## 主题偏好：渲染进程唯一的本地持久化例外 —— 负责人 P7
 
 主题选择（`light` / `dark` / `system`）存在 **localStorage** 的 `starpilot:theme` 键里，
