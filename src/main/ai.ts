@@ -14,13 +14,26 @@ import OpenAI from 'openai'
 import pLimit from 'p-limit'
 import type { Repo, AiCategory, AiConnectionResult } from '@shared/types'
 import { AI_CATEGORIES } from '@shared/types'
-import { isLocalEndpoint } from '@shared/ai-providers'
+import { isLocalEndpoint, type CollectionAnalysis } from '@shared/ai-providers'
 import { isMockMode, getEnv, setAiOverride } from './config'
-import { summarizePrompt, classifyPrompt, reportPrompt, searchPlanPrompt, parseSearchPlan } from './ai-prompts'
+import {
+  summarizePrompt,
+  classifyPrompt,
+  reportPrompt,
+  collectionAnalysisPrompt,
+  searchPlanPrompt,
+  parseSearchPlan
+} from './ai-prompts'
 import type { SearchPlan } from './ai-prompts'
 import * as store from './store'
 import * as github from './github'
-import { mockSummary, mockClassify, mockEnrich, mockReportSummary } from './mock'
+import {
+  mockSummary,
+  mockClassify,
+  mockEnrich,
+  mockReportSummary,
+  mockCollectionAnalysis
+} from './mock'
 
 /* ------------------------------------------------------------------ */
 /* 常量                                                                */
@@ -322,6 +335,59 @@ export async function generateReport(repos: Repo[]): Promise<string> {
     // 这个函数被 report.ts 调用，必须稳定不抛错（配置错误也降级，首页/周报页不能崩）
     console.error('[ai] generateReport 失败，已降级为本地文案:', errorMessage(err))
     return fallback
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* 收藏画像（总览页）                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 把一份**已经算好的统计摘要**交给模型，换回一段「你的收藏口味」的解读。
+ *
+ * 与 summarize / classify 的关键区别：本函数**承诺不抛错**，任何失败都从 data 里
+ * 返回一句人话。理由见 CollectionAnalysis 的注释——它是总览页上一个可选的增强卡片，
+ * 没配 Key 或中转挂了都不该把总览页拖垮，更不该弹一条红色 toast。
+ *
+ * 摘要由渲染进程算好后传进来（那边的纯函数已经有现成的统计结果），主进程只负责调模型。
+ */
+export async function analyzeCollection(digest: string): Promise<CollectionAnalysis> {
+  const text = digest.trim()
+  if (!text) return { text: '', hint: '还没有可分析的数据，先同步一次 Star 列表。' }
+  if (isMockMode()) return { text: mockCollectionAnalysis(), hint: '' }
+
+  // 配置类错误同样降级成 hint：这里是「增强卡片」，不是用户主动发起的必答操作
+  let model: string
+  try {
+    model = resolveModel()
+  } catch (err) {
+    return { text: '', hint: errorMessage(err) }
+  }
+
+  const env = getEnv()
+  if (!env.openaiKey && !isLocalEndpoint(env.openaiBaseUrl)) {
+    return {
+      text: '',
+      hint: '还没配置 AI：到「设置 → AI 配置」填好 Key（或指向本地 Ollama / LM Studio）就能生成。'
+    }
+  }
+
+  const started = Date.now()
+  try {
+    const res = await client().chat.completions.create({
+      model,
+      // 比分类高、比周报低：要一点表达力，但不能开始自由发挥
+      temperature: 0.5,
+      max_tokens: 400,
+      messages: [{ role: 'user', content: collectionAnalysisPrompt(text) }]
+    })
+    const out = readContent(res.choices[0]?.message)
+    if (!out) return { text: '', hint: '模型这次没返回内容，稍后再点一次试试。' }
+    console.log(`[ai] analyzeCollection 完成，耗时 ${Date.now() - started}ms`)
+    return { text: out, hint: '' }
+  } catch (err) {
+    console.error('[ai] analyzeCollection 失败:', errorMessage(err))
+    return { text: '', hint: `生成失败：${classifyConnectionError(err)}` }
   }
 }
 

@@ -187,3 +187,58 @@ function categoryBucketsCount(counts: Map<string, number>, total: number): Bucke
 export function isRealCategory(name: string): name is AiCategory {
   return (AI_CATEGORIES as readonly string[]).includes(name)
 }
+
+/**
+ * 把统计结果压成一段**给模型看的摘要**。
+ *
+ * 为什么在本地算好再喂给模型，而不是把仓库列表丢过去：
+ * 「一共几个仓库、语言怎么分布」这类问题是**确定性**的，让模型去数几十上百条
+ * 只会数错；它擅长的是解读倾向。所以这里把每个数字都算准，模型只负责说人话。
+ *
+ * 同时刻意只给**聚合数字**、几乎不给具体仓库名（只给一个最热的做锚点）——
+ * 给的名字越多，模型越容易开始复述甚至编造项目。
+ */
+export function buildAiDigest(stats: CollectionStats, now: number): string {
+  const date = new Date(now).toISOString().slice(0, 10)
+  const lines: string[] = []
+
+  lines.push(`收藏库统计（截至 ${date}）`)
+  lines.push(`仓库总数：${stats.total}`)
+
+  const langs = stats.topLanguages.map((b) => `${b.name} ${b.count}`).join('、')
+  lines.push(`语言：共 ${stats.languageCount} 种${langs ? `；最多的是 ${langs}` : ''}`)
+
+  // 只列**真分类**，未分类单独说一句。
+  // 「未分类」桶在仓库非空时恒 > 0，把它混进这一行会让「一条都没分类」的情况也
+  // 输出成「AI 分类分布：未分类 12」——标题写着"分布"，内容却是个空壳，
+  // 模型完全看不出「这人还没跑过分类」。所以两者分开措辞。
+  const cats = stats.categories
+    .filter((b) => b.count > 0 && isRealCategory(b.name))
+    .map((b) => `${b.name} ${b.count}`)
+    .join('、')
+  lines.push(
+    cats
+      ? `AI 分类分布：${cats}${stats.uncategorized > 0 ? `；另有 ${stats.uncategorized} 个未分类` : ''}`
+      : 'AI 分类分布：（都还没分类）'
+  )
+
+  const topics = stats.topTopics
+    .slice(0, 8)
+    .map((t) => `${t.name} ${t.count}`)
+    .join('、')
+  lines.push(`主题标签：共 ${stats.topicCount} 个${topics ? `；高频的有 ${topics}` : ''}`)
+
+  lines.push(`本周新增 ${stats.recent7} 个，上周 ${stats.prev7} 个`)
+  lines.push(`星标总数 ${stats.totalStars}，平均每个 ${stats.avgStars}`)
+  lines.push(
+    `活跃度：90 天内有过提交的 ${stats.activeRecently} 个，超过一年没提交的 ${stats.stale} 个` +
+      (stats.unknownPush > 0 ? `，另有 ${stats.unknownPush} 个拿不到提交时间` : '')
+  )
+  lines.push(`本地操作：已 clone ${stats.cloned} 个，已 fork ${stats.forked} 个`)
+
+  if (stats.topRepo !== null) {
+    lines.push(`星标最多的一个：${stats.topRepo.full_name}（${stats.topRepo.stargazers_count} stars）`)
+  }
+
+  return lines.join('\n')
+}

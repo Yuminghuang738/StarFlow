@@ -10,10 +10,10 @@ base: feat/ai-endpoint-agnostic (PR #31, 未合并) —— 基于它而非 main�
 
 tasks:
 - T1: done      # 栏目命名统一化
-- T2: pending   # star 总览：增加 AI 统计分析栏目
-- T3: pending   # star 管理：GitHub 式横条布局 + AI 一句话解释
-- T4: pending   # 猜你喜欢：从「选单个仓库」改为基于全部 star 动态推送
-- T5: pending   # 周报：结合实际 star 变动做 AI 总结
+- T2: done      # 收藏总览：30+ 项统计 + AI 收藏画像（commit 235965d / T2b）
+- T3: doing     # 收藏管理：GitHub 式横条布局 + AI 一句话解释
+- T4: pending   # 为你推荐：从「选单个仓库」改为基于全部 star 动态推送
+- T5: pending   # 每周回顾：结合实际 star 变动做 AI 总结
 - T6: pending   # 整体布局与视觉现代化
 - T7: pending   # 大幅增加动效与切换动画
 

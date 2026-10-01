@@ -8,7 +8,7 @@
 //
 // ⚠️ 时间口径必须是 UTC 日历天，与 Repo.starred_at / report.ts 一致。
 //    用本地时间算的话东八区深夜的记录会前后差一天，这个自检就会开始飘。
-import { computeCollectionStats, utcDayStart, isRealCategory } from '../../src/renderer/src/lib/collectionStats'
+import { computeCollectionStats, utcDayStart, isRealCategory, buildAiDigest } from '../../src/renderer/src/lib/collectionStats'
 import type { Repo } from '@shared/types'
 
 let failures = 0
@@ -221,6 +221,52 @@ console.log('\n=== 6) 汇总与确定性 ===')
   const b = computeCollectionStats(repos, NOW)
   check('同输入同输出（纯函数）', JSON.stringify(a) === JSON.stringify(b))
   check('换一个 now，窗口外的数据会变', computeCollectionStats(repos, NOW + 30 * DAY).recent7 === 0)
+}
+
+console.log('\n=== 7) buildAiDigest：喂给模型的摘要 ===')
+{
+  const repos = [
+    repo({ language: 'TypeScript', ai_category: '前端', topics: ['react'], stargazers_count: 1000 }),
+    repo({ language: 'TypeScript', ai_category: '前端', topics: ['react'], stargazers_count: 500 }),
+    repo({ language: 'Go', ai_category: '后端', topics: ['cli'], stargazers_count: 200 }),
+    repo({ language: null })
+  ]
+  const stats = computeCollectionStats(repos, NOW)
+  const digest = buildAiDigest(stats, NOW)
+
+  check('带上统计日期', digest.includes('2026-01-15'), digest.split('\n')[1])
+  check('仓库总数写进去了', digest.includes('仓库总数：4'))
+  check('语言分布写进去了', digest.includes('TypeScript 2'))
+  check('分类分布只列非空桶', digest.includes('前端 2') && digest.includes('后端 1'))
+  check('空桶不进摘要（否则模型会对着 0 说事）', !digest.includes('DevOps'))
+  check('本周新增与上周一起给，模型才能比趋势', /本周新增 \d+ 个，上周 \d+ 个/.test(digest))
+  check('活跃度三态都带上了', digest.includes('90 天内有过提交') && digest.includes('超过一年没提交'))
+  check('最热仓库作为锚点出现', digest.includes('星标最多的一个'))
+  check(
+    '只给出一个仓库全名，不把列表倒给模型',
+    digest.split('\n').filter((l) => l.includes('owner/repo-')).length === 1
+  )
+  check('摘要不含未分类的误导性措辞', !digest.includes('undefined') && !digest.includes('NaN'))
+}
+
+{
+  // 一条都没分类时不能出现空字符串拼接出来的「AI 分类分布：」
+  const stats = computeCollectionStats([repo()], NOW)
+  const digest = buildAiDigest(stats, NOW)
+  check('全未分类时给出可读提示', digest.includes('都还没分类'), digest.split('\n').find((l) => l.startsWith('AI 分类分布')))
+}
+
+{
+  // 有真分类、也有没跑的：两边都要说，模型才知道还有补全的余地。
+  // 这条是上面那个 bug 的另一半——「未分类」必须跟真分类分开措辞，不能并排当成一个分类。
+  const stats = computeCollectionStats(
+    [repo({ ai_category: '前端' }), repo({ ai_category: '前端' }), repo(), repo()],
+    NOW
+  )
+  const line = buildAiDigest(stats, NOW)
+    .split('\n')
+    .find((l) => l.startsWith('AI 分类分布'))
+  check('真分类与未分类分开表述', line === 'AI 分类分布：前端 2；另有 2 个未分类', line)
 }
 
 console.log(`\n${failures === 0 ? '== 全部通过 ==' : `== 有 ${failures} 条失败 ==`}`)

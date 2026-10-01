@@ -325,3 +325,20 @@ export function mockReportSummary(repos: Repo[]): string {
 
   return [...text].slice(0, 100).join('')
 }
+
+/**
+ * 收藏画像的 mock 文案。
+ *
+ * 与 mockReportSummary 不同，这里**不从入参推导**内容：画像要的是「你的口味」这种
+ * 聚合判断，mock 语料只有 31 条，编出来的结论看着像真的但其实和数据对不上——
+ * 那比一句老实的话更糟。所以这里只回一段固定的示例文案，长度与真实输出相当，
+ * 用来验证界面排版即可。
+ */
+export function mockCollectionAnalysis(): string {
+  return (
+    '你的收藏明显偏向能直接上手的工具与后端项目，语言集中在少数几个主力栈上，' +
+    '看得出更在意「拿过来能不能用」，而不是「看起来有没有意思」。' +
+    '不过有一批仓库收藏之后再没被碰过，可以挑几个真正用得上的 clone 到本地，' +
+    '让收藏夹变成工作台。'
+  )
+}

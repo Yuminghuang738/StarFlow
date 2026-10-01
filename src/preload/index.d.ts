@@ -14,6 +14,7 @@ import type {
   AiConfigPatch,
   AiConnectionResult
 } from '@shared/types'
+import type { CollectionAnalysis } from '@shared/ai-providers'
 
 export interface StarFlowApi {
   github: {
@@ -40,6 +41,8 @@ export interface StarFlowApi {
     enrichRepos(repos: Repo[]): Promise<IpcResult<Repo[]>>
     generateReport(repos: Repo[]): Promise<IpcResult<string>>
     testConnection(): Promise<IpcResult<AiConnectionResult>>
+    /** 收藏画像。入参是渲染进程算好的统计摘要；失败与未配置都走 data（不抛错） */
+    analyzeCollection(digest: string): Promise<IpcResult<CollectionAnalysis>>
   }
   store: {
     getRepos(): Promise<IpcResult<Repo[]>>

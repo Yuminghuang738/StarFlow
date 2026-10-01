@@ -141,6 +141,9 @@ function registerHandlers(): void {
   // 探针不抛错：失败也以 { ok: true, data: { ok: false, message } } 正常返回，
   // 让设置页能直接把 message 渲染成一行提示，而不是走 IpcResult 的 error 分支弹红 toast。
   handle(IPC.AI_TEST_CONNECTION, () => ai.testConnection())
+  // 收藏画像：同样是「不抛错」的那一类——失败 / 未配置都以 { text: '', hint } 返回，
+  // 总览页把 hint 渲染成一行说明即可，不该因为没配 Key 就弹 toast。
+  handle(IPC.AI_ANALYZE_COLLECTION, (digest: string) => ai.analyzeCollection(digest))
 
   // 存储
   handle(IPC.STORE_GET_REPOS, () => store.getRepos())

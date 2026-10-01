@@ -1,11 +1,18 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useRepoStore } from '../store/repoStore'
 import { Card } from '../components/common/Card'
+import { Button } from '../components/common/Button'
 import { EmptyState } from '../components/common/EmptyState'
 import { LanguagePie } from '../components/charts/LanguagePie'
 import { StarTrendChart } from '../components/charts/StarTrendChart'
 import { formatStars, languageColor } from '../components/repo/repoFormat'
-import { computeCollectionStats, isRealCategory, type CollectionStats } from '../lib/collectionStats'
+import {
+  buildAiDigest,
+  computeCollectionStats,
+  isRealCategory,
+  type CollectionStats
+} from '../lib/collectionStats'
+import { unwrap, ipcErrorMessage } from '../lib/api'
 import { cn } from '../lib/cn'
 import type { Repo } from '@shared/types'
 
@@ -21,7 +28,33 @@ import type { Repo } from '@shared/types'
 export function Overview(): React.JSX.Element {
   const repos = useRepoStore((s) => s.repos)
 
-  const stats = useMemo(() => computeCollectionStats(repos, Date.now()), [repos])
+  // 时钟与统计一起算进同一个 useMemo：纯函数仍然显式接收 now（自检可以喂固定时间），
+  // 而时间戳作为**计算结果的一部分**返回，就不会出现「依赖数组里有 repos、函数体里
+  // 没用到 repos」这种被 exhaustive-deps 判为多余依赖的写法。
+  const snapshot = useMemo(() => {
+    const at = Date.now()
+    return { at, stats: computeCollectionStats(repos, at) }
+  }, [repos])
+  const { at: now, stats } = snapshot
+
+  // —— AI 收藏画像 ——
+  // 刻意**不做**进页面就自动生成：那会在用户只是点一下侧边栏时就消耗一次额度，
+  // 撞上限频或没配 Key 时也很突兀。与「为你推荐」页同一条约定：显式按钮。
+  const [analysis, setAnalysis] = useState<{ text: string; hint: string } | null>(null)
+  const [analyzing, setAnalyzing] = useState(false)
+
+  async function generateAnalysis(): Promise<void> {
+    setAnalyzing(true)
+    try {
+      // 主进程保证不抛错：未配置 / 失败都以 { text: '', hint } 返回
+      setAnalysis(await unwrap(window.api.ai.analyzeCollection(buildAiDigest(stats, now))))
+    } catch (e) {
+      // 走到这里只可能是 IPC 本身出了问题（主进程没起来之类），仍然给一行人话
+      setAnalysis({ text: '', hint: ipcErrorMessage(e) })
+    } finally {
+      setAnalyzing(false)
+    }
+  }
 
   if (repos.length === 0) {
     return (
@@ -109,6 +142,52 @@ export function Overview(): React.JSX.Element {
         <LanguagePie />
         <StarTrendChart />
       </section>
+
+      {/* AI 收藏画像：把上面那些数字交给模型解读成一段人话。
+          数据摘要由本地算好再传（见 buildAiDigest），模型只负责解读、不负责统计。 */}
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-medium text-fg">AI 收藏画像</h2>
+            <p className="mt-0.5 text-[11px] text-fg-subtle">
+              把上面的统计交给 AI，解读你的收藏口味与倾向
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant={analysis === null ? 'primary' : 'ghost'}
+            loading={analyzing}
+            onClick={() => void generateAnalysis()}
+          >
+            {analysis === null ? '生成画像' : '重新生成'}
+          </Button>
+        </div>
+
+        <div className="mt-3">
+          {analyzing && analysis === null ? (
+            <div className="space-y-2" aria-busy>
+              {/* 骨架高度贴近真实输出（120~200 字约 3 行） */}
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    'h-4 animate-pulse rounded bg-surface-2',
+                    i === 2 ? 'w-2/3' : 'w-full'
+                  )}
+                />
+              ))}
+            </div>
+          ) : analysis === null ? (
+            <p className="text-sm text-fg-subtle">
+              点「生成画像」，AI 会根据你的语言分布、分类偏好和活跃度写一段点评。
+            </p>
+          ) : analysis.text ? (
+            <p className="text-sm leading-relaxed text-fg-muted">{analysis.text}</p>
+          ) : (
+            <p className="text-sm text-fg-subtle">{analysis.hint}</p>
+          )}
+        </div>
+      </Card>
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
