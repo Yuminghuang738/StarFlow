@@ -268,7 +268,8 @@ export async function forYou(offset = 0): Promise<RecommendForYou> {
 /**
  * 「一句话找仓库」。AI 只是**可选的**增强：
  * 有计划就按计划的限定符搜，没有（未配置 / 解析失败 / mock 模式）就用清洗过的原句搜。
- */export async function forQuery(query: string): Promise<Repo[]> {
+ */
+export async function forQuery(query: string): Promise<Repo[]> {
   const q = query.trim()
   if (!q) return []
 

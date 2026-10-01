@@ -83,24 +83,35 @@ function downloadMarkdown(report: WeeklyReport): void {
  * 查 watchlist 里每个仓库的 Release。
  *
  * 刻意**不走 lib/api 的 call()**：那个失败会弹 toast，而这一块是页面的被动增强——
- * 没配 Token 时 10 个仓库就是 10 条红 toast，把整页刷满。这里失败就当这个仓库
- * 这周没动静，静默跳过；周报的主体（新增列表、图表、AI 总结）跟它无关。
+ * 没配 Token 时 10 个仓库就是 10 条红 toast，把整页刷满。
+ *
+ * 失败降级成空数组，但**降级不等于当成"没动静"**：失败数原样带回去，让调用方
+ * 能把"不知道"和"确实没有"分开显示。只降级不汇报的话，API 全挂时页面上会
+ * 理直气壮地写「本周新版本 0」——那是替用户下的一个结论，而我们其实一无所知。
  *
  * 分片串行而不是全并发：收藏一多，一次性打出去十几条请求会撞二级限频。
  */
-async function loadReleases(watch: Repo[]): Promise<RepoReleaseEntry[]> {
+async function loadReleases(watch: Repo[]): Promise<{
+  entries: RepoReleaseEntry[]
+  /** 有多少个仓库的 Release 是**没查到**（而不是确实没有）的 */
+  failed: number
+}> {
   const out: RepoReleaseEntry[] = []
+  let failed = 0
   for (let i = 0; i < watch.length; i += RELEASE_CONCURRENCY) {
     const batch = watch.slice(i, i + RELEASE_CONCURRENCY)
     const results = await Promise.all(
       batch.map(async (r): Promise<RepoReleaseEntry> => {
         const res = await window.api.github.fetchReleases(r.full_name)
+        // 失败记一笔再降级成空数组：不弹 toast（见上面的说明），但也不能让
+        // 「没查到」在下游冒充「确实没有」——那是两件事，卡片上得看得出来。
+        if (!res.ok) failed += 1
         return { fullName: r.full_name, releases: res.ok ? res.data : [] }
       })
     )
     out.push(...results)
   }
-  return out
+  return { entries: out, failed }
 }
 
 /**
@@ -142,6 +153,18 @@ export function Report(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null)
   // 「你收藏的项目这周有没有动静」。null = 还在查（与空数组区分开，免得先闪一下空态）
   const [activity, setActivity] = useState<ReleaseHit[] | null>(null)
+  /**
+   * 这一批 Release 的查询结果里，有多少个是**没查到**的（以及一共查了几个）。
+   *
+   * 光有 activity 不够：查询失败时下游执行的正是「没查到 → 当它这周没动静」，
+   * 于是卡片会理直气壮地写出「本周新版本 0」。那句 0 是个结论，而真实情况是
+   * 一次都没查成（没 Token / 限频 / 断网）——把"不知道"说成"确实没有"，
+   * 正是本项目最忌讳的那类谎。
+   *
+   * 所以要区分三种态：还在查（null）、查完了但全军覆没（显示 —）、
+   * 查到了（显示数字，哪怕数字是 0）。部分失败时数字仍然可信，另给一行提示。
+   */
+  const [releaseFail, setReleaseFail] = useState<{ failed: number; total: number } | null>(null)
   const totalRepos = useRepoStore((s) => s.repos.length)
   const palette = useChartTheme()
 
@@ -204,12 +227,13 @@ export function Report(): React.JSX.Element {
   useEffect(() => {
     if (report === null) {
       setActivity(null)
+      setReleaseFail(null)
       return
     }
     let cancelled = false
     const watch = pickWatchlist(report)
     void (async () => {
-      const entries = await loadReleases(watch)
+      const { entries, failed } = await loadReleases(watch)
       if (cancelled) return
       setActivity(
         pickLatestInWindow(
@@ -218,6 +242,7 @@ export function Report(): React.JSX.Element {
           new Date(report.weekEnd).getTime()
         )
       )
+      setReleaseFail({ failed, total: watch.length })
     })()
     return () => {
       cancelled = true
@@ -270,12 +295,28 @@ export function Report(): React.JSX.Element {
               <div className="mt-1 text-sm text-fg-muted">累计收藏</div>
             </Card>
             {/* 这一格原来是「Top 项目」= report.topRepos.length，恒等于 5（不足时等于总数），
-                是个不会变也没有信息量的数。换成真正随本周变化的一个。 */}
+                是个不会变也没有信息量的数。换成真正随本周变化的一个。
+
+                ⚠️ 三个态不能压成两个。查到 0 个新版本要显示 0；**一个都没查成**时显示的是"—"
+                加一行说明，绝不能显示 0——那是在替用户下一个"你的收藏这周都没发版"的结论。
+                部分失败（查到一部分）时数字仍然可信，另给一行提示说明有几个没查到。 */}
             <Card className="flex-1">
               <div className="text-3xl font-semibold tabular-nums">
-                {activity === null ? '—' : activity.length}
+                {activity === null ||
+                (releaseFail !== null &&
+                  releaseFail.total > 0 &&
+                  releaseFail.failed === releaseFail.total)
+                  ? '—'
+                  : activity.length}
               </div>
               <div className="mt-1 text-sm text-fg-muted">本周新版本</div>
+              {releaseFail !== null && releaseFail.failed > 0 ? (
+                <div className="mt-0.5 text-[11px] text-warning">
+                  {releaseFail.total > 0 && releaseFail.failed === releaseFail.total
+                    ? '查询失败（Token 或限频）'
+                    : `另有 ${releaseFail.failed} 个没查到`}
+                </div>
+              ) : null}
             </Card>
           </div>
 
@@ -327,7 +368,15 @@ export function Report(): React.JSX.Element {
               <ReactECharts option={langOption} style={{ height: 260 }} />
             </Card>
             <Card>
-              <h2 className="text-sm font-medium text-fg">本周新增趋势</h2>
+              {/* ⚠️ 标题是「最近 7 天」而不是「本周」，因为 dailyStarCount 就是
+                  最近 7 个 UTC 日历日的滚动窗口，而上面那张卡（newStars）是
+                  本周一 00:00 UTC 起的日历周——两者只有恰好周日才相等。
+                  标题跟着说「本周」的话，周三打开这一页会看到卡片 3、图里 20，
+                  用户只能以为其中一个算错了。meta 里那个数字从数据现算，
+                  不写死，免得窗口改了文案不改。 */}
+              <h2 className="text-sm font-medium text-fg">
+                最近 {Object.keys(report.dailyStarCount).length} 天新增趋势
+              </h2>
               <ReactECharts option={trendOption} style={{ height: 260 }} />
             </Card>
           </div>

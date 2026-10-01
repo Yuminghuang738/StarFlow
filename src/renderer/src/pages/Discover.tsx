@@ -100,13 +100,28 @@ export function Discover(): React.JSX.Element {
           }
         />
       ) : results.length === 0 ? (
+        // ⚠️ 必须先看 searchError：出错时 store 会把 results 置空，
+        // 只看长度的话，下面那张红色报错卡的正下方会再长出一条
+        // 「没有找到与「q」匹配的仓库 / 换个说法试试」——把"根本没搜成"
+        // 说成"搜了但没结果"，用户于是去改词，而问题在于 Token 或限频。
+        // 口径与 Similar.tsx 对齐：没结果和没搜成是两种空态。
         <EmptyState
-          title={`没有找到与「${searchedQuery}」匹配的仓库`}
-          description="换个说法试试；已经 Star 过的仓库不会再出现在结果里"
+          title={
+            searchError === null
+              ? `没有找到与「${searchedQuery}」匹配的仓库`
+              : `「${searchedQuery}」这次没能搜成`
+          }
+          description={
+            searchError === null
+              ? '换个说法试试；已经 Star 过的仓库不会再出现在结果里'
+              : '先解决上面的报错（多半是 Token 或限频），再搜一次'
+          }
           action={
-            <Button size="sm" variant="ghost" onClick={() => run(EXAMPLES[0] ?? '')}>
-              试试示例
-            </Button>
+            searchError === null ? (
+              <Button size="sm" variant="ghost" onClick={() => run(EXAMPLES[0] ?? '')}>
+                试试示例
+              </Button>
+            ) : undefined
           }
         />
       ) : (

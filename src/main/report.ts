@@ -52,6 +52,13 @@ export async function generate(): Promise<WeeklyReport> {
 
   // 最近 7 天必须补齐 7 个连续日期、缺的补 0，否则 ECharts 折线会断点。
   // 注意口径：全程 UTC，与 starred_at 一致；不要改成按本地时间格式化日期 key。
+  //
+  // ⚠️ 这里的 7 是**从今天往回数的滚动 7 天**，与同一页的「本周新增 Star」卡
+  // （newStars，本周一 00:00 UTC 起）**不是同一扇窗**——只有恰好周日两者才相等。
+  // 界面上那张图的标题因此写的是「最近 7 天」而不是「本周」，见 Report.tsx。
+  // 想改成日历周的话要连着卡片口径一起改，否则同页两个"周"会互相打脸。
+  // 天数与 collectionStats 的 RECENT_WINDOW_DAYS 是同一个窗口（渲染进程那边
+  // 的 starTrendBuckets 是它的纯函数版），改这里记得一起改。
   const dailyStarCount: Record<string, number> = {}
   const todayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
   for (let i = 6; i >= 0; i--) {
