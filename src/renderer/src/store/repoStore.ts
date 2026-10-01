@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Repo, LocalState } from '@shared/types'
+import type { Repo, LocalState, IpcResult } from '@shared/types'
 import { unwrap, ipcErrorMessage } from '../lib/api'
 import { pushToast } from '../components/common/Toast'
 import { DEFAULT_FILTERS, selectRepos, type RepoFilters } from '../lib/repoQuery'
@@ -42,6 +42,20 @@ export interface RepoStore {
   pruneLocalClones(): Promise<void>
   // —— 取消克隆（取消克隆 PR 落地）：裸调 window.api，失败才提示，false 不是错误 ——
   cancelClone(fullName: string): Promise<void>
+  /**
+   * **真的在跑**克隆的那个仓库（不是"点了 Clone"）。null = 现在没有克隆在跑。
+   *
+   * 为什么不能只看 RepoActions 自己的 pendingAction：`clone()` 的前半段是原生目录选择框，
+   * 用户可以在里面停留几十秒；而主进程的进度记录在克隆结束后是**刻意留着**最后一条的
+   * （local.ts 与 clone-progress 自检都钉着"克隆结束后记录仍在，不闪回 null"——它是为了
+   * 不让进度条在收尾那一刻闪回空白）。于是这段时间里进度条一挂上就会轮询到**上一次**
+   * 克隆的记录：一条 100% 的满进度 + 上一次的「已用 312s」，看起来像"这次已经跑完了"。
+   *
+   * 为什么不在类型上解决：`CloneProgress`（shared/types.ts）里没有"这一条属于哪一次"的
+   * 信息，前端**分不出**那也是真的——而给它加字段属于动冻结契约。改到这一侧就不需要
+   * 分得出了：界面只在真的开始跑之后才去问，之前那些记录根本不会被读到。
+   */
+  cloningFullName: string | null
   // —— 新增 token 方法 ——
   /**
    * 读「有没有 token」。**null 表示这一次没读到，不是"没有"**——见实现里的说明。
@@ -122,6 +136,7 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
   enriching: false,
   error: null,
   loadError: null,
+  cloningFullName: null,
   filters: { ...DEFAULT_FILTERS },
 
   visibleRepos() {
@@ -276,7 +291,17 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
       // 刻意裸调、不用 unwrap()：主进程的 clone 现在用 data === null 表示"已被用户
       // 取消"——那是一次成功但无结果的调用，不能按失败处理。而 unwrap 在 { ok: false }
       // 时会先弹一条红 toast 再抛错，只有真失败才该弹，取消必须静默。
-      const res = await window.api.local.clone(fullName, dir)
+      //
+      // cloningFullName 只在**这一刻**才有值：目录选择框已经关掉、这次克隆真的开跑了。
+      // 进度条与「取消克隆」都据此挂载（见 RepoActions 与这个字段的说明）——
+      // 早一步挂上就会读到上一次留下的那条 100% 记录。
+      let res: IpcResult<string | null>
+      set({ cloningFullName: fullName })
+      try {
+        res = await window.api.local.clone(fullName, dir)
+      } finally {
+        set({ cloningFullName: null })
+      }
       if (!res.ok) {
         set({ error: res.error })
         pushToast({ type: 'error', message: res.error })

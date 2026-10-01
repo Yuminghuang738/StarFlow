@@ -43,6 +43,12 @@ export interface RepoStore {
   pruneLocalClones(): Promise<void>;
   // —— 取消克隆（取消克隆 PR 落地）：必须裸调 window.api，不能走 unwrap() ——
   cancelClone(fullName: string): Promise<void>;
+  // cloningFullName：**真的在跑**克隆的那个仓库（null = 没有在跑）。进度条与
+  //   「取消克隆」按钮挂它，不挂 RepoActions 自己的 pendingAction——后者从点下按钮
+  //   就有值，而那时用户还在目录选择框里，主进程的进度记录仍是**上一次**留下的
+  //   那条 100%（local.ts 刻意保留，见 clone-progress 自检），挂上去会显示一条
+  //   满进度 + 上一次的「已用 Ns」，像"这次已经跑完了"。
+  cloningFullName: string | null;
   // —— token：hasToken/saveToken 供设置页使用 ——
   // hasToken 返回 null 表示「这一次没读到」，与 false（确实没配置）是两回事，
   // 页面必须分开显示，否则一次读取失败会装成「未配置」
