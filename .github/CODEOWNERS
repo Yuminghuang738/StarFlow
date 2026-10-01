@@ -12,6 +12,7 @@
 /src/main/index.ts      @Yuminghuang738
 /src/main/config.ts     @Yuminghuang738
 /src/main/mock.ts       @Yuminghuang738
+/src/main/auth.ts       @Yuminghuang738
 
 # 渲染进程脚手架：不属于 P6 的 store/lib/components/pages，见 prompts/p6-renderer-core.md 第 2 节
 /src/renderer/index.html        @Yuminghuang738

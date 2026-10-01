@@ -563,8 +563,9 @@ git add -A && git commit -m "feat(preload): 暴露 window.api 完整签名"
 
 【src/preload/index.ts 要求】
 - 用 contextBridge.exposeInMainWorld('api', api) 暴露，api 对象结构严格如下
-  （一共 **22 个方法**，与 ipc.ts 的 22 个通道一一对应）：
-  github 6 + local 3 + ai 4 + store 5 + report 1 + recommend 1 + tracker 2 = 22
+  （一共 **27 个方法**，与 ipc.ts 的 27 个通道一一对应）：
+  github 6 + local 3 + ai 4 + store 6 + report 1 + recommend 1 + tracker 2 + auth 4 = 27
+  （22 → 27 是后加的 GitHub OAuth Device Flow 登录，见 Part D）
   ⚠️ 最容易在抄写时被漏掉的是 ai.enrichRepos（因为它不在 guide.md 原契约里，是后加的），务必确认它在
 - 每个方法就是 ipcRenderer.invoke(IPC.XXX, ...args)，**不做任何错误处理**，因为主进程已经统一包了 IpcResult
 - 从 '@shared/ipc' 引入 IPC，从 '@shared/types' 引入类型
@@ -874,8 +875,8 @@ git add -A && git commit -m "feat(main): 各业务模块 stub 与可用版 store
 **完成后必做**：
 ```bash
 npm run typecheck && npm run lint && npm run build
-# 检查 22 个通道是否都注册了
-grep -c "ipcMain.handle" src/main/index.ts    # 必须是 22
+# 检查 27 个通道是否都注册了
+grep -c "ipcMain.handle" src/main/index.ts    # 必须是 27
 ls out/preload/                                # 确认产物文件名是 index.mjs
 ```
 ```bash
@@ -908,7 +909,7 @@ git add -A && git commit -m "feat(main): 注册全部 IPC handler 与窗口生�
 注意：ipcMain.handle 的回调第一个参数是 event，必须丢弃掉再传业务参数，
 否则业务函数会收到多余的 event 参数。
 
-【必须注册的 22 个通道（一个都不能少，也不能多）】
+【必须注册的 27 个通道（一个都不能少，也不能多）】
 handle(IPC.GITHUB_FETCH_STARRED, () => github.fetchStarred())
 handle(IPC.GITHUB_FETCH_README, (fullName: string) => github.fetchReadme(fullName))
 handle(IPC.GITHUB_FETCH_RELEASES, (fullName: string) => github.fetchReleases(fullName))
@@ -927,10 +928,15 @@ handle(IPC.STORE_SAVE_REPOS, (repos: Repo[]) => store.saveRepos(repos))
 handle(IPC.STORE_SAVE_TOKEN, (token: string) => store.saveToken(token))
 handle(IPC.STORE_HAS_TOKEN, () => store.hasToken())
 handle(IPC.STORE_UPDATE_LOCAL_STATE, (fullName: string, state: Partial<LocalState>) => store.updateLocalState(fullName, state))
+handle(IPC.STORE_CLEAR_TOKEN, () => store.clearToken())
 handle(IPC.REPORT_GENERATE, () => report.generate())
 handle(IPC.RECOMMEND_SIMILAR, (fullName: string) => recommend.similar(fullName))
 handle(IPC.TRACKER_START, () => tracker.start())
 handle(IPC.TRACKER_STOP, () => tracker.stop())
+handle(IPC.AUTH_GET_STATE, () => auth.getState())
+handle(IPC.AUTH_START_DEVICE_FLOW, () => auth.startDeviceFlow())
+handle(IPC.AUTH_WAIT_FOR_LOGIN, () => auth.waitForLogin())
+handle(IPC.AUTH_CANCEL_DEVICE_FLOW, () => auth.cancelDeviceFlow())
 
 【unstar 的额外约定（破坏性操作，写死在这里）】
 IPC.GITHUB_UNSTAR 的 handler 不能只调 github.unstar，必须：
@@ -1206,7 +1212,7 @@ MOCK_MODE=true npm run dev
 请检查你刚才为 StarPilot 生成的全部骨架代码，逐条回答"是/否"并给出文件与行号：
 
 1. src/shared/types.ts 和 src/shared/ipc.ts 是否与需求文档逐字一致？有没有被改动、增删字段？
-2. src/main/index.ts 是否注册了全部 22 个 IPC 通道？有没有漏掉 AI_ENRICH_REPOS 或多注册？
+2. src/main/index.ts 是否注册了全部 27 个 IPC 通道？有没有漏掉 AI_ENRICH_REPOS 或多注册？
 3. ipcMain.handle 的包装器是否正确丢弃了第一个 event 参数，没有把它传给业务函数？
 4. 所有 handler 是否都返回 IpcResult 结构（{ ok: true, data } / { ok: false, error }）？
 5. GITHUB_UNSTAR 的 handler 是否在调用 github.unstar 之后，还从 store 删除了该仓库并写回？
@@ -1243,7 +1249,7 @@ MOCK_MODE=true npm run dev
 - [ ] `npm run typecheck` → 0 error
 - [ ] `npm run lint` → 0 error
 - [ ] `npm run build` → 产出 `out/main/index.js`、`out/preload/index.mjs`、`out/renderer/index.html`
-- [ ] `grep -c "ipcMain.handle" src/main/index.ts` → **22**
+- [ ] `grep -c "ipcMain.handle" src/main/index.ts` → **27**
 - [ ] `ls out/preload/` → 文件名确实是 `index.mjs`（不是 `.js`，否则主进程 preload 路径会 404）
 
 **功能（`MOCK_MODE=true npm run dev`）**
@@ -1419,7 +1425,7 @@ gh pr list --state merged --limit 10
 # 骨架验收清单（本文件 Part A 第 13 节）是否仍然通过
 npm ci
 npm run typecheck && npm run lint && npm run build
-grep -c "ipcMain.handle" src/main/index.ts      # 22
+grep -c "ipcMain.handle" src/main/index.ts      # 27
 ls out/preload/                                  # index.mjs
 
 # 契约有没有被偷改（对比冻结版本）

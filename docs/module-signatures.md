@@ -5,7 +5,7 @@
 
 ## src/main/config.ts —— 负责人 P7
 export function isMockMode(): boolean
-export function getEnv(): { openaiKey: string; openaiBaseUrl: string; modelName: string; githubToken: string }
+export function getEnv(): { openaiKey: string; openaiBaseUrl: string; modelName: string; githubToken: string; githubOauthClientId: string }
 
 ## src/main/store.ts —— 负责人 P3
 export function getToken(): Promise<string | null>
@@ -14,12 +14,14 @@ export function hasToken(): Promise<boolean>
 export function getRepos(): Promise<Repo[]>
 export function saveRepos(repos: Repo[]): Promise<void>
 export function updateLocalState(fullName: string, state: Partial<LocalState>): Promise<void>
+export function clearToken(): Promise<void>
 
 说明：
 - MOCK_MODE=true 时读写 starpilot.mock.db.json，否则读写 starpilot.db.json（避免污染真实数据）
 - getRepos() 在读到的列表为空且 MOCK_MODE=true 时，用 mockStarred() 的结果做种子并落盘
 - saveToken 优先用 Electron safeStorage 加密后存本地（base64 密文），禁止以任何形式把明文写入磁盘
 - safeStorage.isEncryptionAvailable() 为 false（例如没装 keyring 的 Linux）时，token 只保存在主进程内存中、不写盘，重启后需在设置页重新填写
+- clearToken 先写盘、再清内存（与 saveToken 相反），保证拿不到「磁盘上还有、内存已清」的中间态；不清 reposCache
 
 ## src/main/mock.ts —— 负责人 P7
 export function mockStarred(): Promise<Repo[]>
@@ -71,3 +73,17 @@ export function similar(fullName: string): Promise<Repo[]>
 ## src/main/tracker.ts —— 负责人 P4
 export function start(): void
 export function stop(): void
+
+## src/main/auth.ts —— 负责人 P7
+export function getState(): AuthState
+export function startDeviceFlow(): Promise<DeviceFlowInfo>
+export function waitForLogin(): Promise<LoginOutcome>
+export function cancelDeviceFlow(): void
+export function dispose(): void
+
+说明：GitHub OAuth Device Flow（无需 client_secret，client id 来自环境变量
+GITHUB_OAUTH_CLIENT_ID）。waitForLogin 只 resolve 不 reject，取消 / 超时 / 失败都算
+正常结局，走 LoginOutcome 的 data 分支返回。token 绝不进渲染进程，LoginOutcome 只带
+AuthUser。MOCK_MODE=true 时不提供该能力（AuthState.available 恒为 false），
+因为 mock.ts 是全项目唯一的假数据源，这里不另造一套假的设备流。
+dispose() 挂在 app.on('before-quit') 上，清掉挂起的轮询定时器。

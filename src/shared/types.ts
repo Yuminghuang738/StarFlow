@@ -76,6 +76,45 @@ export interface WeeklyReport {
   aiSummary: string;
 }
 
+// ============================================================
+// 登录（GitHub OAuth Device Flow）
+// ============================================================
+
+/** 来自 GET https://api.github.com/user —— 沿用 GitHub 的 snake_case */
+export interface AuthUser {
+  login: string;
+  avatar_url: string | null;
+  name: string | null;
+}
+
+export interface DeviceFlowInfo {
+  userCode: string;
+  verificationUri: string;
+  /** 剩余有效秒数（每次返回时重算），不是 GitHub 原始的 expires_in */
+  expiresIn: number;
+}
+
+export interface AuthState {
+  /** false = MOCK 模式或未配置 client id，此时不展示登录按钮，只展示 reason */
+  available: boolean;
+  reason: string | null;
+  /**
+   * 还在进行中的设备流。渲染进程 reload 会丢掉挂起的 waitForLogin，
+   * 但主进程的流程要继续活着（用户正在浏览器里操作），靠这个字段恢复 UI。
+   */
+  pending: DeviceFlowInfo | null;
+}
+
+/**
+ * 登录终态。cancelled / expired / error 都算正常结局，走 data 返回，
+ * 不走 IpcResult 的 error 分支——否则前端 unwrap() 会弹一条错误的 toast。
+ */
+export type LoginOutcome =
+  | { status: 'success'; user: AuthUser }
+  | { status: 'cancelled' }
+  | { status: 'expired' }
+  | { status: 'error'; message: string };
+
 export type IpcResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string };

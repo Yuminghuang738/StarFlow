@@ -5,7 +5,10 @@ import type {
   AiCategory,
   LocalState,
   IpcResult,
-  WeeklyReport
+  WeeklyReport,
+  AuthState,
+  DeviceFlowInfo,
+  LoginOutcome
 } from '@shared/types'
 
 export interface StarPilotApi {
@@ -34,6 +37,7 @@ export interface StarPilotApi {
     saveToken(token: string): Promise<IpcResult<void>>
     hasToken(): Promise<IpcResult<boolean>>
     updateLocalState(fullName: string, state: Partial<LocalState>): Promise<IpcResult<void>>
+    clearToken(): Promise<IpcResult<void>>
   }
   report: {
     generate(): Promise<IpcResult<WeeklyReport>>
@@ -44,6 +48,12 @@ export interface StarPilotApi {
   tracker: {
     start(): Promise<IpcResult<void>>
     stop(): Promise<IpcResult<void>>
+  }
+  auth: {
+    getState(): Promise<IpcResult<AuthState>>
+    startDeviceFlow(): Promise<IpcResult<DeviceFlowInfo>>
+    waitForLogin(): Promise<IpcResult<LoginOutcome>>
+    cancelDeviceFlow(): Promise<IpcResult<void>>
   }
 }
 
