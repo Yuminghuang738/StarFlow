@@ -206,7 +206,7 @@ preload 以 `contextIsolation: true`、`nodeIntegration: false` 加载。渲染�
 2. store 调 `window.api.github.fetchStarred()`。这是 preload 暴露的方法，内部执行 `ipcRenderer.invoke('github:fetchStarred')`，不传任何参数。
 3. 主进程的 `handle()` 包装器收到调用，丢弃第一个 `event` 参数，转到 `github.fetchStarred()`。
    - Mock 模式：直接返回 `mock-data.json` 里的数据。
-   - 真实模式：用 Octokit 调 `GET /user/starred`，带 `Accept: application/vnd.github.star+json` 以拿到 `starred_at`；每页 100 条、最多 3 页，最后按 `starred_at` 倒序。
+   - 真实模式：用 Octokit 调 `GET /user/starred`，带 `Accept: application/vnd.github.star+json` 以拿到 `starred_at`；每页 100 条，翻到不满一页为止（上限 20 页 = 2000 条），最后按 `starred_at` 倒序。
 4. 结果以 `IpcResult<Repo[]>` 回到渲染进程。store 用 `mergeRepos()` 把它和本地旧数据按 `full_name` 合并，**保留本地已有的 `ai_summary` / `ai_category` / `local`（clone 路径、fork 标记）**，否则每次同步都会丢掉这些标记。
 5. 合并结果再经 `store:saveRepos` 送回主进程；`store.saveRepos()` 用 lowdb 原子写入 `userData` 下的库文件，并同步更新主进程内的读缓存。
 6. 渲染进程最后 `set({ repos: merged })`，列表与图表重渲染，成功提示由 store 统一弹出。

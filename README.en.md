@@ -206,7 +206,7 @@ Take clicking "Sync from GitHub" on the Manage page and follow one call across t
 2. The store calls `window.api.github.fetchStarred()`. That is a preload-exposed method which runs `ipcRenderer.invoke('github:fetchStarred')` with no arguments.
 3. The main process `handle()` wrapper receives the call, discards the leading `event` argument, and dispatches to `github.fetchStarred()`.
    - Mock mode: returns the data from `mock-data.json` directly.
-   - Real mode: uses Octokit to call `GET /user/starred` with `Accept: application/vnd.github.star+json` to get `starred_at`; 100 per page, up to 3 pages, then sorted by `starred_at` descending.
+   - Real mode: uses Octokit to call `GET /user/starred` with `Accept: application/vnd.github.star+json` to get `starred_at`; 100 per page, paging until a short page (capped at 20 pages = 2000 repos), then sorted by `starred_at` descending.
 4. The result comes back to the renderer as `IpcResult<Repo[]>`. The store merges it with the existing local data by `full_name` using `mergeRepos()`, **preserving the local `ai_summary` / `ai_category` / `local` (clone path, fork marker)**, otherwise every sync would drop those markers.
 5. The merged result is sent back to the main process via `store:saveRepos`; `store.saveRepos()` atomically writes it to the database file under `userData` with lowdb and updates the main-process read cache.
 6. The renderer finally calls `set({ repos: merged })`; the list and charts re-render, and the success toast is raised by the store.

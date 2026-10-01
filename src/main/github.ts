@@ -8,9 +8,26 @@ import { isMockMode } from './config'
 import * as store from './store'
 import { mockStarred, mockReadme, mockReleases, mockCommits, mockUnstar, mockFork, mockSearch, mockStar } from './mock'
 
-/** 分页：每页 100（GitHub 上限），最多 3 页 = 300 条，首页加载不能被无限翻页拖死 */
+/**
+ * 分页：每页 100（GitHub 上限）。翻到"这一页不满"就停（见下面的 break），
+ * MAX_PAGES 只是防病态账号的阀门，不是"我们打算取多少条"。
+ *
+ * ⚠️ 这个数原来写的是 3（=300 条），依据是"首页加载不能被无限翻页拖死"——那条理由
+ * **不成立**：首屏那一次读的是本地库（store.getRepos），fetchStarred 只在用户点
+ * 「从 GitHub 同步」和设置页「测试连接」时被调用，两次都是显式动作，多翻几页只多花
+ * 几秒。而 300 这个上限的代价是实打实的：
+ *   ① 收藏超过 300 个的人，同步拿到的是**被截断的列表**，界面上那句
+ *      "已从 GitHub 同步 300 个仓库"看不出它是截断的；
+ *   ② 更糟的是 mergeRepos 以远端为基准（见 renderer 的 repoStore.ts），
+ *      第 300 名之外的仓库会被当成"已经不在 GitHub 上了"从本地列表里消失，
+ *      连它们的 cloned_path / forked_full_name 一起丢——那是真的数据丢失，
+ *      而主进程的磁盘对账（数据源正是这份记录）也救不回来。
+ * 2000 条（20 页）足够覆盖个人账号，最坏 20 次串行请求，对一次显式同步可以接受。
+ * 真撞上阀门时仍会截断，所以命中时留一条明确的日志（见下面那条 warn），不要让它
+ * 悄悄发生。
+ */
+const MAX_PAGES = 20
 const PER_PAGE = 100
-const MAX_PAGES = 3
 /** 详情页最多取 10 条 Release / Commit */
 const LIST_LIMIT = 10
 /** README 截断阈值，防止极端仓库把内存撑爆 */
@@ -161,6 +178,16 @@ export async function fetchStarred(): Promise<Repo[]> {
 
       // 不满一页说明已经是最后一页
       if (items.length < PER_PAGE) break
+    }
+
+    // 撞上阀门（而不是因为翻到最后一页）时，返回的列表是不完整的——调用方看不出来
+    // （fetchStarred 的返回类型被契约冻结成一个纯数组，没有"还有更多"的位置可放），
+    // 所以至少要在这里留下痕迹，别让它悄悄发生。
+    if (pages === MAX_PAGES && all.length === MAX_PAGES * PER_PAGE) {
+      console.warn(
+        `[github] Star 列表达到 ${MAX_PAGES} 页上限（${all.length} 条），后面还有没拉；` +
+          '调用方会把这份不完整的列表当成完整列表用于同步'
+      )
     }
 
     all.sort((a, b) => toTimestamp(b.starred_at) - toTimestamp(a.starred_at))
