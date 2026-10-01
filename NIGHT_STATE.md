@@ -23,7 +23,12 @@ tasks:
 - [x] 优先级 0：收藏列表排序（160ac5d，含把筛选/排序纯函数抽到 lib/repoQuery.ts）
 - [x] 优先级 1：e2e 自检隔离 userData（6d1bd61）——原来自检会覆盖开发者真实 token，
       且 mock e2e 同一 profile 连跑第二次必红
-- [ ] 优先级 0（继续）：还有哪些高价值功能拓展
+- [x] 优先级 0：筛选补齐活跃度 / 未知语言两档（2eb0c50），并把活跃度判定收成
+      collectionStats 的 activityBucket 单一来源，卡片数字与筛出条数由断言锁死
+- [ ] 优先级 0（继续）：总览统计卡可点击下钻到管理页并带上下面对应的筛选
+      （R15 已把筛选维度备齐，下钻只差一个跨页导航；App.tsx 目前 PAGES 无 props，
+      需要一个 nav context 或 zustand 的 ui store）
+- [ ] 优先级 1：mock e2e 那条偶发断言（见收尾事项）
 - [ ] 优先级 2：类型 / lint（当前干净，需持续复查）
 - [ ] 优先级 3：性能热点（**必须有实测证据**；echarts 按需引入已排除——渲染进程无
       DOM 测试环境，漏注册组件只在运行时炸，不可验证）
@@ -32,6 +37,11 @@ tasks:
 - [ ] 优先级 6：文档与注释
 
 ## 已知的收尾事项
+- **偶发（待查）**：mock e2e 的「两个字段都在且 undefined 没抹掉值」观察到过一次失败
+  （约 1/13），随后连跑 12 次全绿、未能复现。主进程 updateLocalState 的 undefined
+  过滤逻辑是确定的，更像 IPC / 落盘时序问题。**没有改断言**去让它变绿。
+  继续跑全量自检时若再遇到，先记下当时的构建/运行顺序再判断是不是"紧跟在
+  npm run build 之后"这个特定次序触发的。
 - recommend.ts:271 有个 `*/export async function forQuery`（注释结束符粘在 export 上），
   纯外观问题，可顺手清
 - 本分支基于**未合并**的 feat/ai-endpoint-agnostic（PR #31），若开 PR 到 main 会带上

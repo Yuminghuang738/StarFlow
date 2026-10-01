@@ -281,3 +281,52 @@ mkdtemp + app.setPath('userData')，而 setPath 在启动后跑、命令行开�
 验证：eslint 干净；mock e2e 连跑 2 次全绿，且 ~/.config/star-flow/starflow.mock.db.json
 的 mtime 前后完全一致（真实 userData 一个字节都没被写）；realclone 直接跑 3 次
 全绿（每次 7 PASS / 0 FAIL）。
+
+## R15 · Phase 2：补齐筛选维度（活跃度 + 未知语言）
+done · commit 2eb0c50
+
+接着 R13 往下做。收藏管理页此前**只有**关键词 / 语言 / 分类 / 只看已 clone 四个条件，
+而总览页算出来的「近期活跃 40」「可能已停更 12」「拿不到提交时间 3」在列表里
+一个都筛不出来——数字告诉你有一堆该处理的，却没法把它们捞出来。
+
+新增两档筛选：
+- **活跃度**：全部 / 近期活跃（90 天内）/ 可能已停更（一年以上）/ 拿不到提交时间。
+- **未知语言**：FilterBar 里那条注释写着这是个"补不了的洞"——language 的类型是
+  `string | null`，而 null 早被约定成"全部语言"，没有第三个态可用。
+  改成显式的 `'all' | 'unknown' | \`name:${string}\`` 三态后这个选项才落得下来。
+
+关键设计是**只有一处阈值**。判定抽成 collectionStats 的 `activityBucket()`
+（返回 'active' | 'middle' | 'stale' | 'unknown'），筛选与统计都调它，
+computeCollectionStats 自己那个 if 也改成 switch 走同一个函数。各写一遍 if 迟早
+漂移，而漂移之后页面只是在安静地撒谎——卡片写 40、点进去筛出 38，
+两个数字都"看着对"。自检里为此有一条硬断言：`stats.activeRecently` 必须等于
+`filterRepos({health:'active'}).length`，三个档各来一条。
+
+`middle`（90~365 天）刻意**不做成下拉项**：总览页上没有它对应的数字，
+单独列一项只会让人问"这是个啥"。但它必须存在——三档不是划分，中间有一段空档，
+自检里专门放了一个落在空档里的 fixture 守着这件事，防止有人"顺手"把三档改成
+互斥且完备（那样上面的卡片就不对了）。
+
+语言的具体值加了 `name:` 前缀，是为了不与 `'unknown'` / `'all'` 两个保留字撞车：
+真出现一个语言叫 "unknown" 时，裸字符串会把两者混为一谈。fixture 里就放了一个
+语言名为 "unknown" 的仓库，断言 `language:'unknown'`（保留态）与
+`language:'name:unknown'` 筛出的是**不同**的仓库。
+
+`filterRepos` 因此多了 `now` 参数（活跃度按"距今多久"判，藏在函数里读时钟就没法
+喂假数据卡 90 / 365 天的边界，这与 collectionStats 是同一条约定）。Manage 在
+useMemo 里取 `Date.now()`——放进依赖数组等于每帧重算，memo 就白写了。
+
+顺带：tsc 逼出了一处**已经漂移的**重复定义。RepoList 的空列表里还有第三份手写的
+重置清单，R13 加 sort 时被漏掉了（"重置筛选"之后排序仍是用户选的那个）。
+现在两处重置都走 `DEFAULT_FILTERS`。这正好印证了 R13 里统一常量那个决定。
+
+自检从 39 条扩到 67 条。
+
+验证：tsc / eslint / build 全绿；repo-query 67/67、collection-stats 49/49（把统计
+循环改成走 activityBucket 之后数字一个没变，是有力的回归证据）、week-report 28/28。
+
+⚠️ 遗留：mock e2e 的「两个字段都在且 undefined 没抹掉值」这条断言**观察到过一次
+偶发失败**（约 1/13）。主进程 `updateLocalState` 开头就过滤 undefined 键、逻辑是
+确定的，所以更像是 IPC/落盘的时序问题而不是功能 bug；随后连跑 12 次全绿，
+未能复现，暂记为已知偶发项待查（见 NIGHT_STATE 的收尾事项），没有为了让它变绿
+去改断言。
