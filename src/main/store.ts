@@ -243,3 +243,64 @@ export async function updateLocalState(
     fail('更新本地状态', err)
   }
 }
+
+/**
+ * 只清掉 local.cloned_path，其余 local 字段（fork 标记等）原样保留。
+ *
+ * 为什么不能复用 updateLocalState(f, { cloned_path: undefined })：它开头就把值为
+ * undefined 的键过滤掉了（那不是 bug，是防止浅合并把已有值抹没），而 Electron IPC 的
+ * 结构化克隆和 JSON.stringify 也都会丢掉 undefined——三重原因叠在一起，
+ * "用 undefined 表示删除"这条路根本走不通，必须有个显式的删除函数。
+ */
+export async function clearClonedPath(fullName: string): Promise<void> {
+  await clearClonedPaths([fullName])
+}
+
+/**
+ * 批量清 cloned_path，**只写一次盘**。对账可能一次命中几十个仓库，逐个调用会有
+ * N 次全量落盘，而且和 ai.ts、index.ts 里的 saveRepos 之间并没有互斥。
+ *
+ * 刻意不用 saveRepos(过滤后的整个新数组)：那会把并发的写入（比如正在跑的 AI 富化）
+ * 用一份旧快照整个覆盖掉。
+ *
+ * 找不到仓库时只 warn 不抛，与 updateLocalState 一致：一条脏数据不该让调用方整批失败。
+ */
+export async function clearClonedPaths(fullNames: string[]): Promise<void> {
+  if (fullNames.length === 0) return
+
+  try {
+    const targets = new Set(fullNames)
+    const db = await getDb()
+
+    let changed = 0
+    for (const repo of db.data.repos) {
+      if (!targets.has(repo.full_name)) continue
+      // 用 delete 而不是解构省略键：eslint.config.js 的 no-unused-vars 没开
+      // varsIgnorePattern，解构出来不用的变量会被判成未使用。
+      // ⚠️ local 本身可能是 undefined，delete undefined.x 会抛 TypeError。
+      if (repo.local && repo.local.cloned_path !== undefined) {
+        delete repo.local.cloned_path
+        changed += 1
+      }
+    }
+
+    // 一个都没命中就不写盘：既省一次落盘，也避免把一次空操作写进日志
+    if (changed === 0) {
+      console.warn('[store] clearClonedPaths 未命中任何仓库：', fullNames)
+      return
+    }
+
+    await db.write()
+
+    // 缓存里那几条也要同步，否则后续 getRepos() 会把刚清掉的路径又盖回来
+    for (const cached of reposCache ?? []) {
+      if (targets.has(cached.full_name) && cached.local) {
+        delete cached.local.cloned_path
+      }
+    }
+
+    console.log('[store] 已清除克隆路径记录', changed, '条')
+  } catch (err) {
+    fail('清除克隆路径', err)
+  }
+}

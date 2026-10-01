@@ -388,6 +388,9 @@ export const IPC = {
   LOCAL_CHOOSE_DIR: 'local:chooseDir',
   LOCAL_CLONE: 'local:clone',
   LOCAL_OPEN_DIR: 'local:openDir',
+  LOCAL_CLONE_PROGRESS: 'local:cloneProgress',
+  LOCAL_REMOVE_CLONE: 'local:removeClone',
+  LOCAL_PRUNE_CLONES: 'local:pruneClones',
 
   // AI —— 负责人 P2
   AI_SUMMARIZE: 'ai:summarize',
@@ -401,6 +404,7 @@ export const IPC = {
   STORE_SAVE_TOKEN: 'store:saveToken',
   STORE_HAS_TOKEN: 'store:hasToken',
   STORE_UPDATE_LOCAL_STATE: 'store:updateLocalState',
+  STORE_CLEAR_TOKEN: 'store:clearToken',
 
   // 周报 —— 负责人 P4
   REPORT_GENERATE: 'report:generate',
@@ -411,6 +415,12 @@ export const IPC = {
   // 定时追踪 —— 负责人 P4
   TRACKER_START: 'tracker:start',
   TRACKER_STOP: 'tracker:stop',
+
+  // 登录（GitHub OAuth Device Flow）—— 负责人 P7
+  AUTH_GET_STATE: 'auth:getState',
+  AUTH_START_DEVICE_FLOW: 'auth:startDeviceFlow',
+  AUTH_WAIT_FOR_LOGIN: 'auth:waitForLogin',
+  AUTH_CANCEL_DEVICE_FLOW: 'auth:cancelDeviceFlow',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];
@@ -563,9 +573,11 @@ git add -A && git commit -m "feat(preload): 暴露 window.api 完整签名"
 
 【src/preload/index.ts 要求】
 - 用 contextBridge.exposeInMainWorld('api', api) 暴露，api 对象结构严格如下
-  （一共 **27 个方法**，与 ipc.ts 的 27 个通道一一对应）：
-  github 6 + local 3 + ai 4 + store 6 + report 1 + recommend 1 + tracker 2 + auth 4 = 27
-  （22 → 27 是后加的 GitHub OAuth Device Flow 登录，见 Part D）
+  （一共 **30 个方法**，与 ipc.ts 的 30 个通道一一对应）：
+  github 6 + local 6 + ai 4 + store 6 + report 1 + recommend 1 + tracker 2 + auth 4 = 30
+  （22 → 27 是后加的 GitHub OAuth Device Flow 登录，见 Part D；27 → 28 是后加的
+    local:cloneProgress，用于 Clone 进度条；28 → 30 是后加的 local:removeClone /
+    local:pruneClones，用于删除本地副本与磁盘对账）
   ⚠️ 最容易在抄写时被漏掉的是 ai.enrichRepos（因为它不在 guide.md 原契约里，是后加的），务必确认它在
 - 每个方法就是 ipcRenderer.invoke(IPC.XXX, ...args)，**不做任何错误处理**，因为主进程已经统一包了 IpcResult
 - 从 '@shared/ipc' 引入 IPC，从 '@shared/types' 引入类型
@@ -586,7 +598,10 @@ const api = {
   local: {
     chooseDir: (): Promise<IpcResult<string | null>> => ipcRenderer.invoke(IPC.LOCAL_CHOOSE_DIR),
     clone: (fullName: string, targetDir: string): Promise<IpcResult<string>> => ipcRenderer.invoke(IPC.LOCAL_CLONE, fullName, targetDir),
-    openDir: (path: string): Promise<IpcResult<void>> => ipcRenderer.invoke(IPC.LOCAL_OPEN_DIR, path)
+    openDir: (path: string): Promise<IpcResult<void>> => ipcRenderer.invoke(IPC.LOCAL_OPEN_DIR, path),
+    getCloneProgress: (fullName: string): Promise<IpcResult<CloneProgress | null>> => ipcRenderer.invoke(IPC.LOCAL_CLONE_PROGRESS, fullName),
+    removeClone: (fullName: string): Promise<IpcResult<string | null>> => ipcRenderer.invoke(IPC.LOCAL_REMOVE_CLONE, fullName),
+    pruneClones: (): Promise<IpcResult<string[]>> => ipcRenderer.invoke(IPC.LOCAL_PRUNE_CLONES)
   },
   ai: {
     summarize: (readme: string): Promise<IpcResult<string>> => ipcRenderer.invoke(IPC.AI_SUMMARIZE, readme),
@@ -875,8 +890,10 @@ git add -A && git commit -m "feat(main): 各业务模块 stub 与可用版 store
 **完成后必做**：
 ```bash
 npm run typecheck && npm run lint && npm run build
-# 检查 27 个通道是否都注册了
-grep -c "ipcMain.handle" src/main/index.ts    # 必须是 27
+# 检查 30 个通道是否都注册了
+# ⚠️ 不能写 grep -c "ipcMain.handle"：代码是通过 handle<T>() 包装器注册的，
+#    ipcMain.handle 全文只出现一次，那样数出来永远是 1。要数 handle(IPC.XXX)
+grep -oE "handle(?:<[^>]*>)?\(IPC\." src/main/index.ts | wc -l    # 必须是 30
 ls out/preload/                                # 确认产物文件名是 index.mjs
 ```
 ```bash
@@ -909,7 +926,7 @@ git add -A && git commit -m "feat(main): 注册全部 IPC handler 与窗口生�
 注意：ipcMain.handle 的回调第一个参数是 event，必须丢弃掉再传业务参数，
 否则业务函数会收到多余的 event 参数。
 
-【必须注册的 27 个通道（一个都不能少，也不能多）】
+【必须注册的 30 个通道（一个都不能少，也不能多）】
 handle(IPC.GITHUB_FETCH_STARRED, () => github.fetchStarred())
 handle(IPC.GITHUB_FETCH_README, (fullName: string) => github.fetchReadme(fullName))
 handle(IPC.GITHUB_FETCH_RELEASES, (fullName: string) => github.fetchReleases(fullName))
@@ -919,6 +936,9 @@ handle(IPC.GITHUB_FORK, (fullName: string) => github.fork(fullName))
 handle(IPC.LOCAL_CHOOSE_DIR, () => local.chooseDir())
 handle(IPC.LOCAL_CLONE, (fullName: string, targetDir: string) => local.clone(fullName, targetDir))
 handle(IPC.LOCAL_OPEN_DIR, (path: string) => local.openDir(path))
+handle(IPC.LOCAL_CLONE_PROGRESS, (fullName: string) => local.getCloneProgress(fullName))
+handle(IPC.LOCAL_REMOVE_CLONE, async (fullName: string) => { /* 查路径 -> local.removeClone -> store.clearClonedPath */ })
+handle(IPC.LOCAL_PRUNE_CLONES, async () => { /* store.getRepos -> local.listMissingCloneRecords -> store.clearClonedPaths */ })
 handle(IPC.AI_SUMMARIZE, (readme: string) => ai.summarize(readme))
 handle(IPC.AI_CLASSIFY, (repo: Repo) => ai.classify(repo))
 handle(IPC.AI_ENRICH_REPOS, (repos: Repo[]) => ai.enrichRepos(repos))
@@ -1212,7 +1232,7 @@ MOCK_MODE=true npm run dev
 请检查你刚才为 StarPilot 生成的全部骨架代码，逐条回答"是/否"并给出文件与行号：
 
 1. src/shared/types.ts 和 src/shared/ipc.ts 是否与需求文档逐字一致？有没有被改动、增删字段？
-2. src/main/index.ts 是否注册了全部 27 个 IPC 通道？有没有漏掉 AI_ENRICH_REPOS 或多注册？
+2. src/main/index.ts 是否注册了全部 30 个 IPC 通道？有没有漏掉 AI_ENRICH_REPOS 或多注册？
 3. ipcMain.handle 的包装器是否正确丢弃了第一个 event 参数，没有把它传给业务函数？
 4. 所有 handler 是否都返回 IpcResult 结构（{ ok: true, data } / { ok: false, error }）？
 5. GITHUB_UNSTAR 的 handler 是否在调用 github.unstar 之后，还从 store 删除了该仓库并写回？
@@ -1249,7 +1269,7 @@ MOCK_MODE=true npm run dev
 - [ ] `npm run typecheck` → 0 error
 - [ ] `npm run lint` → 0 error
 - [ ] `npm run build` → 产出 `out/main/index.js`、`out/preload/index.mjs`、`out/renderer/index.html`
-- [ ] `grep -c "ipcMain.handle" src/main/index.ts` → **27**
+- [ ] `grep -oE "handle(?:<[^>]*>)?\(IPC\." src/main/index.ts | wc -l` → **28**
 - [ ] `ls out/preload/` → 文件名确实是 `index.mjs`（不是 `.js`，否则主进程 preload 路径会 404）
 
 **功能（`MOCK_MODE=true npm run dev`）**
@@ -1425,7 +1445,7 @@ gh pr list --state merged --limit 10
 # 骨架验收清单（本文件 Part A 第 13 节）是否仍然通过
 npm ci
 npm run typecheck && npm run lint && npm run build
-grep -c "ipcMain.handle" src/main/index.ts      # 27
+grep -oE "handle(?:<[^>]*>)?\(IPC\." src/main/index.ts | wc -l   # 28
 ls out/preload/                                  # index.mjs
 
 # 契约有没有被偷改（对比冻结版本）

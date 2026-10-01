@@ -26,6 +26,9 @@ export interface RepoStore {
   fork(fullName: string): Promise<void>
   clone(fullName: string): Promise<void>
   openDir(path: string): Promise<void>
+  // —— 本地副本管理（非契约成员；新增不算修改契约，但必须同步进 renderer-contracts.md）——
+  removeLocal(fullName: string): Promise<void>
+  pruneLocalClones(): Promise<void>
   // —— P6 新增 token 方法 ——
   hasToken(): Promise<boolean>
   saveToken(token: string): Promise<void>
@@ -80,6 +83,20 @@ function mergeRepos(remote: Repo[], prev: Repo[]): Repo[] {
   })
 }
 
+/**
+ * 内存态里抹掉某个仓库的 cloned_path。
+ *
+ * 必须显式 delete 后重建对象：写成 `{ ...r.local, cloned_path: undefined }` 是不行的，
+ * 那个键会留在对象里（IPC 的结构化克隆和 JSON.stringify 才丢 undefined，内存里不丢），
+ * 于是 `r.local?.cloned_path` 仍然是"有值"，卡片照样画成已克隆。
+ */
+function withoutClonedPath(repo: Repo): Repo {
+  if (!repo.local?.cloned_path) return repo
+  const local: LocalState = { ...repo.local }
+  delete local.cloned_path
+  return { ...repo, local }
+}
+
 export const useRepoStore = create<RepoStore>((set, get) => ({
   repos: [],
   loading: false,
@@ -98,14 +115,21 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
 
   async load() {
     set({ loading: true })
+    let loaded = false
     try {
       set({ repos: await unwrap(window.api.store.getRepos()) })
+      loaded = true
     } catch (err) {
       // unwrap 已经弹过 toast；这里只写 error 字段、保留旧数据，不把 repos 清空
       set({ error: ipcErrorMessage(err) })
     } finally {
       set({ loading: false })
     }
+
+    // 对账：把"记录里有、磁盘上已经被用户删掉"的 cloned_path 静默清掉，卡片自然
+    // 回到 [Clone] 态。折在 load() 里而不是让 Dashboard 自己调，是为了不动 P5 的文件。
+    // 只在真的读到列表时才跑；pruneLocalClones 内部绝不抛，不会影响上面的加载结果。
+    if (loaded) await get().pruneLocalClones()
   },
 
   async refreshFromGitHub() {
@@ -197,6 +221,43 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
       await unwrap(window.api.local.openDir(path))
     } catch (err) {
       set({ error: ipcErrorMessage(err) })
+    }
+  },
+
+  async removeLocal(fullName) {
+    try {
+      const removed = await unwrap(window.api.local.removeClone(fullName))
+      // 必须换新数组、换新对象：原地改 zustand 里的对象不触发重渲染，
+      // 而且 TypeScript 完全不会提醒你写错了
+      set((s) => ({
+        repos: s.repos.map((r) => (r.full_name === fullName ? withoutClonedPath(r) : r))
+      }))
+      // 用主进程返回的实际路径：确认框显示的是渲染进程内存里的路径，两者理论上是两份数据
+      pushToast({
+        type: 'success',
+        message: removed ? `已删除本地副本：${removed}` : '本地副本早已不在，只清掉了记录'
+      })
+    } catch (err) {
+      set({ error: ipcErrorMessage(err) })
+    }
+  },
+
+  async pruneLocalClones() {
+    try {
+      // 刻意不走 unwrap / call：那两个封装（lib/api.ts）都会弹 toast，而对账必须是静默的
+      // ——它挂在每次 load() 后面，用 unwrap 就等于每次切回 Dashboard 都弹一条，
+      // 而且弹的还是用户没做过任何操作的一条提示。
+      const res = await window.api.local.pruneClones()
+      if (!res.ok || res.data.length === 0) return
+
+      const cleared = new Set(res.data)
+      set((s) => ({
+        repos: s.repos.map((r) => (cleared.has(r.full_name) ? withoutClonedPath(r) : r))
+      }))
+      console.log('[repoStore] 对账清除本地副本记录：', res.data)
+    } catch (err) {
+      // 对账失败绝不能影响列表加载，也不打扰用户，只留一条排查日志
+      console.warn('[repoStore] 本地副本对账失败，已忽略', err)
     }
   },
 

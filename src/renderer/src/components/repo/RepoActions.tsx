@@ -3,6 +3,7 @@ import type { Repo } from '@shared/types'
 import { useRepoStore } from '../../store/repoStore'
 import { Button } from '../common/Button'
 import { ConfirmDialog } from '../common/ConfirmDialog'
+import { CloneProgressBar } from './CloneProgressBar'
 import { formatRelative } from './repoFormat'
 
 /**
@@ -19,8 +20,10 @@ export function RepoActions({ repo }: { repo: Repo }): React.JSX.Element {
   const fork = useRepoStore((s) => s.fork)
   const clone = useRepoStore((s) => s.clone)
   const openDir = useRepoStore((s) => s.openDir)
+  const removeLocal = useRepoStore((s) => s.removeLocal)
 
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false)
   const [pendingAction, setPendingAction] = useState<string | null>(null)
 
   // 同步的防重入锁。只靠 pendingAction 不够：React 的 setState 是异步的，
@@ -55,6 +58,11 @@ export function RepoActions({ repo }: { repo: Repo }): React.JSX.Element {
     // 先关弹窗再执行，避免等待期间弹窗还挂在界面上
     setConfirmOpen(false)
     void run('unstar', () => unstar(repo.full_name))
+  }
+
+  function onConfirmRemoveLocal(): void {
+    setRemoveConfirmOpen(false)
+    void run('removeLocal', () => removeLocal(repo.full_name))
   }
 
   return (
@@ -93,17 +101,31 @@ export function RepoActions({ repo }: { repo: Repo }): React.JSX.Element {
           </Button>
         )}
 
-        {/* Clone 与「打开目录」互斥：已 clone 就只给「打开目录」，不再渲染 Clone */}
+        {/* Clone 与「打开目录」互斥：已 clone 就只给「打开目录」，不再渲染 Clone。
+            没有"副本缺失"的中间态——目录一旦在磁盘上消失，主进程的对账会在下次
+            load() 时把 cloned_path 清掉，卡片自然回到 [Clone]。 */}
         {clonedPath ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={busy}
-            onClick={() => void run('openDir', () => openDir(clonedPath))}
-            title={clonedPath}
-          >
-            {pendingAction === 'openDir' ? '打开中…' : '打开目录'}
-          </Button>
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => void run('openDir', () => openDir(clonedPath))}
+              title={clonedPath}
+            >
+              {pendingAction === 'openDir' ? '打开中…' : '打开目录'}
+            </Button>
+            {/* ghost 不是 danger：Unstar 已经占了红色，而这个删掉还能重新 clone 回来 */}
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => setRemoveConfirmOpen(true)}
+              title={`删除本地副本：${clonedPath}`}
+            >
+              {pendingAction === 'removeLocal' ? '删除中…' : '删除本地副本'}
+            </Button>
+          </>
         ) : (
           <Button
             size="sm"
@@ -116,6 +138,10 @@ export function RepoActions({ repo }: { repo: Repo }): React.JSX.Element {
         )}
       </div>
 
+      {/* 只在克隆进行中挂载：卸载即停止轮询。clone 结束后主进程的记录还在，
+          常挂会一直显示上一次的 100% */}
+      {pendingAction === 'clone' ? <CloneProgressBar fullName={repo.full_name} /> : null}
+
       <ConfirmDialog
         open={confirmOpen}
         danger
@@ -125,6 +151,19 @@ export function RepoActions({ repo }: { repo: Repo }): React.JSX.Element {
         onConfirm={onConfirmUnstar}
         onCancel={() => setConfirmOpen(false)}
       />
+
+      {/* 只在有路径时挂载，顺带让 TS 把 clonedPath 窄化成 string */}
+      {clonedPath ? (
+        <ConfirmDialog
+          open={removeConfirmOpen}
+          danger
+          title="确认删除本地副本？"
+          description={`将从磁盘上删除目录：${clonedPath}（以本地记录为准）。此操作不可撤销，可以重新 Clone 回来，但目录里未提交的改动会一起丢失。`}
+          confirmText="删除本地副本"
+          onConfirm={onConfirmRemoveLocal}
+          onCancel={() => setRemoveConfirmOpen(false)}
+        />
+      ) : null}
     </>
   )
 }

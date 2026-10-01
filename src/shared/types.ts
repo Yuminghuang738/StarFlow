@@ -115,6 +115,31 @@ export type LoginOutcome =
   | { status: 'expired' }
   | { status: 'error'; message: string };
 
+// ============================================================
+// Clone 进度
+// ============================================================
+
+/**
+ * 一次 clone 的实时进度。数据来自 git 自己打的进度行
+ * （"Receiving objects: 47% (1234/2624)"），由主进程解析后缓存，
+ * 渲染进程按固定间隔轮询取——本项目全链路只有 invoke，主进程没有
+ * 主动推给渲染进程的机制，所以进度只能"拉"不能"推"。
+ */
+export interface CloneProgress {
+  /**
+   * git 上报的阶段名：receiving / resolving / counting / compressing …
+   * 为 null 表示 clone 已经启动、但 git 还没吐出第一行进度。
+   */
+  stage: string | null;
+  /** 0–100。**只有 stage 非 null 时才有意义**，此时才该画确定态进度条 */
+  percent: number;
+  /** 已处理 / 总共的对象数（不是字节数，git 的进度行给的就是对象计数） */
+  processed: number;
+  total: number;
+  /** 从 git clone 真正开始算起的毫秒数，不含前面弹目录选择框的时间 */
+  elapsedMs: number;
+}
+
 export type IpcResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string };

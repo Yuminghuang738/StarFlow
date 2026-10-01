@@ -8,7 +8,8 @@ import type {
   WeeklyReport,
   AuthState,
   DeviceFlowInfo,
-  LoginOutcome
+  LoginOutcome,
+  CloneProgress
 } from '@shared/types'
 
 export interface StarPilotApi {
@@ -24,6 +25,9 @@ export interface StarPilotApi {
     chooseDir(): Promise<IpcResult<string | null>>
     clone(fullName: string, targetDir: string): Promise<IpcResult<string>>
     openDir(path: string): Promise<IpcResult<void>>
+    getCloneProgress(fullName: string): Promise<IpcResult<CloneProgress | null>>
+    removeClone(fullName: string): Promise<IpcResult<string | null>>
+    pruneClones(): Promise<IpcResult<string[]>>
   }
   ai: {
     summarize(readme: string): Promise<IpcResult<string>>

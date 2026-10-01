@@ -10,7 +10,8 @@ import type {
   WeeklyReport,
   AuthState,
   DeviceFlowInfo,
-  LoginOutcome
+  LoginOutcome,
+  CloneProgress
 } from '@shared/types'
 
 const api = {
@@ -32,7 +33,15 @@ const api = {
     clone: (fullName: string, targetDir: string): Promise<IpcResult<string>> =>
       ipcRenderer.invoke(IPC.LOCAL_CLONE, fullName, targetDir),
     openDir: (path: string): Promise<IpcResult<void>> =>
-      ipcRenderer.invoke(IPC.LOCAL_OPEN_DIR, path)
+      ipcRenderer.invoke(IPC.LOCAL_OPEN_DIR, path),
+    // 返回 null = 这个仓库还没开始克隆（或没克隆过），渲染进程据此不显示进度条
+    getCloneProgress: (fullName: string): Promise<IpcResult<CloneProgress | null>> =>
+      ipcRenderer.invoke(IPC.LOCAL_CLONE_PROGRESS, fullName),
+    // 只传 fullName：路径由主进程查，渲染进程交不出任意路径
+    removeClone: (fullName: string): Promise<IpcResult<string | null>> =>
+      ipcRenderer.invoke(IPC.LOCAL_REMOVE_CLONE, fullName),
+    // 返回被清理的 fullName 列表；渲染进程据此把自己内存里的 cloned_path 也抹掉
+    pruneClones: (): Promise<IpcResult<string[]>> => ipcRenderer.invoke(IPC.LOCAL_PRUNE_CLONES)
   },
   ai: {
     summarize: (readme: string): Promise<IpcResult<string>> =>
