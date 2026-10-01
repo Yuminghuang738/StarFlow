@@ -53,6 +53,38 @@ function dbFilePath(): string {
   return join(app.getPath('userData'), fileName)
 }
 
+/** 库文件的初始内容。**不做深合并**（见下面 getDb 的说明），所以每个键都要给全 */
+function defaultDb(): DbSchema {
+  return {
+    repos: [],
+    token: null,
+    // AI 三键：旧库文件里没有这三个键时，db.data 上的值就是 undefined
+    // （lowdb 的 read() 是**整份替换**，不是深合并——别指望这里能补齐旧文件），
+    // 所以读取处一律 `?? ''` / `?? null` 兜底。
+    aiKey: null,
+    aiBaseUrl: '',
+    aiModel: ''
+  }
+}
+
+/**
+ * 打开库文件。
+ *
+ * 读失败时唯一要做的事是**把错误说清楚**——尤其是文件路径，用户得知道该去哪儿看。
+ * JSON 解析失败是最可能的一种（外部工具改过 / 磁盘写坏），报出来的原文是一句
+ * "Unexpected token …"，单看它根本不知道是哪个文件出的事。
+ */
+function openDbFile(file: string): Promise<Low<DbSchema>> {
+  return JSONFilePreset<DbSchema>(file, defaultDb()).catch((err: unknown): never => {
+    const message = err instanceof Error ? err.message : String(err)
+    throw new Error(
+      `本地数据文件读不出来（${file}）：${message}。` +
+        ' 文件内容不是合法 JSON 时就是这样——把它改名或删掉再重启，即可从空库重新开始。' +
+        ' 应用不会自动删除或覆盖它。'
+    )
+  })
+}
+
 function getDb(): Promise<Low<DbSchema>> {
   if (!dbPromise) {
     // 惰性初始化：必须等 app ready 之后才会调用到，所以这里取 userData 是安全的。
@@ -65,14 +97,20 @@ function getDb(): Promise<Low<DbSchema>> {
       throw new Error(`创建数据目录失败：${message}`)
     }
     // 原子写交给 lowdb 7 的 JSONFile 适配器（内部用 steno），不要自己写 tmp + rename
-    dbPromise = JSONFilePreset<DbSchema>(file, {
-      repos: [],
-      token: null,
-      // AI 三键必须给默认值：JSONFilePreset 会把默认对象与磁盘内容做深合并，
-      // 旧库文件缺这些键时就靠这里补齐（补上之后读取处仍要 ?? 兜底，防御更早版本的库）。
-      aiKey: null,
-      aiBaseUrl: '',
-      aiModel: ''
+    const opened = openDbFile(file)
+    dbPromise = opened
+    /**
+     * ⚠️ 失败的 Promise 绝不能被缓存到进程结束。
+     *
+     * 这里缓存的是 Promise 本身，而"文件读不出来"是一个**可以自愈**的状态：用户把
+     * 坏文件挪走、或者换台机器把文件放回去，下一次读就该成功。可是缓存住的那个
+     * rejected Promise 会让之后每一次 getDb() 直接拿到同一个拒绝——用户把文件
+     * 修好了、删掉了，应用照旧全盘报错，只能重启。所以失败后把缓存清空，
+     * 下一次调用重新读一次盘（下一次会拿到新的错误或成功）。
+     */
+    opened.catch((err: unknown) => {
+      if (dbPromise === opened) dbPromise = null
+      console.error('[store] 打开库文件失败，已允许重试：', err instanceof Error ? err.message : err)
     })
   }
   return dbPromise

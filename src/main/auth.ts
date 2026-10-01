@@ -222,6 +222,19 @@ async function poll(f: PendingFlow): Promise<void> {
 
   const token = asString(data.access_token)
   if (token) {
+    // ⚠️ 必须在这里**重新**检查一次 settled：本函数开头那次检查在 await 之前，
+    // 而用户点「取消」（或有效期到点）完全可能正好落在这条 POST 飞行的那几百毫秒里
+    // ——cancelDeviceFlow 看到 phase 还是 'polling' 会放行，把流程 settle 成
+    // cancelled / expired。不复查就直接往下走的话，token 照样落盘，于是出现
+    // 「界面说已取消、其实已经登录了」：之后同步能成功、重启后徽章变成「已配置」，
+    // 用户根本不知道中间发生了什么。而这正是 exchange() 里那句注释想消灭的矛盾。
+    //
+    // 选择丢弃而不是"补个成功"：用户说了取消就是取消，界面已经按取消收场了；
+    // 要登录再点一次就是了，设备码每次都会重新发。
+    if (f.settled) {
+      console.warn('[auth] 授权已经完成，但流程在这期间被取消/过期了，丢弃拿到的 token')
+      return
+    }
     await exchange(f, token)
     return
   }
