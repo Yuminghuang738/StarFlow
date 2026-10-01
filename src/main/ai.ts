@@ -24,8 +24,12 @@ import { mockSummary, mockClassify, mockEnrich, mockReportSummary } from './mock
 const README_MIN_LENGTH = 30
 /** enrichRepos 的并发上限（PR 验收项：严格 ≤ 3） */
 const ENRICH_CONCURRENCY = 3
-/** 缺少 API Key 的提示文案，既是给用户看的，也是降级策略里唯一允许 throw 的判据 */
-const MISSING_KEY_MESSAGE = '未配置 OPENAI_API_KEY，请在 .env 中填写'
+/**
+ * 缺少 API Key 的提示文案，既是给用户看的，也是降级策略里唯一允许 throw 的判据。
+ * ⚠️ 它是个**哨兵常量**：isMissingKey() 拿它做 includes 比较，下面两处必须继续引用
+ * 同一个常量，不要改成字面量（改文案时容易只改一处，降级判断会静默失效）。
+ */
+const MISSING_KEY_MESSAGE = '未配置 AI API Key，请在「设置 → AI 配置」中填写'
 
 /* ------------------------------------------------------------------ */
 /* 客户端（模块级懒加载，不在文件顶层 new）                              */
