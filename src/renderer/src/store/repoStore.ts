@@ -167,23 +167,37 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
 
   async fork(fullName) {
     try {
+      // ⚠️ 这个返回值是**你 fork 出来的那个新仓库**，不是原仓库的更新版。
+      // 主进程 github.fork() 拿 GitHub 的 createFork 响应构造对象，里面的
+      // full_name 是「你的用户名/repo」、stargazers_count 是新 fork 的 0、id 也是新的；
+      // mockFork() 同样把 forked_full_name 填成一个**别的**仓库名。
+      //
+      // 所以这里**绝不能拿它替换列表里那一条**（曾经就是那么写的）：那一行会当场
+      // 改名换姓、星标掉到 0、点进去跳到 fork 而不是原仓库，而且下次同步时
+      // mergeRepos 拿这个新名字去匹配远端的原名，匹配不上——原仓库会被当成新仓库
+      // 重新插进来，fork 标记也就丢了，而磁盘上主进程记的一直是原名。内存与磁盘
+      // 就此分家。fork 只是给**原仓库**打一个标记，原仓库本身一个字都不该动。
       const repo = await unwrap(window.api.github.fork(fullName))
-      const forkedAt = new Date().toISOString()
-      const local: LocalState = {
-        ...(repo.local ?? {}),
-        forked_full_name: repo.full_name,
-        forked_at: forkedAt
-      }
+      // 两条路径（真实 / mock）都已经把 fork 名放在 local 里了，优先信它；
+      // 万一上游没给（拿不到 fork 名），退回 repo.full_name——总比显示空白强。
+      const forkedFullName = repo.local?.forked_full_name ?? repo.full_name
+      const forkedAt = repo.local?.forked_at ?? new Date().toISOString()
+
       set((s) => ({
-        repos: s.repos.map((r) => (r.full_name === fullName ? { ...repo, local } : r))
+        repos: s.repos.map((r) =>
+          r.full_name === fullName
+            ? { ...r, local: { ...r.local, forked_full_name: forkedFullName, forked_at: forkedAt } }
+            : r
+        )
       }))
+      // 落盘用的键是**原仓库**的 fullName、值是 fork 名，与主进程 index.ts 的约定一致
       await unwrap(
         window.api.store.updateLocalState(fullName, {
-          forked_full_name: repo.full_name,
+          forked_full_name: forkedFullName,
           forked_at: forkedAt
         })
       )
-      pushToast({ type: 'success', message: `已 Fork 到 ${repo.full_name}` })
+      pushToast({ type: 'success', message: `已 Fork 到 ${forkedFullName}` })
     } catch (err) {
       set({ error: ipcErrorMessage(err) })
     }
