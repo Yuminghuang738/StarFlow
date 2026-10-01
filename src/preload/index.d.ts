@@ -26,7 +26,7 @@ export interface StarPilotApi {
   }
   local: {
     chooseDir(): Promise<IpcResult<string | null>>
-    clone(fullName: string, targetDir: string): Promise<IpcResult<string>>
+    clone(fullName: string, targetDir: string): Promise<IpcResult<string | null>>
     openDir(path: string): Promise<IpcResult<void>>
     getCloneProgress(fullName: string): Promise<IpcResult<CloneProgress | null>>
     removeClone(fullName: string): Promise<IpcResult<string | null>>

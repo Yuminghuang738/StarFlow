@@ -21,6 +21,7 @@ export function RepoActions({ repo }: { repo: Repo }): React.JSX.Element {
   const clone = useRepoStore((s) => s.clone)
   const openDir = useRepoStore((s) => s.openDir)
   const removeLocal = useRepoStore((s) => s.removeLocal)
+  const cancelClone = useRepoStore((s) => s.cancelClone)
 
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false)
@@ -63,6 +64,13 @@ export function RepoActions({ repo }: { repo: Repo }): React.JSX.Element {
   function onConfirmRemoveLocal(): void {
     setRemoveConfirmOpen(false)
     void run('removeLocal', () => removeLocal(repo.full_name))
+  }
+
+  function onCancelClone(): void {
+    // ⚠️ 必须绕开 run()：clone 进行中 busyRef.current 恒为 true，run() 会在第一行
+    // 直接 return，取消按钮将永远点不动。取消本身幂等（主进程对没在跑的直接回
+    // false），提示由 store 内部处理，所以这里裸调即可。
+    void cancelClone(repo.full_name)
   }
 
   return (
@@ -127,14 +135,23 @@ export function RepoActions({ repo }: { repo: Repo }): React.JSX.Element {
             </Button>
           </>
         ) : (
-          <Button
-            size="sm"
-            variant="primary"
-            disabled={busy}
-            onClick={() => void run('clone', () => clone(repo.full_name))}
-          >
-            {pendingAction === 'clone' ? 'Clone 中…' : 'Clone'}
-          </Button>
+          <>
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={busy}
+              onClick={() => void run('clone', () => clone(repo.full_name))}
+            >
+              {pendingAction === 'clone' ? 'Clone 中…' : 'Clone'}
+            </Button>
+            {/* 只在克隆进行中出现的取消按钮，紧挨 Clone。刻意不加 disabled={busy}：
+                clone 期间 busy 恒为 true，加了就等于把按钮永久禁用；也不走 run()。 */}
+            {pendingAction === 'clone' ? (
+              <Button size="sm" variant="ghost" onClick={onCancelClone}>
+                取消克隆
+              </Button>
+            ) : null}
+          </>
         )}
       </div>
 
