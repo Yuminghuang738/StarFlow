@@ -47,7 +47,10 @@ export interface RepoStore {
   // hasToken 返回 null 表示「这一次没读到」，与 false（确实没配置）是两回事，
   // 页面必须分开显示，否则一次读取失败会装成「未配置」
   hasToken(): Promise<boolean | null>;
-  saveToken(token: string): Promise<void>;
+  // saveToken 返回「这一次到底存进去了没有」（原为 Promise<void>，2026-10 改为 boolean）。
+  // 失败仍然不抛错（toast 由 unwrap 弹），但设置页要拿它决定**能不能清空输入框**——
+  // 清空是一句"成了"，保存失败时照样清空就等于把用户刚粘进来的 token 扔掉。
+  saveToken(token: string): Promise<boolean>;
 }
 
 export const useRepoStore: UseBoundStore<StoreApi<RepoStore>>;

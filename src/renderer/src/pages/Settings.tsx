@@ -101,8 +101,12 @@ export function Settings(): React.JSX.Element {
   async function save(): Promise<void> {
     const trimmed = token.trim()
     if (!trimmed) return
-    await saveToken(trimmed)
-    setToken('')
+    const saved = await saveToken(trimmed)
+    // ⚠️ 只有真的存进去了才把输入框清空。清空本身就是一句"成了"——保存失败
+    // （写库出错之类）时照样清空的话，用户刚粘进来的那串 token 就没了，而界面上
+    // 与成功长得一模一样，他只能回去再拷一遍。失败时留着原文，改完再点一次即可；
+    // 到底是成是败由 toast 与下面的状态徽章说。
+    if (saved) setToken('')
     await refreshTokenStatus()
   }
 

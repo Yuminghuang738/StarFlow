@@ -48,7 +48,18 @@ export interface RepoStore {
    * 页面必须把两者分开显示，否则一次读取失败会装成"未配置"。
    */
   hasToken(): Promise<boolean | null>
-  saveToken(token: string): Promise<void>
+  /**
+   * 保存 token，**返回值表示这一次到底存进去了没有**。
+   *
+   * 为什么要有这个信号（原签名是 Promise<void>）：唯一的调用方是设置页，它在保存
+   * 之后会把输入框清空。而"清空"本身就是一句"成了"——保存失败（写盘失败 / 无内存
+   * 后端且写库出错）时照样清空，用户刚粘进去的那串 token 就没了，界面上却与成功
+   * 长得一模一样，只能回去再拷一次。与 reloadAiConfig() 用返回值区分
+   * 「保存成功」和「随后读状态失败」是同一条约定。
+   *
+   * 失败仍然**不抛错**（toast 由 unwrap 弹，error 字段由这里写），只是把结果交回调用方。
+   */
+  saveToken(token: string): Promise<boolean>
 }
 
 /**
@@ -385,8 +396,10 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
     try {
       await unwrap(window.api.store.saveToken(token))
       pushToast({ type: 'success', message: '已保存' })
+      return true
     } catch (err) {
       set({ error: ipcErrorMessage(err) })
+      return false
     }
   }
 }))
