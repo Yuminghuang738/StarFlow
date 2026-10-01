@@ -23,6 +23,7 @@ export interface RepoStore {
   refreshFromGitHub(): Promise<void>
   enrich(): Promise<void>
   unstar(fullName: string): Promise<void>
+  star(fullName: string): Promise<void>
   fork(fullName: string): Promise<void>
   clone(fullName: string): Promise<void>
   openDir(path: string): Promise<void>
@@ -169,6 +170,26 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
       // 主进程已改 store，这里同步内存态：从本地列表过滤掉该仓库
       set((s) => ({ repos: s.repos.filter((r) => r.full_name !== fullName) }))
       pushToast({ type: 'success', message: '已取消 Star' })
+    } catch (err) {
+      set({ error: ipcErrorMessage(err) })
+    }
+  },
+
+  // 推荐列表里的「Star 此仓库」走这里。
+  // 必须落在 repoStore（而不是推荐自己的 store）：Star 完管理页/总览/周报用的都是
+  // 这一个数组，放别处就会出现"推荐页说已 Star、管理页没有它"。
+  async star(fullName) {
+    try {
+      const repo = await unwrap(window.api.github.star(fullName))
+      // 防重：GitHub 的 Star 是幂等的，另一端 Star 过或用户连点两次都会返回到这里，
+      // 直接 push 会出现两张一模一样的卡片。
+      if (get().repos.some((r) => r.full_name === repo.full_name)) {
+        pushToast({ type: 'success', message: `${repo.full_name} 已经在你的列表里了` })
+        return
+      }
+      // 新 Star 的排在最前，与主进程落盘的顺序保持一致
+      set((s) => ({ repos: [repo, ...s.repos] }))
+      pushToast({ type: 'success', message: `已 Star ${repo.full_name}` })
     } catch (err) {
       set({ error: ipcErrorMessage(err) })
     }

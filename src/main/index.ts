@@ -56,7 +56,7 @@ function handle<T>(channel: string, fn: AnyFn<T>): void {
 }
 
 // ============================================================
-// 39 个通道，一个都不能少也不能多
+// 41 个通道，一个都不能少也不能多
 // ============================================================
 
 function registerHandlers(): void {
@@ -74,6 +74,19 @@ function registerHandlers(): void {
     await store.saveRepos(repos.filter((r) => r.full_name !== fullName))
   })
   handle(IPC.GITHUB_FORK, (fullName: string) => github.fork(fullName))
+
+  // Star 与上面的 unstar 对称：「GitHub 上真的加了」和「本地列表跟着变」两条规则
+  // 都由主进程保证，渲染进程只负责按钮上的忙碌态。
+  // GitHub 的 PUT 是幂等的，重复 Star 不报错，所以这里必须防重——另一端 Star 过、
+  // 或用户连点两次，都会走到这条分支，不防就是两张一样的卡片。
+  handle(IPC.GITHUB_STAR, async (fullName: string) => {
+    const repo = await github.star(fullName)
+    const repos = await store.getRepos()
+    if (repos.some((r) => r.full_name === repo.full_name)) return repo
+    // 新 Star 的排在最前：列表的既有顺序是 starred_at 倒序
+    await store.saveRepos([repo, ...repos])
+    return repo
+  })
 
   // 本地 Git
   handle(IPC.LOCAL_CHOOSE_DIR, () => local.chooseDir())
@@ -157,6 +170,7 @@ function registerHandlers(): void {
 
   // 推荐
   handle(IPC.RECOMMEND_SIMILAR, (fullName: string) => recommend.similar(fullName))
+  handle(IPC.RECOMMEND_FOR_QUERY, (query: string) => recommend.forQuery(query))
 
   // 定时追踪。刻意不在启动时自动 start，由前端显式调用
   handle(IPC.TRACKER_START, () => tracker.start())

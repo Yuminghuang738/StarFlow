@@ -6,7 +6,7 @@ import { Octokit } from 'octokit'
 import type { Repo, Release, Commit } from '@shared/types'
 import { isMockMode } from './config'
 import * as store from './store'
-import { mockStarred, mockReadme, mockReleases, mockCommits, mockUnstar, mockFork } from './mock'
+import { mockStarred, mockReadme, mockReleases, mockCommits, mockUnstar, mockFork, mockSearch, mockStar } from './mock'
 
 /** 分页：每页 100（GitHub 上限），最多 3 页 = 300 条，首页加载不能被无限翻页拖死 */
 const PER_PAGE = 100
@@ -305,5 +305,110 @@ export async function fork(fullName: string): Promise<Repo> {
     return forked
   } catch (err) {
     throw toReadableError(err, `Fork ${fullName}`)
+  }
+}
+
+// ============================================================
+// 仓库推荐用到的两个补充（PR 4 新增，不在上面那 6 个冻结导出里）
+// ============================================================
+
+/** 搜索接口返回项的窄化类型：Repo 契约里没有 owner / default_branch 这些字段 */
+interface RawSearchRepo {
+  id?: number
+  full_name?: string
+  html_url?: string
+  description?: string | null
+  language?: string | null
+  stargazers_count?: number
+  pushed_at?: string | null
+  topics?: string[]
+}
+
+/** 搜索默认返回条数 */
+const SEARCH_LIMIT = 20
+
+/**
+ * 搜索仓库。
+ *
+ * ⚠️ 刻意**不传 sort**：GitHub 默认给的是"最佳匹配"排序，这正是自然语言查询要的；
+ * 传 stars / updated 会把相关度挤掉，搜出来的东西就与查询意图无关了。
+ * 搜索接口的限频比其它接口紧得多（约 30 次/分钟），撞上会返回 403，文案已在
+ * toReadableError 里覆盖。
+ */
+export async function searchRepos(query: string, limit = SEARCH_LIMIT): Promise<Repo[]> {
+  const q = query.trim()
+  if (!q) return []
+  if (isMockMode()) return mockSearch(q, limit)
+
+  const octokit = await client()
+  try {
+    const res = await octokit.rest.search.repos({ q, per_page: limit })
+    const items: unknown[] = Array.isArray(res.data?.items) ? res.data.items : []
+
+    return items
+      .map((item) => item as RawSearchRepo)
+      .filter(
+        (r): r is RawSearchRepo & { id: number; full_name: string; html_url: string } =>
+          typeof r.id === 'number' &&
+          typeof r.full_name === 'string' &&
+          typeof r.html_url === 'string'
+      )
+      .map((r) => ({
+        id: r.id,
+        full_name: r.full_name,
+        description: r.description ?? null,
+        language: r.language ?? null,
+        stargazers_count: r.stargazers_count ?? 0,
+        html_url: r.html_url,
+        // ⚠️ 搜索结果里**没有「我什么时候 star 的」**（那要走 /user/starred）。这里用
+        // pushed_at 占位，所以推荐列表刻意不渲染相对时间——那会显示成"最后推送时间"，
+        // 看起来像 Star 时间，是实打实的误导。
+        starred_at: r.pushed_at ?? '',
+        topics: Array.isArray(r.topics) ? r.topics : [],
+        pushed_at: r.pushed_at ?? null,
+        latest_release: null
+      }))
+  } catch (err) {
+    throw toReadableError(err, `搜索「${q}」`)
+  }
+}
+
+/**
+ * 给仓库加 Star，并回读一次拿完整数据。
+ *
+ * ⚠️ 与 unstar 同样的纪律：这里**只做 API 调用**，写本地列表由 index.ts 的 handler
+ * 负责。两处都写会变成双重写入加竞态。
+ */
+export async function star(fullName: string): Promise<Repo> {
+  if (isMockMode()) return mockStar(fullName)
+
+  const { owner, repo } = splitFullName(fullName)
+  const octokit = await client()
+  try {
+    // PUT 是幂等的：已经 Star 过也返回 204，不会报错
+    await octokit.rest.activity.starRepoForAuthenticatedUser({ owner, repo })
+    // Star 接口本身只有 204、没有响应体，要拿仓库数据必须再读一次
+    const res = await octokit.rest.repos.get({ owner, repo })
+    const d = res.data
+
+    const starred: Repo = {
+      id: d.id,
+      full_name: d.full_name,
+      description: d.description ?? null,
+      language: d.language ?? null,
+      stargazers_count: d.stargazers_count ?? 0,
+      html_url: d.html_url,
+      // 这次调用同样拿不到 starred_at（只有 /user/starred 会带），用当下时间占位，
+      // 与 fork() 的约定一致
+      starred_at: new Date().toISOString(),
+      topics: d.topics ?? [],
+      pushed_at: d.pushed_at ?? null,
+      latest_release: null
+    }
+
+    console.log(`[github] 已 Star: ${fullName}`)
+    return starred
+  } catch (err) {
+    throw toReadableError(err, `Star ${fullName}`)
   }
 }

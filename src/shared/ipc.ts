@@ -11,6 +11,9 @@ export const IPC = {
   GITHUB_FETCH_COMMITS: 'github:fetchCommits',
   GITHUB_UNSTAR: 'github:unstar',
   GITHUB_FORK: 'github:fork',
+  // 给仓库加 Star（推荐列表里的动作）。与 unstar 对称：「GitHub 上真的加了」和
+  // 「本地列表跟着变」都由主进程保证，渲染进程只负责按钮上的忙碌态。
+  GITHUB_STAR: 'github:star',
 
   // 本地 Git
   LOCAL_CHOOSE_DIR: 'local:chooseDir',
@@ -58,6 +61,10 @@ export const IPC = {
 
   // 推荐
   RECOMMEND_SIMILAR: 'recommend:similar',
+  // 「一句话找仓库」。**刻意不暴露 github:searchRepos**：界面只需要"推荐/猜你喜欢/
+  // Star"三个动作，加一条没有消费者的通道纯粹是扩大表面积。AI 的搜索计划也只活在
+  // 主进程内部，不跨进程传输。
+  RECOMMEND_FOR_QUERY: 'recommend:forQuery',
 
   // 定时追踪
   TRACKER_START: 'tracker:start',

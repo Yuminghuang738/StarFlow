@@ -11,7 +11,8 @@ import pLimit from 'p-limit'
 import type { Repo, AiCategory, AiConnectionResult } from '@shared/types'
 import { AI_CATEGORIES } from '@shared/types'
 import { isMockMode, getEnv, setAiOverride } from './config'
-import { summarizePrompt, classifyPrompt, reportPrompt } from './ai-prompts'
+import { summarizePrompt, classifyPrompt, reportPrompt, searchPlanPrompt, parseSearchPlan } from './ai-prompts'
+import type { SearchPlan } from './ai-prompts'
 import * as store from './store'
 import * as github from './github'
 import { mockSummary, mockClassify, mockEnrich, mockReportSummary } from './mock'
@@ -133,6 +134,7 @@ function topLanguage(repos: Repo[]): string {
 
 /* ------------------------------------------------------------------ */
 /* 4 个导出函数（签名冻结，见 docs/module-signatures.md）                */
+/* 另有 refreshAiConfigCache / testConnection / planSearch 三个非契约导出 */
 /* ------------------------------------------------------------------ */
 
 export async function summarize(readme: string): Promise<string> {
@@ -269,6 +271,36 @@ export async function generateReport(repos: Repo[]): Promise<string> {
 /* ------------------------------------------------------------------ */
 /* 配置热更新与连接探针                                                 */
 /* ------------------------------------------------------------------ */
+
+/**
+ * 把一句自然语言查询翻译成结构化搜索计划（PR 4，「仓库推荐」用）。
+ *
+ * ⚠️ **任何失败都返回 null，绝不抛错**——包括「没配 AI Key」这个最常见的情况。
+ * 调用方（recommend.forQuery）拿不到计划就退化成"直接用清洗过的原句搜索"，
+ * 所以推荐功能只要有 GitHub Token 就能用。这是刻意的：AI 让它更准，不是让它能跑。
+ *
+ * MOCK_MODE 下也直接返回 null：mock 语料就那么几条，关键词匹配已经够演示了，
+ * 没必要再编一份假计划。
+ */
+export async function planSearch(query: string): Promise<SearchPlan | null> {
+  const q = query.trim()
+  if (!q || isMockMode()) return null
+
+  try {
+    const res = await client().chat.completions.create({
+      model: modelName(),
+      temperature: 0,
+      max_tokens: 200,
+      messages: [{ role: 'user', content: searchPlanPrompt(q) }]
+    })
+    const plan = parseSearchPlan(res.choices[0]?.message?.content)
+    console.log(`[ai] planSearch -> ${plan ? JSON.stringify(plan) : 'null（退回原句搜索）'}`)
+    return plan
+  } catch (err) {
+    console.error('[ai] planSearch 失败，退回原句搜索:', errorMessage(err))
+    return null
+  }
+}
 
 /**
  * 把 store 里存的 AI 配置刷进 config.ts 的覆盖层。
