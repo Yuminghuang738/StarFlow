@@ -66,22 +66,22 @@ export function CloneProgressBar({ fullName }: { fullName: string }): React.JSX.
   return (
     <div className="mt-2 w-full max-w-md">
       <div className="flex items-baseline justify-between gap-2 text-xs">
-        <span className="text-slate-400">
+        <span className="text-fg-muted">
           {stage === null ? '正在连接 GitHub…' : (STAGE_LABELS[stage] ?? '克隆中')}
         </span>
-        <span className="shrink-0 tabular-nums text-slate-500">
+        <span className="shrink-0 tabular-nums text-fg-subtle">
           {stage === null ? '' : `${percent}% · `}已用 {elapsed}s
         </span>
       </div>
 
       {/* duration 让两次进度事件之间平滑过渡，而不是一格一格地跳——数据仍然只有
           git 真正报出来的那个值，没有插值造假 */}
-      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-800">
+      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-2">
         {stage === null ? (
-          <div className="h-full w-full animate-pulse rounded-full bg-sky-500/40" />
+          <div className="h-full w-full animate-pulse rounded-full bg-primary/40" />
         ) : (
           <div
-            className="h-full rounded-full bg-sky-500 transition-[width] duration-300"
+            className="h-full rounded-full bg-primary transition-[width] duration-300"
             style={{ width: `${percent}%` }}
           />
         )}
@@ -89,7 +89,7 @@ export function CloneProgressBar({ fullName }: { fullName: string }): React.JSX.
 
       {/* git 的进度行给的是对象计数，不是字节数，所以这里写「个对象」而不是 MB */}
       {total > 0 ? (
-        <p className="mt-1 text-xs tabular-nums text-slate-500">
+        <p className="mt-1 text-xs tabular-nums text-fg-subtle">
           {processed} / {total} 个对象
         </p>
       ) : null}

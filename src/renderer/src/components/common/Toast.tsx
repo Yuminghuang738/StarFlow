@@ -1,4 +1,6 @@
 import { create } from 'zustand'
+import { AnimatePresence, motion } from 'framer-motion'
+import { cn } from '../../lib/cn'
 
 export interface ToastItem {
   id: string
@@ -55,11 +57,19 @@ export function useToast(): { push(t: PushArg): void } {
 }
 
 const TYPE_CLASS: Record<ToastItem['type'], string> = {
-  success: 'bg-emerald-600 text-white',
-  error: 'bg-red-600 text-white'
+  // 实心底 + 白字，走 `-solid` 那组 token（见 index.css）：
+  // 用 --c-success / --c-danger 当底的话，暗色主题下是浅色底配白字，读不出来。
+  success: 'bg-success-solid text-solid-fg',
+  error: 'bg-danger-solid text-solid-fg'
 }
 
-/** 只负责渲染；列表状态在模块级 store 里 */
+/**
+ * 只负责渲染；列表状态在模块级 store 里。
+ *
+ * 这里是全应用**唯一**可以放心用 AnimatePresence 的地方：toast 到点就真从数组里删掉，
+ * 出场动画有地方播。页面级切换不行——页面永不卸载（keep-alive），把 key 绑在 tab 上
+ * 的 `AnimatePresence mode="wait"` 永远等不到 exit 结束（见 App.tsx 的说明）。
+ */
 export function ToastProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const items = useToastStore((s) => s.items)
   const remove = useToastStore((s) => s.remove)
@@ -68,16 +78,27 @@ export function ToastProvider({ children }: { children: React.ReactNode }): Reac
     <>
       {children}
       <div className="pointer-events-none fixed right-4 top-4 z-50 flex w-80 flex-col gap-2">
-        {items.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => remove(t.id)}
-            className={`pointer-events-auto rounded-md px-3.5 py-2.5 text-left text-sm shadow-lg ${TYPE_CLASS[t.type]}`}
-          >
-            {t.message}
-          </button>
-        ))}
+        <AnimatePresence initial={false}>
+          {items.map((t) => (
+            <motion.button
+              key={t.id}
+              type="button"
+              // layout 让下方 toast 在一条消失时平滑补位，而不是直接跳过去
+              layout
+              initial={{ opacity: 0, x: 24, scale: 0.98 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 24, scale: 0.98 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+              onClick={() => remove(t.id)}
+              className={cn(
+                'pointer-events-auto rounded-md px-3.5 py-2.5 text-left text-sm shadow-lg',
+                TYPE_CLASS[t.type]
+              )}
+            >
+              {t.message}
+            </motion.button>
+          ))}
+        </AnimatePresence>
       </div>
     </>
   )

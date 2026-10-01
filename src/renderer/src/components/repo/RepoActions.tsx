@@ -90,13 +90,13 @@ export function RepoActions({ repo }: { repo: Repo }): React.JSX.Element {
               href={`https://github.com/${forkedFullName}`}
               target="_blank"
               rel="noreferrer"
-              className="max-w-[16rem] truncate text-xs text-sky-400 underline-offset-2 hover:text-sky-300 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500"
+              className="max-w-[16rem] truncate text-xs text-link underline-offset-2 hover:text-link/90 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
               title={forkedFullName}
             >
               {forkedFullName}
             </a>
             {forkedAt ? (
-              <span className="text-xs text-slate-500">{formatRelative(forkedAt)}</span>
+              <span className="text-xs text-fg-subtle">{formatRelative(forkedAt)}</span>
             ) : null}
           </div>
         ) : (

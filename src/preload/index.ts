@@ -29,7 +29,10 @@ const api = {
     unstar: (fullName: string): Promise<IpcResult<void>> =>
       ipcRenderer.invoke(IPC.GITHUB_UNSTAR, fullName),
     fork: (fullName: string): Promise<IpcResult<Repo>> =>
-      ipcRenderer.invoke(IPC.GITHUB_FORK, fullName)
+      ipcRenderer.invoke(IPC.GITHUB_FORK, fullName),
+    // 返回加 Star 之后的仓库记录（主进程同时已把它写进本地列表）
+    star: (fullName: string): Promise<IpcResult<Repo>> =>
+      ipcRenderer.invoke(IPC.GITHUB_STAR, fullName)
   },
   local: {
     chooseDir: (): Promise<IpcResult<string | null>> => ipcRenderer.invoke(IPC.LOCAL_CHOOSE_DIR),
@@ -85,7 +88,10 @@ const api = {
   },
   recommend: {
     similar: (fullName: string): Promise<IpcResult<Repo[]>> =>
-      ipcRenderer.invoke(IPC.RECOMMEND_SIMILAR, fullName)
+      ipcRenderer.invoke(IPC.RECOMMEND_SIMILAR, fullName),
+    // 一句话找仓库。AI 的搜索计划不跨进程，这里只传原句、只回结果
+    forQuery: (query: string): Promise<IpcResult<Repo[]>> =>
+      ipcRenderer.invoke(IPC.RECOMMEND_FOR_QUERY, query)
   },
   tracker: {
     start: (): Promise<IpcResult<void>> => ipcRenderer.invoke(IPC.TRACKER_START),

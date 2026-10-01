@@ -2,7 +2,18 @@ import tseslint from 'typescript-eslint'
 import reactHooks from 'eslint-plugin-react-hooks'
 
 export default tseslint.config(
-  { ignores: ['out/**', 'dist/**', 'node_modules/**'] },
+  {
+    ignores: [
+      'out/**',
+      'dist/**',
+      'node_modules/**',
+      // 并行的 git worktree / 子会话目录。它们是仓库的完整副本，各自的
+      // 构建产物与旧代码会被 `eslint .` 一并扫进来（实测曾报 6600+ 个假错误）。
+      // 注意 `.claude/` 只写在 .git/info/exclude 里，CI 看不到，所以不忽略也不影响流水线，
+      // 但会稳定地在本地制造假红。
+      '.claude/**'
+    ]
+  },
 
   ...tseslint.configs.recommended,
 

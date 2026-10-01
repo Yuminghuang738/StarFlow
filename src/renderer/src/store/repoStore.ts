@@ -23,6 +23,7 @@ export interface RepoStore {
   refreshFromGitHub(): Promise<void>
   enrich(): Promise<void>
   unstar(fullName: string): Promise<void>
+  star(fullName: string): Promise<void>
   fork(fullName: string): Promise<void>
   clone(fullName: string): Promise<void>
   openDir(path: string): Promise<void>
@@ -129,7 +130,7 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
     }
 
     // 对账：把"记录里有、磁盘上已经被用户删掉"的 cloned_path 静默清掉，卡片自然
-    // 回到 [Clone] 态。折在 load() 里而不是让 Dashboard 自己调，是为了不动 Dashboard 的文件。
+    // 回到 [Clone] 态。折在 load() 里而不是让页面自己调，省得每个页面各写一遍。
     // 只在真的读到列表时才跑；pruneLocalClones 内部绝不抛，不会影响上面的加载结果。
     if (loaded) await get().pruneLocalClones()
   },
@@ -169,6 +170,26 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
       // 主进程已改 store，这里同步内存态：从本地列表过滤掉该仓库
       set((s) => ({ repos: s.repos.filter((r) => r.full_name !== fullName) }))
       pushToast({ type: 'success', message: '已取消 Star' })
+    } catch (err) {
+      set({ error: ipcErrorMessage(err) })
+    }
+  },
+
+  // 推荐列表里的「Star 此仓库」走这里。
+  // 必须落在 repoStore（而不是推荐自己的 store）：Star 完管理页/总览/周报用的都是
+  // 这一个数组，放别处就会出现"推荐页说已 Star、管理页没有它"。
+  async star(fullName) {
+    try {
+      const repo = await unwrap(window.api.github.star(fullName))
+      // 防重：GitHub 的 Star 是幂等的，另一端 Star 过或用户连点两次都会返回到这里，
+      // 直接 push 会出现两张一模一样的卡片。
+      if (get().repos.some((r) => r.full_name === repo.full_name)) {
+        pushToast({ type: 'success', message: `${repo.full_name} 已经在你的列表里了` })
+        return
+      }
+      // 新 Star 的排在最前，与主进程落盘的顺序保持一致
+      set((s) => ({ repos: [repo, ...s.repos] }))
+      pushToast({ type: 'success', message: `已 Star ${repo.full_name}` })
     } catch (err) {
       set({ error: ipcErrorMessage(err) })
     }
@@ -274,7 +295,7 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
   async pruneLocalClones() {
     try {
       // 刻意不走 unwrap / call：那两个封装（lib/api.ts）都会弹 toast，而对账必须是静默的
-      // ——它挂在每次 load() 后面，用 unwrap 就等于每次切回 Dashboard 都弹一条，
+      // ——它挂在每次 load() 后面，用 unwrap 就等于每次启动都弹一条，
       // 而且弹的还是用户没做过任何操作的一条提示。
       const res = await window.api.local.pruneClones()
       if (!res.ok || res.data.length === 0) return

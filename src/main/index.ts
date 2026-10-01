@@ -56,7 +56,7 @@ function handle<T>(channel: string, fn: AnyFn<T>): void {
 }
 
 // ============================================================
-// 39 个通道，一个都不能少也不能多
+// 41 个通道，一个都不能少也不能多
 // ============================================================
 
 function registerHandlers(): void {
@@ -74,6 +74,19 @@ function registerHandlers(): void {
     await store.saveRepos(repos.filter((r) => r.full_name !== fullName))
   })
   handle(IPC.GITHUB_FORK, (fullName: string) => github.fork(fullName))
+
+  // Star 与上面的 unstar 对称：「GitHub 上真的加了」和「本地列表跟着变」两条规则
+  // 都由主进程保证，渲染进程只负责按钮上的忙碌态。
+  // GitHub 的 PUT 是幂等的，重复 Star 不报错，所以这里必须防重——另一端 Star 过、
+  // 或用户连点两次，都会走到这条分支，不防就是两张一样的卡片。
+  handle(IPC.GITHUB_STAR, async (fullName: string) => {
+    const repo = await github.star(fullName)
+    const repos = await store.getRepos()
+    if (repos.some((r) => r.full_name === repo.full_name)) return repo
+    // 新 Star 的排在最前：列表的既有顺序是 starred_at 倒序
+    await store.saveRepos([repo, ...repos])
+    return repo
+  })
 
   // 本地 Git
   handle(IPC.LOCAL_CHOOSE_DIR, () => local.chooseDir())
@@ -157,6 +170,7 @@ function registerHandlers(): void {
 
   // 推荐
   handle(IPC.RECOMMEND_SIMILAR, (fullName: string) => recommend.similar(fullName))
+  handle(IPC.RECOMMEND_FOR_QUERY, (query: string) => recommend.forQuery(query))
 
   // 定时追踪。刻意不在启动时自动 start，由前端显式调用
   handle(IPC.TRACKER_START, () => tracker.start())
@@ -207,6 +221,15 @@ function createWindow(): void {
     // 是否支持客户端装饰。所以 Fedora 上很可能既没有阴影圆角、也拖不动边——先按现状做，
     // 实测之后要是真拖不动，再补 8 条自绘缩放热区（那需要多开一条 window:setBounds）。
     frame: false,
+    // 首帧底色 = 亮色主题的 body 底色。窗口在渲染进程完成首次绘制前、以及后续
+    // resize / 从最小化恢复时会露出这个颜色，不给就是 Chromium 默认的白。
+    // 默认主题是亮色，所以这里给亮色最贴合。
+    backgroundColor: '#f8fafc',
+    // 先不显示，等渲染进程画完第一帧再 show。**这是防白闪的关键一步**：
+    // index.html 里的防闪脚本能在首次绘制前就把 .dark 定下来，但如果窗口已经可见，
+    // 用户仍会看到脚本执行前的那一帧。配合 show:false，暗色用户启动时就完全看不到白闪，
+    // backgroundColor 只是 resize 之类场合的兜底。
+    show: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
@@ -214,6 +237,15 @@ function createWindow(): void {
       sandbox: false
     }
   })
+
+  win.once('ready-to-show', () => win.show())
+
+  // 兜底：渲染进程加载失败（打包路径写错、被 CSP 拦下、dev server 没起来）时
+  // ready-to-show 永远不会触发，窗口就一直不显示——那比白闪糟糕得多，用户会以为程序没启动。
+  // 2s 后无条件显示，把"窗口存在"这件事的主动权拿回来。
+  setTimeout(() => {
+    if (!win.isDestroyed() && !win.isVisible()) win.show()
+  }, 2000)
 
   // window:* 那几个 handler 全靠这个引用（见文件顶部 mainWindow 的说明）
   mainWindow = win

@@ -48,7 +48,8 @@ function buildSummary(repo: Repo): string {
 }
 
 /* ------------------------------------------------------------------ */
-/* 11 个导出函数（签名冻结，见 docs/module-signatures.md）              */
+/* 13 个导出函数（11 个签名冻结见 docs/module-signatures.md，           */
+/* mockSearch / mockStar 是 PR 4 为推荐功能补的）                       */
 /* ------------------------------------------------------------------ */
 
 export async function mockStarred(): Promise<Repo[]> {
@@ -153,6 +154,71 @@ export async function mockSimilar(fullName: string): Promise<Repo[]> {
   const rest = others.filter((r) => !related.includes(r))
   // 不足 4 条时用其他仓库补齐
   return structuredClone([...related, ...rest].slice(0, 4))
+}
+
+/**
+ * 搜索（推荐功能的 Mock 分支）：在 mock-data.json 的语料里做关键词包含匹配。
+ *
+ * ⚠️ 命中后**换一个 owner**（`community-labs/xxx`）再返回，不是原样返回语料。
+ * 原因：语料就是 mock 的「已 Star 列表」，而 store 在库空时会自动灌入同一份种子，
+ * 于是 recommend.forQuery 的「已 Star 的不再推荐」会把结果整条过滤光——
+ * MOCK_MODE 下推荐板块永远空着，演示时看着像功能没做。
+ * 换成另一个 owner 正好模拟真实场景：搜到的是别人的、你还没 Star 的仓库。
+ */
+export function mockSearch(query: string, limit: number): Repo[] {
+  // 查询串里带 GitHub 限定符（topic: / language: / stars:>=）时，只拿关键词部分去匹配
+  const terms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t !== '' && !t.includes(':'))
+
+  const hits = terms.length
+    ? seed.filter((r) => {
+        const hay =
+          `${r.full_name} ${r.description ?? ''} ${r.language ?? ''} ${r.topics.join(' ')}`.toLowerCase()
+        return terms.some((t) => hay.includes(t))
+      })
+    : seed
+
+  return structuredClone(hits.slice(0, limit)).map((r) => {
+    const name = repoName(r.full_name)
+    return {
+      ...r,
+      // id 也要挪开，否则与列表里同 id 的卡片在 React 的 key 上会打架
+      id: r.id + 900000,
+      full_name: `community-labs/${name}`,
+      html_url: `https://github.com/community-labs/${name}`,
+      // 与真实分支一致：搜索结果拿不到「我什么时候 star 的」，用 pushed_at 占位，
+      // 所以推荐卡片不渲染相对时间
+      starred_at: r.pushed_at ?? '',
+      latest_release: null
+    }
+  })
+}
+
+/**
+ * Star（推荐功能的 Mock 分支）。语料里已有就返回它，否则造一条最小记录塞进内存列表——
+ * 真实模式的 mockStar 是"真的加了一条"，这样刷新之后也能在管理页看到。
+ */
+export function mockStar(fullName: string): Repo {
+  const existing = findRepo(fullName)
+  if (existing) return structuredClone(existing)
+
+  const now = new Date().toISOString()
+  const repo: Repo = {
+    id: Math.floor(Math.random() * 1_000_000_000),
+    full_name: fullName,
+    description: '（Mock 模式新加 Star 的演示仓库）',
+    language: null,
+    stargazers_count: 0,
+    html_url: `https://github.com/${fullName}`,
+    starred_at: now,
+    topics: [],
+    pushed_at: now,
+    latest_release: null
+  }
+  starred = [repo, ...starred]
+  return structuredClone(repo)
 }
 
 export function mockSummary(readme: string): string {

@@ -1,16 +1,11 @@
 import { useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
-import * as echarts from 'echarts'
-import type { EChartsOption } from 'echarts'
 import { useRepoStore } from '../../store/repoStore'
 import { Card } from '../common/Card'
+import { useChartTheme } from './chartTheme'
+import { starTrendLineOption } from './options'
 
 const DAY = 86_400_000
-
-const TEXT_COLOR = '#cbd5e1'
-const SPLIT_COLOR = 'rgba(148,163,184,0.15)'
-const AXIS_COLOR = 'rgba(148,163,184,0.35)'
-const LINE_COLOR = '#38bdf8'
 
 /** UTC 日期 key，口径与主进程 report.ts 的 dateKey 完全一致 */
 function dateKey(ms: number): string {
@@ -29,6 +24,7 @@ function dateKey(ms: number): string {
  */
 export function StarTrendChart(): React.JSX.Element {
   const repos = useRepoStore((s) => s.repos)
+  const palette = useChartTheme()
 
   const series = useMemo(() => {
     const now = new Date()
@@ -55,65 +51,22 @@ export function StarTrendChart(): React.JSX.Element {
     return buckets
   }, [repos])
 
-  const option = useMemo<EChartsOption>(
-    () => ({
-      backgroundColor: 'transparent',
-      grid: { left: 8, right: 16, top: 16, bottom: 4, containLabel: true },
-      tooltip: {
-        trigger: 'axis',
-        formatter: (params) => {
-          const arr = Array.isArray(params) ? params : [params]
-          const p = arr[0] as { axisValue?: string; value?: number } | undefined
-          return `${p?.axisValue ?? ''}<br/>新增 ${p?.value ?? 0} 个`
-        },
-        borderColor: SPLIT_COLOR,
-        backgroundColor: '#0f172a',
-        textStyle: { color: TEXT_COLOR, fontSize: 12 }
-      },
-      xAxis: {
-        type: 'category',
-        boundaryGap: false,
-        data: series.map((s) => s.label),
-        axisLine: { lineStyle: { color: AXIS_COLOR } },
-        axisTick: { show: false },
-        axisLabel: { color: TEXT_COLOR, fontSize: 12 }
-      },
-      yAxis: {
-        type: 'value',
-        minInterval: 1, // 数量是整数，避免出现 0.5 这种刻度
-        axisLine: { show: false },
-        axisTick: { show: false },
-        splitLine: { lineStyle: { color: SPLIT_COLOR } },
-        axisLabel: { color: TEXT_COLOR, fontSize: 12 }
-      },
-      series: [
-        {
-          type: 'line',
-          smooth: true,
-          showSymbol: true,
-          symbol: 'circle',
-          symbolSize: 7,
-          lineStyle: { width: 2, color: LINE_COLOR },
-          itemStyle: { color: LINE_COLOR, borderColor: '#0f172a', borderWidth: 2 },
-          areaStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: 'rgba(56,189,248,0.45)' },
-              { offset: 1, color: 'rgba(56,189,248,0.02)' }
-            ])
-          },
-          data: series.map((s) => s.count)
-        }
-      ]
-    }),
-    [series]
+  const option = useMemo(
+    () =>
+      starTrendLineOption(
+        series.map((s) => s.label),
+        series.map((s) => s.count),
+        palette
+      ),
+    [series, palette]
   )
 
   return (
     <Card className="overflow-hidden">
-      <h3 className="text-sm font-medium text-slate-200">近 7 天新增</h3>
+      <h3 className="text-sm font-medium text-fg">近 7 天新增</h3>
       <div className="mt-2 h-[280px] overflow-hidden">
         {repos.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-slate-500">
+          <div className="flex h-full items-center justify-center text-sm text-fg-subtle">
             暂无数据
           </div>
         ) : (

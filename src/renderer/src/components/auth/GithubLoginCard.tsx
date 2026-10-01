@@ -209,8 +209,8 @@ export function GithubLoginCard({ onAuthChange }: GithubLoginCardProps): React.J
   if (view === 'loading') {
     return (
       <Card className="mt-4">
-        <h2 className="text-sm font-medium text-slate-200">用 GitHub 登录</h2>
-        <p className="mt-1 text-xs text-slate-500">正在检查登录状态…</p>
+        <h2 className="text-sm font-medium text-fg">用 GitHub 登录</h2>
+        <p className="mt-1 text-xs text-fg-subtle">正在检查登录状态…</p>
       </Card>
     )
   }
@@ -218,8 +218,8 @@ export function GithubLoginCard({ onAuthChange }: GithubLoginCardProps): React.J
   if (view === 'unavailable') {
     return (
       <Card className="mt-4">
-        <h2 className="text-sm font-medium text-slate-200">用 GitHub 登录</h2>
-        <p className="mt-1 text-xs text-slate-500">{reason ?? '当前不可用'}</p>
+        <h2 className="text-sm font-medium text-fg">用 GitHub 登录</h2>
+        <p className="mt-1 text-xs text-fg-subtle">{reason ?? '当前不可用'}</p>
       </Card>
     )
   }
@@ -228,23 +228,23 @@ export function GithubLoginCard({ onAuthChange }: GithubLoginCardProps): React.J
     const remaining = deadline === null ? 0 : Math.max(0, Math.ceil((deadline - now) / 1000))
     return (
       <Card className="mt-4">
-        <h2 className="text-sm font-medium text-slate-200">等待授权</h2>
-        <p className="mt-1 text-xs text-slate-500">
+        <h2 className="text-sm font-medium text-fg">等待授权</h2>
+        <p className="mt-1 text-xs text-fg-subtle">
           已自动打开浏览器。在 GitHub 页面里输入下面这串验证码并点 Authorize，
           这个页面会自己变成已登录。
         </p>
         <div className="mt-3 flex items-center gap-3">
-          <code className="select-all rounded-md border border-slate-700 bg-slate-950 px-4 py-2 font-mono text-2xl tracking-widest text-sky-300">
+          <code className="select-all rounded-md border border-border-strong bg-surface-2 px-4 py-2 font-mono text-2xl tracking-widest text-primary">
             {pending?.userCode ?? ''}
           </code>
           <Button variant="ghost" size="sm" onClick={() => void copyCode()}>
             复制
           </Button>
         </div>
-        <p className="mt-2 text-xs text-slate-500">
+        <p className="mt-2 text-xs text-fg-subtle">
           剩余 {remaining} 秒 · 没打开浏览器的话，手动访问{' '}
           <a
-            className="text-sky-400 underline"
+            className="text-link underline"
             href={pending?.verificationUri ?? 'https://github.com/login/device'}
             target="_blank"
             rel="noreferrer"
@@ -266,8 +266,8 @@ export function GithubLoginCard({ onAuthChange }: GithubLoginCardProps): React.J
       <Card className="mt-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-400" />
-            <span className="text-sm text-slate-200">
+            <span className="h-2 w-2 rounded-full bg-success" />
+            <span className="text-sm text-fg">
               {user?.login ? `已登录 @${user.login}` : '已登录 GitHub'}
             </span>
           </div>
@@ -275,7 +275,7 @@ export function GithubLoginCard({ onAuthChange }: GithubLoginCardProps): React.J
             退出登录
           </Button>
         </div>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-xs text-fg-subtle">
           退出会清除本机保存的 GitHub 凭据；仓库列表和 clone / fork / 分类这些本地标记不受影响。
         </p>
         <ConfirmDialog
@@ -293,8 +293,8 @@ export function GithubLoginCard({ onAuthChange }: GithubLoginCardProps): React.J
 
   return (
     <Card className="mt-4">
-      <h2 className="text-sm font-medium text-slate-200">用 GitHub 登录</h2>
-      <p className="mt-1 text-xs text-slate-500">
+      <h2 className="text-sm font-medium text-fg">用 GitHub 登录</h2>
+      <p className="mt-1 text-xs text-fg-subtle">
         点一下按钮，浏览器会自动打开 GitHub 的授权页；把页面里显示的 8 位验证码粘进去、点
         Authorize 就行，不需要再回本应用点确认。
       </p>

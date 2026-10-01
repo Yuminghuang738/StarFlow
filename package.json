@@ -14,9 +14,11 @@
     "build:linux": "npm run build && electron-builder --linux --config electron-builder.yml"
   },
   "dependencies": {
+    "clsx": "^2.1.1",
     "dotenv": "^18.0.5",
     "echarts": "^6.1.0",
     "echarts-for-react": "^3.0.6",
+    "framer-motion": "^13.5.0",
     "lowdb": "^7.0.1",
     "node-cron": "^4.6.0",
     "octokit": "^5.0.5",
@@ -25,6 +27,7 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "simple-git": "^4.0.2",
+    "tailwind-merge": "^3.7.0",
     "zustand": "^5.0.15"
   },
   "devDependencies": {

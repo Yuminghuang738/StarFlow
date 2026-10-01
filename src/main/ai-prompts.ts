@@ -100,3 +100,88 @@ export function reportPrompt(repos: Repo[]): string {
 ---
 ${list}`
 }
+
+/* ------------------------------------------------------------------ */
+/* 搜索计划（PR 4）                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 搜索计划：把用户的一句话翻成**结构化**条件，再由 main/recommend.ts 确定性地
+ * 拼成 GitHub 查询串。
+ *
+ * 为什么不让模型直接写 `q`：模型写限定符时一个语法错误（多一个引号、写成中文冒号）
+ * 就会静默返回 0 结果，而且分不清是模型错还是 GitHub 错。结构化输出 + 主进程拼接，
+ * 模型再怎么自由发挥也越不出下面这几个字段，值还会被 escapeQualifier 洗一遍。
+ */
+export interface SearchPlan {
+  /** 查询关键词，唯一必填项 */
+  keywords: string
+  /** GitHub 的语言名（英文，如 TypeScript / Rust），不确定就给 null */
+  language: string | null
+  /** 一个 GitHub topic（英文小写连字符，如 machine-learning），不确定就给 null */
+  topic: string | null
+  /** 星数下限，只要一个整数；用户没提就给 null */
+  minStars: number | null
+}
+
+export function searchPlanPrompt(query: string): string {
+  return `你在把用户的一句话需求翻译成 GitHub 仓库搜索条件。请只输出一个 JSON 对象，不要任何解释、不要 markdown 围栏。
+
+字段说明：
+- keywords：核心关键词，2~4 个词，用空格分隔。**默认用英文**（GitHub 上绝大多数仓库名/描述是英文），除非这个词本身没有通用的英文写法（比如"中文分词"）。不要包含任何 GitHub 限定符语法。
+- language：如果用户明确提到了编程语言就填它的英文名，否则填 null。
+- topic：如果能对应到一个 GitHub topic 就填（英文小写、用连字符连接，例如 machine-learning、web-framework、cli-tool），否则填 null。不要瞎编 topic。
+- minStars：如果用户表达了对热度的要求（"热门""高星""很多人用"）就给一个整数（通常 500~5000），否则填 null。
+
+示例输出：
+{"keywords":"offline ocr chinese","language":null,"topic":"ocr","minStars":500}
+
+用户的需求：${query}`
+}
+
+/**
+ * 解析搜索计划。
+ *
+ * ⚠️ 刻意**不复用 ai.ts 的 extractContent()**：那个是给分类专用的（专找
+ * `"category":"…"` 这个键），套到这里只会把 JSON 拆坏。这里自己 JSON.parse，
+ * 逐字段 typeof 收窄，**绝不抛错**——解析不出来就返回 null，调用方退化成
+ * "直接用原句搜索"，功能不会因为模型抽风而不可用。
+ */
+export function parseSearchPlan(raw: string | null | undefined): SearchPlan | null {
+  const text = (raw ?? '').trim()
+  if (!text) return null
+
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  const body = fenced ? fenced[1].trim() : text
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    // 模型偶尔会在 JSON 前后各带一句话。退一步：取第一个 { 到最后一个 } 再试一次。
+    const start = body.indexOf('{')
+    const end = body.lastIndexOf('}')
+    if (start < 0 || end <= start) return null
+    try {
+      parsed = JSON.parse(body.slice(start, end + 1))
+    } catch {
+      return null
+    }
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) return null
+  const o = parsed as Record<string, unknown>
+
+  const keywords = typeof o.keywords === 'string' ? o.keywords.trim() : ''
+  // 关键词是唯一必填项：缺了它整份计划没有意义，不如直接退化成原句搜索
+  if (!keywords) return null
+
+  const language = typeof o.language === 'string' && o.language.trim() !== '' ? o.language.trim() : null
+  const topic = typeof o.topic === 'string' && o.topic.trim() !== '' ? o.topic.trim() : null
+
+  const minStarsNum = typeof o.minStars === 'number' ? o.minStars : Number.NaN
+  const minStars =
+    Number.isFinite(minStarsNum) && minStarsNum > 0 ? Math.floor(minStarsNum) : null
+
+  return { keywords, language, topic, minStars }
+}

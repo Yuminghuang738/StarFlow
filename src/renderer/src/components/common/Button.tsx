@@ -1,5 +1,6 @@
 import { forwardRef } from 'react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { cn } from '../../lib/cn'
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost'
 type Size = 'sm' | 'md'
@@ -12,11 +13,14 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode
 }
 
+// primary / danger 用 `-solid` 那组 token：它们是「有色底 + 白字」，
+// 不能拿 --c-primary / --c-danger 当背景——那两个是当文字用的，暗色下偏亮，压不住白字。
+// 详见 index.css 里实心语义背景那段的说明。
 const VARIANT_CLASS: Record<Variant, string> = {
-  primary: 'bg-sky-600 text-white hover:bg-sky-500',
-  secondary: 'bg-slate-700 text-slate-100 hover:bg-slate-600',
-  danger: 'bg-red-600 text-white hover:bg-red-500',
-  ghost: 'bg-transparent text-slate-300 hover:bg-slate-800'
+  primary: 'bg-primary-solid text-solid-fg hover:bg-primary-solid/90',
+  secondary: 'bg-surface-2 text-fg hover:bg-border-strong',
+  danger: 'bg-danger-solid text-solid-fg hover:bg-danger-solid/90',
+  ghost: 'bg-transparent text-fg-muted hover:bg-surface-2'
 }
 
 const SIZE_CLASS: Record<Size, string> = {
@@ -25,7 +29,7 @@ const SIZE_CLASS: Record<Size, string> = {
 }
 
 /**
- * 通用按钮。secondary 是默认 variant；primary 用主色 sky-600（不是 indigo）。
+ * 通用按钮。secondary 是默认 variant；primary 用主色 token（--c-primary，两套主题各一组）。
  * 加了 forwardRef（ConfirmDialog 要拿确认按钮做自动 focus），并新增 loading 态。
  * 其余样式与骨架保持一致。
  */
@@ -33,15 +37,13 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   { variant = 'secondary', size = 'md', loading = false, className = '', type = 'button', children, ...rest },
   ref
 ) {
-  const classes = [
+  const classes = cn(
     'inline-flex items-center justify-center rounded-md font-medium transition-colors',
     'disabled:cursor-not-allowed disabled:opacity-50',
     SIZE_CLASS[size],
     VARIANT_CLASS[variant],
     className
-  ]
-    .filter(Boolean)
-    .join(' ')
+  )
 
   return (
     <button ref={ref} type={type} disabled={loading || rest.disabled} className={classes} {...rest}>

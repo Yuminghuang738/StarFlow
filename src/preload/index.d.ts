@@ -23,6 +23,7 @@ export interface StarFlowApi {
     fetchCommits(fullName: string): Promise<IpcResult<Commit[]>>
     unstar(fullName: string): Promise<IpcResult<void>>
     fork(fullName: string): Promise<IpcResult<Repo>>
+    star(fullName: string): Promise<IpcResult<Repo>>
   }
   local: {
     chooseDir(): Promise<IpcResult<string | null>>
@@ -56,6 +57,7 @@ export interface StarFlowApi {
   }
   recommend: {
     similar(fullName: string): Promise<IpcResult<Repo[]>>
+    forQuery(query: string): Promise<IpcResult<Repo[]>>
   }
   tracker: {
     start(): Promise<IpcResult<void>>

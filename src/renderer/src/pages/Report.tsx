@@ -1,12 +1,12 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
-import type { EChartsOption } from 'echarts'
 import type { WeeklyReport } from '@shared/types'
 import { unwrap, ipcErrorMessage, formatStars } from '../lib/api'
 import { Button } from '../components/common/Button'
 import { Card } from '../components/common/Card'
 import { Badge } from '../components/common/Badge'
-import { EmptyState } from '../components/common/EmptyState'
+import { useChartTheme } from '../components/charts/chartTheme'
+import { weeklyLanguageOption, weeklyTrendBarOption } from '../components/charts/options'
 
 /**
  * 'YYYY-MM-DD'（UTC 口径）→ 'M月D日'。
@@ -69,62 +69,66 @@ function downloadMarkdown(report: WeeklyReport): void {
   URL.revokeObjectURL(url)
 }
 
-/** 语言分布环形图。周报页图表独立，内联 option，不 import P5 的 components/charts/**。 */
-function buildLangOption(report: WeeklyReport): EChartsOption {
-  const data = Object.entries(report.languageStats).map(([name, value]) => ({ name, value }))
-  return {
-    textStyle: { color: '#cbd5e1' },
-    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-    legend: { bottom: 0, type: 'scroll', textStyle: { color: '#cbd5e1' } },
-    series: [
-      {
-        type: 'pie',
-        radius: ['45%', '70%'],
-        center: ['50%', '45%'],
-        avoidLabelOverlap: true,
-        itemStyle: { borderRadius: 6, borderColor: '#0f172a', borderWidth: 2 },
-        label: { show: false },
-        data
-      }
-    ]
-  }
-}
-
-/** 本周新增趋势柱状图：dailyStarCount 按 key 排序，7 个点。key 是主进程 report.ts 的 UTC 口径。 */
-function buildTrendOption(report: WeeklyReport): EChartsOption {
-  const keys = Object.keys(report.dailyStarCount).sort()
-  return {
-    textStyle: { color: '#cbd5e1' },
-    grid: { left: 32, right: 16, top: 16, bottom: 28 },
-    tooltip: { trigger: 'axis' },
-    xAxis: {
-      type: 'category',
-      data: keys,
-      axisLabel: { color: '#94a3b8' },
-      axisLine: { lineStyle: { color: '#334155' } }
-    },
-    yAxis: {
-      type: 'value',
-      minInterval: 1,
-      axisLabel: { color: '#94a3b8' },
-      splitLine: { lineStyle: { color: '#1e293b' } }
-    },
-    series: [
-      {
-        type: 'bar',
-        data: keys.map((k) => report.dailyStarCount[k]),
-        itemStyle: { color: '#38bdf8', borderRadius: [4, 4, 0, 0] }
-      }
-    ]
-  }
+/**
+ * 首屏骨架。周报一进来就自动生成，AI 那一段要等 1~3 秒，这份占位负责把这段时间填满，
+ * 免得用户先看到一个「还没有周报」的空白页、以为要自己点。
+ * 结构刻意对着下面的真实排版（三张统计卡 + 一段正文 + 两张图表），切换时不跳版。
+ */
+function ReportSkeleton(): React.JSX.Element {
+  return (
+    <div className="mt-4 animate-pulse">
+      <div className="flex gap-3">
+        {[0, 1, 2].map((i) => (
+          <Card key={i} className="flex-1">
+            <div className="h-8 w-16 rounded bg-surface-2" />
+            <div className="mt-3 h-3 w-20 rounded bg-surface-2" />
+          </Card>
+        ))}
+      </div>
+      <Card className="mt-4">
+        <div className="h-4 w-20 rounded bg-surface-2" />
+        <div className="mt-3 h-3 w-full rounded bg-surface-2" />
+        <div className="mt-2 h-3 w-4/5 rounded bg-surface-2" />
+      </Card>
+      <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {[0, 1].map((i) => (
+          <Card key={i}>
+            <div className="h-4 w-20 rounded bg-surface-2" />
+            <div className="mt-3 h-[236px] rounded bg-surface-2" />
+          </Card>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 export function Report(): React.JSX.Element {
   const [report, setReport] = useState<WeeklyReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const palette = useChartTheme()
 
-  async function generate(): Promise<void> {
+  const langOption = useMemo(() => {
+    if (!report) return null
+    return weeklyLanguageOption(
+      Object.entries(report.languageStats).map(([name, value]) => ({ name, value })),
+      palette
+    )
+  }, [report, palette])
+
+  const trendOption = useMemo(() => {
+    if (!report) return null
+    const keys = Object.keys(report.dailyStarCount).sort()
+    return weeklyTrendBarOption(
+      keys,
+      keys.map((k) => report.dailyStarCount[k]),
+      palette
+    )
+  }, [report, palette])
+
+  // 用 useCallback 而不是普通函数：下面的自动生成 effect 依赖它，函数身份不稳的话
+  // effect 每次渲染都会重跑一遍。
+  const generate = useCallback(async (): Promise<void> => {
     setLoading(true)
     setError(null)
     try {
@@ -134,7 +138,25 @@ export function Report(): React.JSX.Element {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  /**
+   * 进板块即自动生成，不需要用户点按钮。
+   *
+   * 两个前提都成立才敢这么写：
+   * 1) 这个页面是 keep-alive 的（App.tsx 的 visited/mounted），**挂载后不再卸载**，
+   *    所以这里的 effect 等于「首次进入该板块时跑一次」。切走再切回不会重新生成——
+   *    重新生成要调一次 AI（要钱、要等），不该因为随手切个板块就发生。想刷新有右上角的
+   *    「重新生成」。
+   * 2) autoRan 这个守卫不是多余的：StrictMode 下 effect 会跑两次，不拦就是
+   *    两次 IPC + 两次 AI 调用。同 App.tsx 里挡初始 load() 的 loadedOnce。
+   */
+  const autoRan = useRef(false)
+  useEffect(() => {
+    if (autoRan.current) return
+    autoRan.current = true
+    void generate()
+  }, [generate])
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -142,7 +164,7 @@ export function Report(): React.JSX.Element {
         <div>
           <h1 className="text-xl font-semibold">周报</h1>
           {report ? (
-            <p className="mt-1 text-sm text-slate-400">
+            <p className="mt-1 text-sm text-fg-muted">
               {formatMonthDay(report.weekStart)} ~ {formatMonthDay(report.weekEnd)}
             </p>
           ) : null}
@@ -154,15 +176,11 @@ export function Report(): React.JSX.Element {
             </Button>
             <Button onClick={() => downloadMarkdown(report)}>导出 Markdown</Button>
           </div>
-        ) : (
-          <Button variant="primary" onClick={() => void generate()} loading={loading}>
-            生成本周周报
-          </Button>
-        )}
+        ) : null}
       </header>
 
       {error ? (
-        <Card className="mt-4 border-red-900 bg-red-950/40 text-sm text-red-300">
+        <Card className="mt-4 border-danger/30 bg-danger/10 text-sm text-danger">
           <p className="mb-3">生成失败：{error}</p>
           <Button onClick={() => void generate()}>重试</Button>
         </Card>
@@ -172,88 +190,87 @@ export function Report(): React.JSX.Element {
         <>
           <div className="mt-4 flex gap-3">
             <Card className="flex-1">
-              <div className="text-3xl font-semibold tabular-nums text-sky-400">
+              <div className="text-3xl font-semibold tabular-nums text-primary">
                 {report.newStars.length}
               </div>
-              <div className="mt-1 text-sm text-slate-400">本周新增 Star</div>
+              <div className="mt-1 text-sm text-fg-muted">本周新增 Star</div>
             </Card>
             <Card className="flex-1">
               <div className="text-3xl font-semibold tabular-nums">
                 {Object.keys(report.languageStats).length}
               </div>
-              <div className="mt-1 text-sm text-slate-400">语言分布种类</div>
+              <div className="mt-1 text-sm text-fg-muted">语言分布种类</div>
             </Card>
             <Card className="flex-1">
               <div className="text-3xl font-semibold tabular-nums">{report.topRepos.length}</div>
-              <div className="mt-1 text-sm text-slate-400">Top 项目</div>
+              <div className="mt-1 text-sm text-fg-muted">Top 项目</div>
             </Card>
           </div>
 
           <Card className="mt-4">
-            <h2 className="text-sm font-medium text-slate-200">AI 总结</h2>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-300">
+            <h2 className="text-sm font-medium text-fg">AI 总结</h2>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-fg-muted">
               {report.aiSummary}
             </p>
           </Card>
 
           <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
             <Card>
-              <h2 className="text-sm font-medium text-slate-200">语言分布</h2>
-              <ReactECharts option={buildLangOption(report)} style={{ height: 260 }} />
+              <h2 className="text-sm font-medium text-fg">语言分布</h2>
+              <ReactECharts option={langOption} style={{ height: 260 }} />
             </Card>
             <Card>
-              <h2 className="text-sm font-medium text-slate-200">本周新增趋势</h2>
-              <ReactECharts option={buildTrendOption(report)} style={{ height: 260 }} />
+              <h2 className="text-sm font-medium text-fg">本周新增趋势</h2>
+              <ReactECharts option={trendOption} style={{ height: 260 }} />
             </Card>
           </div>
 
           <Card className="mt-4">
-            <h2 className="text-sm font-medium text-slate-200">Top 5 项目</h2>
+            <h2 className="text-sm font-medium text-fg">Top 5 项目</h2>
             <ol className="mt-3 space-y-2">
               {report.topRepos.map((r, i) => (
                 <li key={r.id} className="flex items-center gap-3 text-sm">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-900/60 text-xs font-semibold text-sky-300">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
                     {i + 1}
                   </span>
                   <a
                     href={r.html_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="font-medium text-sky-400 hover:underline"
+                    className="font-medium text-link hover:underline"
                   >
                     {r.full_name}
                   </a>
                   {r.language ? <Badge tone="default">{r.language}</Badge> : null}
-                  <span className="ml-auto text-slate-400">★ {formatStars(r.stargazers_count)}</span>
+                  <span className="ml-auto text-fg-muted">★ {formatStars(r.stargazers_count)}</span>
                 </li>
               ))}
             </ol>
           </Card>
 
           <Card className="mt-4">
-            <h2 className="text-sm font-medium text-slate-200">本周新增仓库</h2>
-            <ul className="mt-3 divide-y divide-slate-800">
+            <h2 className="text-sm font-medium text-fg">本周新增仓库</h2>
+            <ul className="mt-3 divide-y divide-border">
               {report.newStars.map((r) => (
                 <li key={r.id} className="flex items-center gap-3 py-2 text-sm">
                   <a
                     href={r.html_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="font-medium text-sky-400 hover:underline"
+                    className="font-medium text-link hover:underline"
                   >
                     {r.full_name}
                   </a>
                   {r.language ? <Badge tone="muted">{r.language}</Badge> : null}
-                  <span className="ml-auto text-slate-400">★ {formatStars(r.stargazers_count)}</span>
+                  <span className="ml-auto text-fg-muted">★ {formatStars(r.stargazers_count)}</span>
                 </li>
               ))}
             </ul>
           </Card>
         </>
-      ) : (
-        <div className="mt-4">
-          <EmptyState title="还没有周报" description="点击上方按钮生成本周周报" />
-        </div>
+      ) : error ? null : (
+        // 自动生成中（或刚挂载、effect 还没跑）时的占位
+        <ReportSkeleton />
       )}
     </div>
   )

@@ -1,0 +1,12 @@
+# 冻结契约：按 wave0 骨架逐字落地，格式（含分号）必须保持原样。
+#
+# 这些文件受 CI 的 protect-contracts job 保护 —— 任何改动都要求由集成工程师提交。
+# 而 .prettierrc 是 { semi: false }，一旦被格式化，这批文件会整体重排：
+# 契约的真正变更会淹没在格式噪音里，blame 也会失去意义。
+#
+# 业务代码（src/main、src/renderer 等）不受影响，照常格式化。
+src/shared/
+docs/
+
+# Markdown 同理：README / docs 里的代码块是按骨架原文抄的，不做重排。
+*.md

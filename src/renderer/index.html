@@ -1,6 +1,31 @@
 <!doctype html>
 <html lang="zh-CN">
   <head>
+    <!--
+      ⚠️ 防闪脚本必须是 <head> 的第一个元素，且必须是**经典脚本**（不能加 type="module"）。
+      module 脚本是 defer 的，会在首次绘制之后才跑——那就等于没防。
+
+      它做一件事：读 localStorage 里的主题选择，把 .dark 加到 <html> 上。
+      主题必须在**第一次绘制之前**定下来；走 IPC 读主进程的 lowdb 是异步往返，
+      必然先按默认主题渲染一帧再翻面，那一下闪白遮不住。所以这里直接同步读 localStorage，
+      它也就成了渲染进程唯一一处本地持久化——见 src/renderer/src/lib/theme.ts。
+
+      整体必须包 try/catch：localStorage 在某些隐私设置下会直接抛错，
+      抛了就是白屏。catch 里什么都不做，按默认的亮色走。
+    -->
+    <script>
+      ;(function () {
+        try {
+          var choice = localStorage.getItem('starflow:theme') || 'light'
+          var isDark =
+            choice === 'dark' ||
+            (choice === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          if (isDark) document.documentElement.classList.add('dark')
+        } catch {
+          // localStorage 不可用（隐私模式 / 存储被禁用）。默认亮色，不阻断渲染。
+        }
+      })()
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>StarFlow</title>

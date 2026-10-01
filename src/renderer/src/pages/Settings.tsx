@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react'
 import { unwrap, ipcErrorMessage } from '../lib/api'
+import { cn } from '../lib/cn'
 import { useRepoStore } from '../store/repoStore'
 import { Button } from '../components/common/Button'
 import { Card } from '../components/common/Card'
 import { Badge } from '../components/common/Badge'
+import { Input } from '../components/common/Input'
 import { GithubLoginCard } from '../components/auth/GithubLoginCard'
+import { ThemeCard } from '../components/settings/ThemeCard'
+import { AiKeyGuide } from '../components/settings/AiKeyGuide'
 import type { AiConfigView } from '@shared/types'
 
 /** 来源徽章的文案与配色：界面存的 / .env 兜底的 / 没配 */
@@ -31,6 +35,8 @@ export function Settings(): React.JSX.Element {
   const [aiTesting, setAiTesting] = useState(false)
   const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [aiNotice, setAiNotice] = useState<string | null>(null)
+  /** 刚保存成功：在提示行后面挂一个「立即测试连接」的 CTA */
+  const [aiJustSaved, setAiJustSaved] = useState(false)
 
   const loading = useRepoStore((s) => s.loading)
   const enriching = useRepoStore((s) => s.enriching)
@@ -108,6 +114,9 @@ export function Settings(): React.JSX.Element {
   async function saveAi(): Promise<void> {
     setAiSaving(true)
     setAiNotice(null)
+    setAiJustSaved(false)
+    // 只有「从无到有」这一次自动跑探针。判据放在 unwrap 成功之后，避免保存失败也去连一次。
+    let autoTest = false
     try {
       // apiKey 留空表示「不修改现有 key」——契约里缺省即不动，清除走单独的按钮。
       // baseUrl / model 只在**用户改过**时才提交：否则会把从 .env 回落来的值固化进
@@ -124,19 +133,26 @@ export function Settings(): React.JSX.Element {
           model: nextModel === initialModel ? undefined : nextModel
         })
       )
+      autoTest = key !== '' && !(aiConfig?.hasKey ?? false)
       setApiKey('')
       await reloadAiConfig()
       setAiNotice('AI 配置已保存')
+      setAiJustSaved(true)
     } catch (e) {
       setAiNotice(ipcErrorMessage(e))
     } finally {
       setAiSaving(false)
     }
+    // 首次填 Key 时顺手验一次是有价值的（用户此刻就在等结果）；每次都跑则等于给用户
+    // 一张意料外的网络账单，而且失败信息紧跟在"已保存"后面，会让人以为保存失败了。
+    // 其余情况改成 aiNotice 旁边那个「立即测试连接」，由用户自己决定。
+    if (autoTest) await testAi()
   }
 
   async function clearAiKey(): Promise<void> {
     setAiSaving(true)
     setAiNotice(null)
+    setAiJustSaved(false)
     try {
       await unwrap(window.api.store.clearAiKey())
       setApiKey('')
@@ -178,22 +194,25 @@ export function Settings(): React.JSX.Element {
 
       <GithubLoginCard onAuthChange={() => void refreshTokenStatus()} />
 
+      <ThemeCard />
+
       <Card className="mt-4">
-        <h2 className="text-sm font-medium text-slate-200">GitHub Token</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          Token 需要 <code className="rounded bg-slate-800 px-1">public_repo</code> scope；
+        <h2 className="text-sm font-medium text-fg">GitHub Token</h2>
+        <p className="mt-1 text-xs text-fg-subtle">
+          Token 需要 <code className="rounded bg-surface-2 px-1">public_repo</code> scope；
           主进程用 safeStorage 加密后存在 userData 目录，不会明文落盘。
         </p>
-        <p className="mt-1 text-xs text-red-400">
+        <p className="mt-1 text-xs text-danger">
           注意：unstar 是破坏性操作，会真正取消你 GitHub 上的 Star。
         </p>
         <div className="mt-3 flex gap-2">
-          <input
+          <Input
+            size="md"
             type={showToken ? 'text' : 'password'}
             value={token}
             onChange={(e) => setToken(e.target.value)}
             placeholder="ghp_..."
-            className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm outline-none placeholder:text-slate-500 focus:border-sky-500"
+            className="min-w-0 flex-1"
           />
           <Button variant="ghost" onClick={() => setShowToken((v) => !v)}>
             {showToken ? '隐藏' : '显示'}
@@ -203,7 +222,7 @@ export function Settings(): React.JSX.Element {
           </Button>
         </div>
         <div className="mt-3 flex items-center gap-2">
-          <span className="text-sm text-slate-400">状态：</span>
+          <span className="text-sm text-fg-muted">状态：</span>
           {hasToken === null ? (
             <Badge tone="muted">未知</Badge>
           ) : hasToken ? (
@@ -215,21 +234,25 @@ export function Settings(): React.JSX.Element {
       </Card>
 
       <Card className="mt-4">
-        <h2 className="text-sm font-medium text-slate-200">AI 配置（OpenAI 兼容端点）</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          填在这里的配置优先级高于项目根目录{' '}
-          <code className="rounded bg-slate-800 px-1">.env</code>，保存后立即生效，无需重启。
-          API Key 同样经 safeStorage 加密存储、永不回显；留空保存表示不修改已有 Key。
+        <h2 className="text-sm font-medium text-fg">AI 配置（OpenAI 兼容端点）</h2>
+        <p className="mt-1 text-xs text-fg-subtle">
+          在这里填一次就行，不用去改项目根目录的{' '}
+          <code className="rounded bg-surface-2 px-1">.env</code>
+          。保存后立即生效、无需重启；API Key 经 safeStorage 加密后存在 userData 目录，
+          永不回显，留空保存表示不修改已有 Key。
         </p>
+
+        <AiKeyGuide />
 
         <div className="mt-3 space-y-2">
           <div className="flex gap-2">
-            <input
+            <Input
+              size="md"
               type={showApiKey ? 'text' : 'password'}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={aiConfig?.hasKey ? '已保存（留空则不修改）' : 'sk-...'}
-              className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm outline-none placeholder:text-slate-500 focus:border-sky-500"
+              className="min-w-0 flex-1"
             />
             <Button variant="ghost" onClick={() => setShowApiKey((v) => !v)}>
               {showApiKey ? '隐藏' : '显示'}
@@ -237,30 +260,30 @@ export function Settings(): React.JSX.Element {
           </div>
 
           <div>
-            <input
-              type="text"
+            <Input
+              size="md"
               value={aiBaseUrl}
               onChange={(e) => setAiBaseUrl(e.target.value)}
               placeholder="Base URL（留空使用 .env / 官方默认）"
-              className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm outline-none placeholder:text-slate-500 focus:border-sky-500"
+              className="w-full"
             />
             {baseUrlMissingScheme ? (
-              <p className="mt-1 text-xs text-red-400">
+              <p className="mt-1 text-xs text-danger">
                 Base URL 缺少 http(s):// 前缀，例如 https://api.openai.com/v1
               </p>
             ) : null}
             {baseUrlInsecure ? (
-              <p className="mt-1 text-xs text-amber-400">
+              <p className="mt-1 text-xs text-warning">
                 这是 http:// 地址，API Key 会以明文传输，建议改用 https。
               </p>
             ) : null}
             {baseUrlMissingV1 ? (
-              <p className="mt-1 flex items-center gap-2 text-xs text-amber-400">
+              <p className="mt-1 flex items-center gap-2 text-xs text-warning">
                 <span>地址不以 /v1 结尾，这是 404 最常见的原因。</span>
                 <button
                   type="button"
                   onClick={() => setAiBaseUrl(`${baseUrlTrimmed.replace(/\/+$/, '')}/v1`)}
-                  className="rounded border border-amber-700 px-1.5 py-0.5 text-amber-300 hover:bg-amber-900/40"
+                  className="rounded border border-warning/40 px-1.5 py-0.5 text-warning hover:bg-warning/15"
                 >
                   补 /v1
                 </button>
@@ -268,17 +291,17 @@ export function Settings(): React.JSX.Element {
             ) : null}
           </div>
 
-          <input
-            type="text"
+          <Input
+            size="md"
             value={aiModel}
             onChange={(e) => setAiModel(e.target.value)}
             placeholder="模型名（留空使用 .env / 官方默认 gpt-4o-mini）"
-            className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm outline-none placeholder:text-slate-500 focus:border-sky-500"
+            className="w-full"
           />
         </div>
 
         <div className="mt-3 flex items-center gap-2">
-          <span className="text-sm text-slate-400">状态：</span>
+          <span className="text-sm text-fg-muted">状态：</span>
           {aiConfig === null ? (
             <Badge tone="muted">未知</Badge>
           ) : aiConfig.hasKey ? (
@@ -293,6 +316,15 @@ export function Settings(): React.JSX.Element {
           ) : null}
         </div>
 
+        {/* 最容易让人困惑的一种状态：界面显示"已配置"，但 Key 其实来自 .env，
+            在这里填会被界面值覆盖、且清除界面密钥后又会回落回去。 */}
+        {aiConfig?.source === 'env' ? (
+          <p className="mt-2 text-xs text-warning">
+            当前用的是 <code className="rounded bg-surface-2 px-1">.env</code> 里的 Key。
+            在上方填写并保存会覆盖它（界面值优先）；点「清除密钥」可退回 .env。
+          </p>
+        ) : null}
+
         <div className="mt-3 flex flex-wrap gap-2">
           <Button variant="primary" onClick={() => void saveAi()} loading={aiSaving}>
             保存 AI 配置
@@ -304,19 +336,28 @@ export function Settings(): React.JSX.Element {
             测试 AI 连接
           </Button>
         </div>
-        {aiNotice ? <p className="mt-3 text-sm text-slate-400">{aiNotice}</p> : null}
+        {aiNotice ? (
+          <p className="mt-3 flex flex-wrap items-center gap-2 text-sm text-fg-muted">
+            <span>{aiNotice}</span>
+            {/* 保存成功但没自动测（已有 Key 的情况）时给一个就近的入口，
+                省得用户再去下面那排按钮里找 */}
+            {aiJustSaved ? (
+              <Button size="sm" variant="ghost" onClick={() => void testAi()}>
+                立即测试连接
+              </Button>
+            ) : null}
+          </p>
+        ) : null}
         {aiTestResult ? (
-          <p
-            className={`mt-1 text-sm ${aiTestResult.ok ? 'text-emerald-400' : 'text-red-400'}`}
-          >
+          <p className={cn('mt-1 text-sm', aiTestResult.ok ? 'text-success' : 'text-danger')}>
             {aiTestResult.message}
           </p>
         ) : null}
       </Card>
 
       <Card className="mt-4">
-        <h2 className="text-sm font-medium text-slate-200">数据与 AI</h2>
-        <p className="mt-1 text-xs text-slate-500">
+        <h2 className="text-sm font-medium text-fg">数据与 AI</h2>
+        <p className="mt-1 text-xs text-fg-subtle">
           同步会保留已 Fork / 已 clone / 已分类的标记；AI 补全只填空缺的摘要与分类。
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -331,15 +372,15 @@ export function Settings(): React.JSX.Element {
           </Button>
         </div>
         {testResult ? (
-          <p className={`mt-3 text-sm ${testResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+          <p className={cn('mt-3 text-sm', testResult.ok ? 'text-success' : 'text-danger')}>
             {testResult.message}
           </p>
         ) : null}
       </Card>
 
-      <p className="mt-4 text-xs text-slate-500">
+      <p className="mt-4 text-xs text-fg-subtle">
         当前运行模式由项目根目录{' '}
-        <code className="rounded bg-slate-800 px-1">.env</code> 的 MOCK_MODE 控制。
+        <code className="rounded bg-surface-2 px-1">.env</code> 的 MOCK_MODE 控制。
       </p>
     </div>
   )

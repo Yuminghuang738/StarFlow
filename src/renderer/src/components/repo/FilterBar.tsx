@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AI_CATEGORIES, type AiCategory } from '@shared/types'
 import { useRepoStore, type RepoFilters } from '../../store/repoStore'
 import { Button } from '../common/Button'
+import { Input } from '../common/Input'
+import { Select } from '../common/Select'
 
 const EMPTY_FILTERS: Partial<RepoFilters> = {
   keyword: '',
@@ -9,9 +11,6 @@ const EMPTY_FILTERS: Partial<RepoFilters> = {
   category: null,
   onlyCloned: false
 }
-
-const CONTROL_CLASS =
-  'rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 outline-none transition-colors placeholder:text-slate-500 hover:border-slate-600 focus:border-sky-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500'
 
 /** 搜索防抖延迟：太短会让 store 频繁更新，太长会让输入感觉迟钝 */
 const KEYWORD_DEBOUNCE_MS = 200
@@ -73,19 +72,18 @@ export function FilterBar(): React.JSX.Element {
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <input
+      <Input
         value={keyword}
         onChange={(e) => setKeyword(e.target.value)}
         placeholder="搜索仓库名或描述"
         aria-label="搜索仓库"
-        className={`w-64 max-w-full ${CONTROL_CLASS}`}
+        className="w-64 max-w-full"
       />
 
-      <select
+      <Select
         value={filters.language ?? ''}
         onChange={(e) => setFilters({ language: e.target.value === '' ? null : e.target.value })}
         aria-label="语言筛选"
-        className={CONTROL_CLASS}
       >
         <option value="">全部语言</option>
         {languages.map((l) => (
@@ -93,15 +91,14 @@ export function FilterBar(): React.JSX.Element {
             {l}
           </option>
         ))}
-      </select>
+      </Select>
 
-      <select
+      <Select
         value={filters.category ?? ''}
         onChange={(e) =>
           setFilters({ category: e.target.value === '' ? null : (e.target.value as AiCategory) })
         }
         aria-label="分类筛选"
-        className={CONTROL_CLASS}
       >
         <option value="">全部分类</option>
         {AI_CATEGORIES.map((c) => (
@@ -109,14 +106,14 @@ export function FilterBar(): React.JSX.Element {
             {c}
           </option>
         ))}
-      </select>
+      </Select>
 
-      <label className="flex select-none items-center gap-1.5 text-sm text-slate-300">
+      <label className="flex select-none items-center gap-1.5 text-sm text-fg-muted">
         <input
           type="checkbox"
           checked={filters.onlyCloned}
           onChange={(e) => setFilters({ onlyCloned: e.target.checked })}
-          className="h-3.5 w-3.5 accent-sky-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500"
+          className="h-3.5 w-3.5 accent-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         />
         只看已 clone
       </label>
