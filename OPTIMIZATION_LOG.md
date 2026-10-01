@@ -407,3 +407,33 @@ hero 区那句「还有 N 个未分类，可到「收藏管理」跑一次 AI �
 
 验证：repo-query 87/87（R16 是 74）、collection-stats、week-report、recommend-search
 全绿；tsc 干净、eslint 干净、npm run build 通过、mock e2e 11/11。
+
+## R18 · Phase 2：定位并修掉 e2e 那条偶发红（优先级 1 收口）
+done · commit ad230d1
+
+R15 记下的「两个字段都在且 undefined 没抹掉值」偶发失败（约 1/13），当时连跑 12 次
+没能复现，只能记为待查。本轮定位到了，原因**和 undefined 毫无关系**：
+
+那条断言写 `cloned_path: "/tmp/e2e"`，而 /tmp/e2e 在本机不存在。应用启动时渲染进程
+`load()` 的末尾会跑一次 clone 对账（pruneLocalClones）→ 主进程
+`listMissingCloneRecords` 的判据是「cloned_path 找不到、但**父目录在**」就当作记录过期
+清掉——/tmp 在、/tmp/e2e 不在，正中判据。所以这条记录**一定会被清**，区别只在于
+清在 e2e 那几次 IPC 写入之前还是之后：输了就是 cloned_path 没了、forked_full_name 还在，
+正是观察到的那个"像 undefined 抹掉了值"的样子。
+
+复现不出来也不奇怪：对账只在 load() 里跑**一次**，正常时序下它早于 e2e 的写入完成，
+之后不会再有第二次对账来捣乱。要输掉这场赛跑得让渲染进程那次 load 明显变慢——
+跑全量自检时机器被十几个进程压着，恰好就是这个条件。**所以"连跑 12 次全绿"当时
+并不构成"不是 bug"的证据**，只是没撞上而已。
+
+修法：让 cloned_path 指向一个真实存在的目录（mkdtempSync 建、跑完删），
+断言本身一字未改。**这是修 fixture，不是放宽断言**。
+
+顺带把原因钉成两条新断言：写入一个"父目录在、自己不在"的路径 → pruneClones 必须
+把它报出来 → 读回时 cloned_path 被清、fork 标记保留。好处有两个：将来谁再往这里
+塞假路径，有一处显式说明拦着他；另外 pruneClones 是一条平时完全静默、界面上看不见
+的 IPC，这两条是它第一次有回归覆盖。
+
+清理临时目录要套 try：清理失败（杀进程时的占用之类）不该把一轮全绿的断言变成红的。
+
+验证：eslint 干净；e2e 13/13（原 11 + 新增 2），连跑 40 次全绿、无临时目录残留。
