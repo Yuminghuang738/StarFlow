@@ -1162,3 +1162,27 @@ done · commit 7aad97f
 
 验证：tsc 干净、eslint 干净、npm run build 通过；github-paging 与
 recommend-search（同样 import github.ts）全绿。
+
+## R46 · Phase 2：保存 Token 失败却清空输入框 = 谎报成功（优先级 5）
+
+设置页的 `save()` 在 `await saveToken(...)` 之后无条件 `setToken('')`。而**清空输入框
+本身就是一句"成了"**：保存失败时（写盘出错、无内存后端且写库失败）照样清空，用户刚
+粘进去的那串 token 就没了，界面跟成功长得一模一样——只能回去再拷一次。这是本轮一直在
+收的那一类「把没成说成成了」的镜像版：**把一个动作的"收尾动作"当成成功信号**，
+在结果还没被确认时就替用户宣布了成功。
+
+`saveToken` 原来的签名 `Promise<void>` 根本没有位置传回这个结果，所以实现里只能
+`try/catch` 掉错误字段 + toast。改成 `Promise<boolean>`（**这一次到底存进去了没有**），
+失败仍然不抛错——toast 由 `unwrap` 弹、`error` 字段由 store 写——只是把结果交给
+唯一调用方。注释里明写它为什么要有返回值，免得后来者"顺手"改回 void。
+
+调用点：`Settings.tsx` 的 `save()` 改成 `const saved = await saveToken(trimmed); if (saved) setToken('')`。
+失败时留着原文，改完再点一次即可；到底是成是败由 toast 与状态徽章说，不再由清空动作替
+用户下结论。与 `reloadAiConfig()` 用返回值区分「保存成功」和「随后读状态失败」是同一条
+约定（R41 那批）。
+
+契约同步：`docs/renderer-contracts.md` 的 `saveToken(token: string): Promise<boolean>;`
+加了一行说明这次改动与理由（该文件明写"新增成员允许、签名不得改"，所以变更点必须留痕）。
+
+验证：tsc 干净、eslint 干净、npm run build 通过。改动前先 grep 确认全仓库只有
+`Settings.tsx` 一个调用点，因此签名的破坏面是 1，不可能漏改（也是这次敢动签名的前提）。
