@@ -1,9 +1,9 @@
 # 主进程内部函数签名契约（冻结）
 
-> 主进程各模块之间互相 import 的函数签名。**签名冻结，实现由各负责人填充。**
+> 主进程各模块之间互相 import 的函数签名。**签名冻结，实现由各模块填充。**
 > 骨架阶段这些函数体是"mock 分支 + throw NOT_IMPLEMENTED"，所以任何人都不阻塞。
 
-## src/main/config.ts —— 负责人 P7
+## src/main/config.ts
 export function isMockMode(): boolean
 export function getEnv(): { openaiKey: string; openaiBaseUrl: string; modelName: string; githubToken: string; githubOauthClientId: string }
 export function setAiOverride(patch: Partial<{ apiKey: string; baseUrl: string; model: string }>): void
@@ -15,7 +15,7 @@ getEnv() 里只有 openaiKey / openaiBaseUrl / modelName 三个字段会读它�
 覆盖层必须写在 config.ts：store.ts 依赖 config.isMockMode()，反过来 import 会成环。
 调用时机见 ai.refreshAiConfigCache()。**这条通道的落地状态：Phase 0 只有桩。**
 
-## src/main/store.ts —— 负责人 P3
+## src/main/store.ts
 export function getToken(): Promise<string | null>
 export function saveToken(token: string): Promise<void>
 export function hasToken(): Promise<boolean>
@@ -30,7 +30,7 @@ export function saveAiConfig(patch: AiConfigPatch): Promise<void>
 export function clearAiKey(): Promise<void>
 
 说明：
-- MOCK_MODE=true 时读写 starpilot.mock.db.json，否则读写 starpilot.db.json（避免污染真实数据）
+- MOCK_MODE=true 时读写 starflow.mock.db.json，否则读写 starflow.db.json（避免污染真实数据）
 - getRepos() 在读到的列表为空且 MOCK_MODE=true 时，用 mockStarred() 的结果做种子并落盘
 - saveToken 优先用 Electron safeStorage 加密后存本地（base64 密文），禁止以任何形式把明文写入磁盘
 - safeStorage.isEncryptionAvailable() 为 false（例如没装 keyring 的 Linux）时，token 只保存在主进程内存中、不写盘，重启后需在设置页重新填写
@@ -56,7 +56,7 @@ saveToken 的范式——safeStorage 可用就写 base64 密文并清掉内存�
 界面上"不回显 key"因此不靠调用方自觉。往这个类型里加字段之前，先读这段。
 （落地状态：Phase 0 只有桩，三个函数都抛「尚未实现」。）
 
-## src/main/mock.ts —— 负责人 P7
+## src/main/mock.ts
 export function mockStarred(): Promise<Repo[]>
 export function mockEnrich(repos: Repo[]): Promise<Repo[]>
 export function mockReadme(fullName: string): Promise<string>
@@ -72,7 +72,7 @@ export function mockReportSummary(repos: Repo[]): string
 说明：mock.ts 是唯一的假数据源，内部维护一份内存态 starred 列表：
 unstar 从内存列表移除、fork 写 local.forked_full_name，因此刷新后不会"复活"。
 
-## src/main/github.ts —— 负责人 P1
+## src/main/github.ts
 export function fetchStarred(): Promise<Repo[]>
 export function fetchReadme(fullName: string): Promise<string>
 export function fetchReleases(fullName: string): Promise<Release[]>
@@ -80,7 +80,7 @@ export function fetchCommits(fullName: string): Promise<Commit[]>
 export function unstar(fullName: string): Promise<void>
 export function fork(fullName: string): Promise<Repo>
 
-## src/main/local.ts —— 负责人 P3
+## src/main/local.ts
 export function chooseDir(): Promise<string | null>
 export function clone(fullName: string, targetDir: string): Promise<string | null>
 export function openDir(path: string): Promise<void>
@@ -118,9 +118,9 @@ removeClone 是本项目唯一会真正删除用户文件的地方，闸门顺�
 ② 只删目录、且顶层不能是符号链接；③ realpath 解析后，字符串路径与真实路径**各自**过一遍
 "不是文件系统根 / 不是 home / 不是 home 的祖先"——中间路径是 symlink 时只有 realpath 看得穿；
 ④ basename(realpath) 必须等于仓库名（有 .git 只能证明"这是个 git 仓库"，
-   证明不了"这是 StarPilot 克隆的那份"，没有这条会把 ~/Documents 这类目录整个删掉）；
+   证明不了"这是 StarFlow 克隆的那份"，没有这条会把 ~/Documents 这类目录整个删掉）；
 ⑤ 真实模式要求工作树里有 .git，**mock 模式不跳过校验**，改为要求路径位于
-   <downloads>/StarPilotDemo 之内（mock 的 clone 不建 .git）。
+   <downloads>/StarFlowDemo 之内（mock 的 clone 不建 .git）。
 返回值是**实际被删掉的路径**（没删成返回 null），供调用方拿去做提示。
 
 listMissingCloneRecords 做对账，返回"记录里有、磁盘上却没有"的 fullName 列表。
@@ -128,7 +128,7 @@ listMissingCloneRecords 做对账，返回"记录里有、磁盘上却没有"的
 外接盘/网络盘没挂载，跳过。内部是异步 stat：路径挂在已断开的 NFS 挂载点上时，
 同步 stat 会把主进程连同整个 UI 一起冻住几十秒，而那恰好是它要处理的场景。
 
-## src/main/ai.ts —— 负责人 P2
+## src/main/ai.ts
 export function summarize(readme: string): Promise<string>
 export function classify(repo: Repo): Promise<AiCategory>
 export function enrichRepos(repos: Repo[]): Promise<Repo[]>
@@ -150,7 +150,7 @@ handler 各一次。之所以把刷新挂在 handler 里而不是只挂启动路
 MOCK_MODE=true 时不发真实请求，直接返回「Mock 模式不发起真实请求」。
 （落地状态：Phase 0 只有桩——refreshAiConfigCache 是空函数，testConnection 抛「尚未实现」。）
 
-## src/main/ai-prompts.ts —— 负责人 P2
+## src/main/ai-prompts.ts
 export function summarizePrompt(readme: string): string
 export function classifyPrompt(repo: Repo): string
 export function reportPrompt(repos: Repo[]): string
@@ -164,17 +164,17 @@ export function reportPrompt(repos: Repo[]): string
 硬约束不变：不用 response_format（第三方中转会 400）、分类必须落在 7 枚举内、
 generateReport 任何失败都要返回兜底文案、绝不抛错。
 
-## src/main/report.ts —— 负责人 P4
+## src/main/report.ts
 export function generate(): Promise<WeeklyReport>
 
-## src/main/recommend.ts —— 负责人 P4
+## src/main/recommend.ts
 export function similar(fullName: string): Promise<Repo[]>
 
-## src/main/tracker.ts —— 负责人 P4
+## src/main/tracker.ts
 export function start(): void
 export function stop(): void
 
-## src/main/auth.ts —— 负责人 P7
+## src/main/auth.ts
 export function getState(): AuthState
 export function startDeviceFlow(): Promise<DeviceFlowInfo>
 export function waitForLogin(): Promise<LoginOutcome>

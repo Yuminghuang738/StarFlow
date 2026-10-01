@@ -1,13 +1,13 @@
 # 渲染进程契约（冻结）
 
-> P5（Dashboard）与 P6（App/Report/store）之间的接口。骨架阶段已给出可用实现，
-> P6 负责加固，P5 直接消费。
+> Dashboard 页与 App/Report/store 之间的接口。骨架阶段已给出可用实现，
+> 渲染进程公共层负责加固，业务页面直接消费。
 >
-> **已有成员的签名不得修改**；新增成员是允许的（P5 需要新数据时不必改契约），
+> **已有成员的签名不得修改**；新增成员是允许的（消费方需要新数据时不必改契约），
 > 但**必须同步更新本文件**，否则这里就会慢慢变成一份谎话。下面的 RepoStore 已经
 > 补齐了实际存在于代码中的成员。
 
-## src/renderer/src/store/repoStore.ts —— 负责人 P6
+## src/renderer/src/store/repoStore.ts
 export interface RepoFilters {
   keyword: string;
   language: string | null;
@@ -19,7 +19,7 @@ export interface RepoStore {
   repos: Repo[];
   loading: boolean;
   filters: RepoFilters;
-  // —— 后加的非契约成员（P6）：加载态与错误。error 只在加载失败时写入，不清空 repos ——
+  // —— 后加的非契约成员：加载态与错误。error 只在加载失败时写入，不清空 repos ——
   enriching: boolean;
   error: string | null;
   visibleRepos(): Repo[];
@@ -36,18 +36,18 @@ export interface RepoStore {
   pruneLocalClones(): Promise<void>;
   // —— 取消克隆（取消克隆 PR 落地）：必须裸调 window.api，不能走 unwrap() ——
   cancelClone(fullName: string): Promise<void>;
-  // —— token（P6）：hasToken/saveToken 供设置页使用 ——
+  // —— token：hasToken/saveToken 供设置页使用 ——
   hasToken(): Promise<boolean>;
   saveToken(token: string): Promise<void>;
 }
 
 export const useRepoStore: UseBoundStore<StoreApi<RepoStore>>;
 
-## src/renderer/src/lib/api.ts —— 负责人 P6
+## src/renderer/src/lib/api.ts
 export function unwrap<T>(p: Promise<IpcResult<T>>): Promise<T>
 // 把 { ok: false } 转成 toast + throw Error(error)，调用方可以 try/catch
 
-## src/renderer/src/components/common/ConfirmDialog.tsx —— 负责人 P6
+## src/renderer/src/components/common/ConfirmDialog.tsx
 export interface ConfirmDialogProps {
   open: boolean;
   title: string;
@@ -59,12 +59,12 @@ export interface ConfirmDialogProps {
 }
 export function ConfirmDialog(props: ConfirmDialogProps): JSX.Element
 
-## src/renderer/src/components/common/Toast.tsx —— 负责人 P6
+## src/renderer/src/components/common/Toast.tsx
 export interface ToastItem { id: string; type: 'success' | 'error'; message: string }
 export function ToastProvider(props: { children: React.ReactNode }): JSX.Element
 export function useToast(): { push(t: { type: 'success' | 'error'; message: string }): void }
 
-## src/renderer/src/components/layout/TitleBar.tsx —— 负责人 P7
+## src/renderer/src/components/layout/TitleBar.tsx
 export function TitleBar(): JSX.Element
 
 自绘标题栏。主进程的 BrowserWindow 是 `frame: false`，原生标题栏和默认菜单
@@ -89,7 +89,7 @@ Linux 没有对应物；`roundedCorners` 在 Linux 上还依赖桌面环境是�
 所以 Fedora 上很可能既没有阴影圆角、也拖不动窗口边缘。真拖不动的话要补 8 条自绘缩放热区，
 那需要多开一条 `window:setBounds`（通道数 39 → 40）。
 
-## src/renderer/src/App.tsx —— 页面保活（负责人 P7）
+## src/renderer/src/App.tsx —— 页面保活
 
 三个页面（Dashboard / Report / Settings）**首次访问之后不再卸载**，切 tab 只是给它加
 `hidden`（`display: none`）。Dashboard 是首屏，一开始就挂载。
@@ -115,9 +115,9 @@ Linux 没有对应物；`roundedCorners` 在 Linux 上还依赖桌面环境是�
 `AnimatePresence mode="wait"` + `motion.div key={tab}`**（那套的前提就是出场动画播完即卸载）。
 要做只能做"进入"方向的动效，或者改用纯 CSS 过渡。这条是给界面重做那个 PR 的。
 
-## 主题偏好：渲染进程唯一的本地持久化例外 —— 负责人 P7
+## 主题偏好：渲染进程唯一的本地持久化例外
 
-主题选择（`light` / `dark` / `system`）存在 **localStorage** 的 `starpilot:theme` 键里，
+主题选择（`light` / `dark` / `system`）存在 **localStorage** 的 `starflow:theme` 键里，
 **不走 IPC、不进 lowdb**。这是 `src/` 里第一处也是唯一一处本地持久化，理由是硬的：
 
 - 主题必须在**第一次绘制之前**就确定。走 IPC + lowdb 是异步往返，必然先渲染默认主题再翻面，

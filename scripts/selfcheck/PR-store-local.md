@@ -5,7 +5,7 @@
 
 ## 为什么有这次提交
 
-`prompts/p3-store-local.md` 第 327 行写明自检脚本应放在 `scripts/selfcheck/<模块>.mjs`。
+自检脚本约定放在 `scripts/selfcheck/<模块>.mjs`。
 P3 的自检当时落在了 `out/`（已被 .gitignore 忽略），等于这份资产没有交付。
 这里按 P1 已经建立的模式（`ai.mjs` + `ai-entry.ts` + 共享 `electron-stub.mjs` + `PR-ai-p2.md`）
 补齐到同一位置。
@@ -77,7 +77,7 @@ node scripts/selfcheck/store-local.mjs e2e-clone    # 端到端 + 真实 clone
 
 - **落盘 token（方案 (c)）**：
   - 有 keyring → 落盘为 base64 密文（真实机器上是 60 字符 DPAPI 密文，可解回原文）；
-  - 无 keyring → **不写盘**：`starpilot.mock.db.json` 里 grep 不到 token，也 grep 不到 `PLAIN:`；
+  - 无 keyring → **不写盘**：`starflow.mock.db.json` 里 grep 不到 token，也 grep 不到 `PLAIN:`；
     同进程内 `getToken()` 仍返回原文，**重启进程后为 `null`、`hasToken()` 为 `false`**。
 - **跨进程断言**：驱动器复用同一 `RUN_ID`（同一库文件）起第二个进程复查——
   无 keyring → `null` / `false`；有 keyring → 原样解回 `test-token-123` / `true`。

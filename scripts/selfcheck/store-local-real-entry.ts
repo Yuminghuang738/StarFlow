@@ -14,7 +14,7 @@ function check(name: string, ok: boolean, detail = ''): void {
 }
 
 const realUserData = app.getPath('userData')
-const sandbox = mkdtempSync(join(tmpdir(), 'starpilot-real-'))
+const sandbox = mkdtempSync(join(tmpdir(), 'starflow-real-'))
 app.setPath('userData', sandbox)
 
 interface DbShape {
@@ -23,7 +23,7 @@ interface DbShape {
 }
 
 app.whenReady().then(async () => {
-  const dbFile = join(sandbox, 'starpilot.mock.db.json')
+  const dbFile = join(sandbox, 'starflow.mock.db.json')
   const readDb = (): DbShape => JSON.parse(readFileSync(dbFile, 'utf8')) as DbShape
 
   console.log('== 真实 Electron 环境 ==')

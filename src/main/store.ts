@@ -1,6 +1,4 @@
-// 负责人：P3 ｜ 骨架版已可用，P3 负责加固（原子写、缓存、错误分支）
-//
-// 数据落盘位置：app.getPath('userData')/starpilot.db.json
+// 数据落盘位置：app.getPath('userData')/starflow.db.json
 // mock 模式单独用一个库文件，避免演示数据和真实数据互相污染。
 
 import { dirname, join } from 'node:path'
@@ -51,7 +49,7 @@ let memoryAiKey: string | null = null
 let reposCache: Repo[] | null = null
 
 function dbFilePath(): string {
-  const fileName = isMockMode() ? 'starpilot.mock.db.json' : 'starpilot.db.json'
+  const fileName = isMockMode() ? 'starflow.mock.db.json' : 'starflow.db.json'
   return join(app.getPath('userData'), fileName)
 }
 
@@ -203,7 +201,7 @@ export async function hasToken(): Promise<boolean> {
 }
 
 /**
- * 退出登录。（P7 为 OAuth 登录新增，改的是 P3 的文件，契约见 docs/module-signatures.md）
+ * 退出登录。（契约见 docs/module-signatures.md）
  *
  * 为什么必须在这里实现而不是绕过去调 saveToken('')：saveToken 会拒绝空串，
  * 而 memoryToken 是本模块的私有变量，外面清不掉。

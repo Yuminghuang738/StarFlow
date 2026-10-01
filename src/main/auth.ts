@@ -1,4 +1,4 @@
-// 负责人：P7 ｜ GitHub OAuth Device Flow 登录
+// GitHub OAuth Device Flow 登录
 //
 // 为什么是 Device Flow 而不是 Loopback Web Flow：Device Flow 不需要 client_secret
 // （GitHub 官方文档原话："The client_secret is not needed for the device flow"），
@@ -28,7 +28,7 @@ const GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code'
 const SLOW_DOWN_STEP_SEC = 5
 /** 瞬时网络抖动的重试次数：一次抖动不该杀掉一个用户已经等了十分钟的流程 */
 const MAX_NET_RETRIES = 5
-const USER_AGENT = 'StarPilot'
+const USER_AGENT = 'StarFlow'
 
 interface PendingFlow {
   deviceCode: string

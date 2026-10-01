@@ -136,7 +136,7 @@ export function TitleBar(): React.JSX.Element {
         >
           <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
         </svg>
-        <span>StarPilot</span>
+        <span>StarFlow</span>
       </div>
 
       {/* 三个按钮各自 no-drag —— 否则点不动（拖拽区会吞掉鼠标事件） */}

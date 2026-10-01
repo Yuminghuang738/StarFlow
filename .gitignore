@@ -1,4 +1,9 @@
 node_modules/
+# 同上，但针对**符号链接**形态：多个 git worktree 并行开发时，子工作区里的
+# node_modules 通常是指向主工作区的一个软链。`node_modules/` 末尾的斜杠只匹配
+# 目录，软链会漏网，`git add -A` 就把它当成一个 mode 120000 的 blob 收进提交
+# （而且它指向的是某个人的绝对路径，别人 checkout 出来是个死链）。
+/node_modules
 out/
 dist/
 .env

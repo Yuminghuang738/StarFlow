@@ -1,4 +1,4 @@
-// 负责人：P1 ｜ 接口规格见 docs/module-signatures.md（冻结），任务说明见 prompts/
+// 接口规格见 docs/module-signatures.md（冻结）
 // 真实实现：读走 GitHub REST API（Octokit）；MOCK_MODE=true 时全部走 mock.ts，不发任何网络请求。
 // 本文件只负责「GitHub 侧的数据读写」，不碰 store：unstar 之后从本地列表移除是 index.ts 的职责。
 

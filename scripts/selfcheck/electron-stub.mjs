@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url'
 const projectRoot = fileURLToPath(new URL('../../', import.meta.url))
 const root = process.env.RUN_ID
   ? join(projectRoot, 'out', 'selfcheck', 'data', process.env.RUN_ID)
-  : mkdtempSync(join(tmpdir(), 'starpilot-selfcheck-'))
+  : mkdtempSync(join(tmpdir(), 'starflow-selfcheck-'))
 
 export const app = {
   getPath(name) {

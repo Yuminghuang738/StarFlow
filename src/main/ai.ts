@@ -1,8 +1,8 @@
-// 负责人：P2 ｜ 接口规格见 docs/module-signatures.md（冻结），任务说明见 prompts/
+// 接口规格见 docs/module-signatures.md（冻结）
 // 真实实现：openai SDK（key 从 config.getEnv() 取），提示词内要求 JSON / 单词输出 + 本地清洗解析；
 // enrichRepos 内部用 p-limit 3 并发，结果写回 store.saveRepos() 后返回完整列表。
 //
-// 硬约束（见 prompts/p2-ai.md）：
+// 硬约束：
 //   1) 不使用 response_format（大量 OpenAI 兼容中转不支持，会直接 400）
 //   2) enrichRepos 并发严格为 3，用 p-limit，不裸跑 Promise.all
 

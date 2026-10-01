@@ -13,7 +13,7 @@ export interface RepoFilters {
 export interface RepoStore {
   repos: Repo[]
   loading: boolean
-  // —— P6 新增（非契约成员；契约允许新增，见 renderer-contracts.md）——
+  // —— 新增（非契约成员；契约允许新增，见 renderer-contracts.md）——
   enriching: boolean
   error: string | null
   filters: RepoFilters
@@ -31,7 +31,7 @@ export interface RepoStore {
   pruneLocalClones(): Promise<void>
   // —— 取消克隆（取消克隆 PR 落地）：裸调 window.api，失败才提示，false 不是错误 ——
   cancelClone(fullName: string): Promise<void>
-  // —— P6 新增 token 方法 ——
+  // —— 新增 token 方法 ——
   hasToken(): Promise<boolean>
   saveToken(token: string): Promise<void>
 }
@@ -129,7 +129,7 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
     }
 
     // 对账：把"记录里有、磁盘上已经被用户删掉"的 cloned_path 静默清掉，卡片自然
-    // 回到 [Clone] 态。折在 load() 里而不是让 Dashboard 自己调，是为了不动 P5 的文件。
+    // 回到 [Clone] 态。折在 load() 里而不是让 Dashboard 自己调，是为了不动 Dashboard 的文件。
     // 只在真的读到列表时才跑；pruneLocalClones 内部绝不抛，不会影响上面的加载结果。
     if (loaded) await get().pruneLocalClones()
   },

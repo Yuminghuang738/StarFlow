@@ -23,7 +23,7 @@ import type { Repo } from '@shared/types'
 
 // 驱动器通过 SAFESTORAGE_MODE 控制桩后端：'none' 模拟没有 keyring 的 Linux。
 const ENCRYPTED = (process.env.SAFESTORAGE_MODE ?? 'none') !== 'none'
-const dbFile = join(app.getPath('userData'), 'starpilot.mock.db.json')
+const dbFile = join(app.getPath('userData'), 'starflow.mock.db.json')
 const readDb = (): string => readFileSync(dbFile, 'utf8')
 
 const STORE_KEY = 'ui-store-key-123'

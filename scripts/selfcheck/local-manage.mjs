@@ -6,7 +6,7 @@
 // 两个场景：
 //   main —— MOCK_MODE=false：store 的 clearClonedPath(s)、removeClone 的全部闸门、
 //           listMissingCloneRecords 的父目录启发式
-//   mock —— MOCK_MODE=true：闸门 5 换成"必须在 <downloads>/StarPilotDemo 之内"，
+//   mock —— MOCK_MODE=true：闸门 5 换成"必须在 <downloads>/StarFlowDemo 之内"，
 //           不是因为 mock 就跳过校验
 //
 // 两个场景刻意分进程：换模式要重建 lowdb 与 app.getPath 的结果，同进程里改
