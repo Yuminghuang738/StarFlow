@@ -41,6 +41,11 @@ let mainWindow: BrowserWindow | null = null
 // 每个 handler 自己的参数类型。
 type AnyFn<T> = (...args: never[]) => Promise<T> | T
 
+/** 统一的错误文案取法：IPC 包装器和下面几个"部分成功"的 handler 都要用 */
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
 function handle<T>(channel: string, fn: AnyFn<T>): void {
   ipcMain.handle(channel, async (_event, ...args: unknown[]): Promise<IpcResult<T>> => {
     try {
@@ -48,7 +53,7 @@ function handle<T>(channel: string, fn: AnyFn<T>): void {
       const data = await (fn as (...a: unknown[]) => Promise<T> | T)(...args)
       return { ok: true, data }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = errText(err)
       console.error(`[ipc] ${channel} 失败:`, message)
       return { ok: false, error: message }
     }
@@ -69,10 +74,22 @@ function registerHandlers(): void {
 
   // unstar 是破坏性操作，"unstar 成功后从本地列表移除"这条规则由主进程保证，
   // 前端不需要自己删。前端仍负责二次确认弹窗（那是 UI 职责）。
+  //
+  // ⚠️ GitHub 那一步与本地落盘那一步必须分开报错。合在一个 catch 里的话，
+  // 「取消失败」会同时覆盖"GitHub 上没取消"和"GitHub 上取消了、只是本地列表没写进去"
+  // 两种情况——后者的真相是操作**已经生效**，用户看到"失败"会去重试、去 GitHub 核对，
+  // 而列表里那张卡还在，反而更像"没生效"。
   handle<void>(IPC.GITHUB_UNSTAR, async (fullName: string) => {
     await github.unstar(fullName)
-    const repos = await store.getRepos()
-    await store.saveRepos(repos.filter((r) => r.full_name !== fullName))
+    try {
+      const repos = await store.getRepos()
+      await store.saveRepos(repos.filter((r) => r.full_name !== fullName))
+    } catch (err) {
+      throw new Error(
+        `已经在 GitHub 上取消了 ${fullName} 的 Star，但本地列表没能更新（${errText(err)}）。` +
+          ' 到「收藏管理」点一次「从 GitHub 同步」，这一条就会从列表里消失。'
+      )
+    }
   })
   handle(IPC.GITHUB_FORK, (fullName: string) => github.fork(fullName))
 
@@ -80,12 +97,21 @@ function registerHandlers(): void {
   // 都由主进程保证，渲染进程只负责按钮上的忙碌态。
   // GitHub 的 PUT 是幂等的，重复 Star 不报错，所以这里必须防重——另一端 Star 过、
   // 或用户连点两次，都会走到这条分支，不防就是两张一样的卡片。
+  // 分两段 try 的理由同 unstar：Star 已经在 GitHub 上成立了，本地落盘失败不能报成
+  // "Star 失败"（github.star() 内部的回读失败也已经单独说清了）。
   handle(IPC.GITHUB_STAR, async (fullName: string) => {
     const repo = await github.star(fullName)
-    const repos = await store.getRepos()
-    if (repos.some((r) => r.full_name === repo.full_name)) return repo
-    // 新 Star 的排在最前：列表的既有顺序是 starred_at 倒序
-    await store.saveRepos([repo, ...repos])
+    try {
+      const repos = await store.getRepos()
+      if (repos.some((r) => r.full_name === repo.full_name)) return repo
+      // 新 Star 的排在最前：列表的既有顺序是 starred_at 倒序
+      await store.saveRepos([repo, ...repos])
+    } catch (err) {
+      throw new Error(
+        `已经在 GitHub 上 Star 了 ${repo.full_name}，但本地列表没能更新（${errText(err)}）。` +
+          ' 到「收藏管理」点一次「从 GitHub 同步」就会出现在列表里。'
+      )
+    }
     return repo
   })
 
