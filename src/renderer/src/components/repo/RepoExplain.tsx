@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Repo } from '@shared/types'
 import { call } from '../../lib/api'
 import { cn } from '../../lib/cn'
@@ -30,6 +30,17 @@ export function RepoExplain({ repo }: { repo: Repo }): React.JSX.Element {
   const [text, setText] = useState(known)
   const [open, setOpen] = useState(false)
   const [status, setStatus] = useState<Status>('idle')
+
+  // ⚠️ 只在第一次渲染取 known 是不够的。列表行按 key={repo.id} 复用，跑完
+  // 「AI 补全分类」之后 repo 会换成带 ai_summary 的新对象，但组件实例不重挂，
+  // text 会一直停在 ''——那行明明已经有摘要了，按钮却还写着「AI 解释」，
+  // 点下去还会再抓一次 README、再调一次 AI（这条通道本来就是"点一次请求一次"，
+  // 白花的额度是实打实的）。这里只做**单向**同步：补全结果填进空位，
+  // 绝不覆盖用户已经点出来（或在飞的）内容。
+  useEffect(() => {
+    if (known === '') return
+    setText((cur) => (cur === '' ? known : cur))
+  }, [known])
 
   async function explain(): Promise<void> {
     // 已有内容：纯粹是展开/收起，不再发请求
