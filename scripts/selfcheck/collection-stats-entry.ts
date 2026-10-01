@@ -11,8 +11,12 @@
 import {
   ACTIVE_WINDOW_DAYS,
   STALE_WINDOW_DAYS,
+  RECENT_WINDOW_DAYS,
   computeCollectionStats,
+  starTrendBuckets,
+  starredBucket,
   utcDayStart,
+  utcDayKey,
   isRealCategory,
   buildAiDigest
 } from '../../src/renderer/src/lib/collectionStats'
@@ -304,6 +308,88 @@ console.log('\n=== 7) buildAiDigest：喂给模型的摘要 ===')
     .split('\n')
     .find((l) => l.startsWith('AI 分类分布'))
   check('真分类与未分类分开表述', line === 'AI 分类分布：前端 2；另有 2 个未分类', line)
+}
+
+/* ------------------------------------------------------------------ */
+/* 8) starTrendBuckets：趋势图的分桶                                    */
+/* ------------------------------------------------------------------ */
+
+console.log('\n=== 8) 趋势图分桶 ===')
+{
+  // 趋势图原来在组件的 useMemo 里现算，渲染进程没有 DOM 测试环境，写错了没人看得见。
+  // 抽成纯函数之后，这里可以把「图上加起来 = 卡片上的数」这条关系直接钉住。
+  const pts = starTrendBuckets(
+    [
+      repo({ starred_at: iso(NOW) }), // 今天
+      repo({ starred_at: iso(NOW) }), // 今天
+      repo({ starred_at: iso(NOW - 3 * DAY) }),
+      repo({ starred_at: iso(NOW - 6 * DAY) }), // 窗口最早的一天
+      repo({ starred_at: iso(NOW - 7 * DAY) }), // 刚好出窗
+      repo({ starred_at: '不是日期' })
+    ],
+    NOW
+  )
+
+  check('桶数 = RECENT_WINDOW_DAYS', pts.length === RECENT_WINDOW_DAYS, String(pts.length))
+  check('最后一个桶是今天（UTC）', pts[pts.length - 1]!.key === '2026-01-15', pts[pts.length - 1]!.key)
+  check(
+    '第一个桶比今天早 RECENT_WINDOW_DAYS-1 天',
+    pts[0]!.key === utcDayKey(TODAY_START - (RECENT_WINDOW_DAYS - 1) * DAY),
+    pts[0]!.key
+  )
+  check(
+    '日期键连续无断点（折线才不会断）',
+    pts.every((p, i) => i === 0 || Date.parse(p.key) - Date.parse(pts[i - 1]!.key) === DAY),
+    pts.map((p) => p.key).join(',')
+  )
+  check(
+    '计数按 UTC 日历天分桶',
+    pts.map((p) => p.count).join(',') === '1,0,0,1,0,0,2',
+    pts.map((p) => p.count).join(',')
+  )
+  check(
+    "label 是 'MM-DD' 形状（坐标轴要用）",
+    pts.every((p) => p.label.length === 5 && p.label === p.key.slice(5)),
+    pts[0]!.label
+  )
+  check('解析不出的 starred_at 不计入任何桶', pts.reduce((n, p) => n + p.count, 0) === 4)
+
+  // 空输入也必须给齐 RECENT_WINDOW_DAYS 个 0：返回空数组的话折线直接没了，
+  // 而页面上看起来"图还在，只是没数据"——这正是本项目最忌讳的那种安静的错误。
+  const empty = starTrendBuckets([], NOW)
+  check(
+    '空输入返回齐整的一排 0（不是空数组）',
+    empty.length === RECENT_WINDOW_DAYS && empty.every((p) => p.count === 0)
+  )
+
+  // ⚠️ 与「本周新增」卡片的关系：两条路径共用同一扇窗，所以必须相等。
+  // 除了一种情况——见下一条。
+  const windowRepos = [
+    repo({ starred_at: iso(NOW) }),
+    repo({ starred_at: iso(NOW - 2 * DAY) }),
+    repo({ starred_at: iso(NOW - 6 * DAY) }),
+    repo({ starred_at: iso(NOW - 7 * DAY) }),
+    repo({ starred_at: iso(NOW - 30 * DAY) })
+  ]
+  const chartSum = starTrendBuckets(windowRepos, NOW).reduce((n, p) => n + p.count, 0)
+  check(
+    '图上加起来 == 「本周新增」卡片上的数',
+    chartSum === computeCollectionStats(windowRepos, NOW).recent7 && chartSum === 3,
+    `${chartSum} vs ${computeCollectionStats(windowRepos, NOW).recent7}`
+  )
+  check(
+    '出窗的数据一个都不进图',
+    starTrendBuckets(windowRepos, NOW).reduce((n, p) => n + p.count, 0) ===
+      windowRepos.filter((r) => starredBucket(r, NOW) === 'week').length
+  )
+
+  // 时钟偏差：未来时间戳会被「本周新增」数进去，却落不进任何一个桶（最后一个桶是"今天"）。
+  // 这条差异是**刻意保留**的（不为一条异常数据把坐标轴画到明天），钉住免得被"顺手修掉"。
+  const future = [repo({ starred_at: iso(NOW + 3 * DAY) })]
+  check(
+    '未来时间戳：卡片算它、图里没有它（刻意保留的差异）',
+    computeCollectionStats(future, NOW).recent7 === 1 && starTrendBuckets(future, NOW).every((p) => p.count === 0)
+  )
 }
 
 console.log(`\n${failures === 0 ? '== 全部通过 ==' : `== 有 ${failures} 条失败 ==`}`)

@@ -107,6 +107,17 @@ export function utcDayStart(ms: number): number {
 }
 
 /**
+ * UTC 日期 key，'YYYY-MM-DD'。
+ *
+ * 单独立出来是因为它是本项目的**日期坐标约定**：主进程 report.ts 的 dateKey、
+ * 总览的趋势图、以及下面 starTrendBuckets 的分桶必须用同一个写法，
+ * 否则东八区深夜收藏的记录会在两条路径上落到相邻两天，而两边的图"看着都正常"。
+ */
+export function utcDayKey(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10)
+}
+
+/**
  * 「最近 N 天」的 N，指**含今天在内的 N 个 UTC 日历日**（不是"当前时刻往前推 N×24h"）。
  * 导出是为了让界面上的文案从这个数生成——改了窗口而文案没改，就是在骗人。
  */
@@ -136,6 +147,52 @@ export function starredBucket(repo: Repo, now: number): StarredBucket {
   if (starredAt >= start) return 'week'
   if (starredAt >= start - RECENT_WINDOW_DAYS * DAY) return 'prevWeek'
   return 'earlier'
+}
+
+/** 趋势图上的一天 */
+export interface TrendPoint {
+  /** UTC 日期 'YYYY-MM-DD'（见 utcDayKey），也是去重的依据 */
+  key: string
+  /** 坐标轴上的 'MM-DD' */
+  label: string
+  count: number
+}
+
+/**
+ * 「最近 RECENT_WINDOW_DAYS 天新增」折线图的数据。
+ *
+ * 它与「本周新增」卡片、列表的「只看最近 N 天新增」是**同一扇窗**：
+ * 三条路径都从 RECENT_WINDOW_DAYS 出发，所以卡片写 5，图上加起来就该是 5。
+ * 从组件里抽出来（原来是 StarTrendChart 的 useMemo）就是为了能断言这件事——
+ * 渲染进程没有 DOM 测试环境，图表渲染不出来，但这条数可以在纯函数上卡住。
+ *
+ * ⚠️ 分桶必须**连续且补零**：缺一天折线就断（ECharts 的行为，不是我们的选择），
+ * 所以空窗口也返回 RECENT_WINDOW_DAYS 个 0，而不是空数组。
+ *
+ * ⚠️ 与卡片的唯一差异：starred_at 落在**未来**的记录（时钟偏差）会被
+ * 「本周新增」数进去，却落不进任何一个桶——最后一个桶是"今天"，图上没有"以后"。
+ * 这是刻意保留的：为了迁就一条异常数据把坐标轴画到明天，代价更大。
+ * 自检里有一条断言专门把这个差异钉住，免得哪天被当成 bug 顺手"修"掉。
+ *
+ * 与主进程 report.ts 的 dailyStarCount 是同一件东西的两种算法：那边给周报页用
+ * （走 IPC 取），这边给总览页用（直接从 repos 现算，省一次往返、同步数据后立刻重绘）。
+ */
+export function starTrendBuckets(repos: Repo[], now: number): TrendPoint[] {
+  const todayStart = utcDayStart(now)
+  const points: TrendPoint[] = []
+  const index = new Map<string, number>()
+  for (let i = RECENT_WINDOW_DAYS - 1; i >= 0; i--) {
+    const key = utcDayKey(todayStart - i * DAY)
+    index.set(key, points.length)
+    points.push({ key, label: key.slice(5), count: 0 })
+  }
+  for (const r of repos) {
+    const t = safeTime(r.starred_at)
+    if (t === null) continue
+    const i = index.get(utcDayKey(t))
+    if (i !== undefined) points[i]!.count += 1
+  }
+  return points
 }
 
 /**
