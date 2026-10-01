@@ -179,3 +179,17 @@ export function sortRepos(repos: Repo[], sort: RepoSort): Repo[] {
 export function selectRepos(repos: Repo[], filters: RepoFilters, now: number): Repo[] {
   return sortRepos(filterRepos(repos, filters, now), filters.sort)
 }
+
+/**
+ * 从默认值出发、只覆盖指定几项的筛选器。给"下钻"用（总览页点统计卡跳到收藏管理）。
+ *
+ * ⚠️ 下钻必须**整份替换**，不能往用户当前的条件上合并。用户在管理页可能留着上次的
+ * 搜索词或语言筛选，只 patch 一个字段的话，卡片上写着 12、点进去只有 3 条——
+ * 数字对不上，而页面上没有任何东西提示"还叠着别的条件"。
+ *
+ * 从 DEFAULT_FILTERS 打底还顺带保证了两件事：新加的筛选字段不会漏（漏了就是
+ * 悄悄少了一个条件），以及"下钻之后看到的东西"与"卡片上的数字"口径一致。
+ */
+export function filtersFor(patch: Partial<RepoFilters> = {}): RepoFilters {
+  return { ...DEFAULT_FILTERS, ...patch }
+}

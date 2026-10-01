@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { MotionConfig, motion, type Transition } from 'framer-motion'
 import { AppShell } from './components/layout/AppShell'
+import { NavProvider } from './components/layout/NavContext'
 import { useRepoStore } from './store/repoStore'
 import type { AppTab } from './components/layout/nav'
 import { Overview } from './pages/Overview'
@@ -91,26 +92,30 @@ export default function App(): React.JSX.Element {
     // 位移 / 缩放这类动画（透明度保留）。只靠 CSS 的 prefers-reduced-motion 拦不住
     // framer——它走的是 JS 驱动的动画，不过 CSS transition，两处都要管。
     <MotionConfig reducedMotion="user">
-      <AppShell current={tab} onNavigate={setTab}>
-        {PAGES.map((page) => {
-          if (!mounted.includes(page.key)) return null
-          const active = page.key === tab
-          return (
-            // 这一层 div 承载 hidden 与切换动效：非激活时加 hidden，激活时不加任何类，
-            // 对布局完全透明，页面各自的 mx-auto / max-w-* 照常生效。
-            <motion.div
-              key={page.key}
-              className={active ? undefined : 'hidden'}
-              // initial={false}：首屏那一次不要播动画，否则启动时整页会淡入一下
-              initial={false}
-              animate={active ? { opacity: 1, y: 0 } : { opacity: 0, y: 6 }}
-              transition={active ? PAGE_ENTER : PAGE_IDLE}
-            >
-              {page.render()}
-            </motion.div>
-          )
-        })}
-      </AppShell>
+      {/* NavProvider 只暴露"跳到某个板块"这一个动作，给总览页的下钻卡片用
+          （页面不收 props，见 NavContext.tsx 的说明）。必须包住 AppShell。 */}
+      <NavProvider goTo={setTab}>
+        <AppShell current={tab} onNavigate={setTab}>
+          {PAGES.map((page) => {
+            if (!mounted.includes(page.key)) return null
+            const active = page.key === tab
+            return (
+              // 这一层 div 承载 hidden 与切换动效：非激活时加 hidden，激活时不加任何类，
+              // 对布局完全透明，页面各自的 mx-auto / max-w-* 照常生效。
+              <motion.div
+                key={page.key}
+                className={active ? undefined : 'hidden'}
+                // initial={false}：首屏那一次不要播动画，否则启动时整页会淡入一下
+                initial={false}
+                animate={active ? { opacity: 1, y: 0 } : { opacity: 0, y: 6 }}
+                transition={active ? PAGE_ENTER : PAGE_IDLE}
+              >
+                {page.render()}
+              </motion.div>
+            )
+          })}
+        </AppShell>
+      </NavProvider>
     </MotionConfig>
   )
 }

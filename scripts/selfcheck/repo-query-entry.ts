@@ -10,6 +10,7 @@ import {
   REPO_SORTS,
   HEALTH_OPTIONS,
   DEFAULT_FILTERS,
+  filtersFor,
   languageOption,
   languageNameOf,
   type RepoFilters,
@@ -399,6 +400,59 @@ check(
     selectRepos(REPOS, F({ language: languageOption('TypeScript'), health: 'stale' }), NOW).length === 0
 )
 check('selectRepos 也不修改入参', names(REPOS) === originalOrder)
+
+// ============================================================
+console.log('\n== 7. 下钻（filtersFor）：必须整份替换，不能合并 ==')
+// ============================================================
+// 总览页点统计卡 → 收藏管理页。卡片上写着 12，点进去就必须看到 12 条。
+// 如果下钻是往"用户当前的条件"上合并，而用户上次留了个搜索词，
+// 点进去就只剩 3 条——数字对不上，页面上还看不出为什么。
+check('空 patch 得到的就是默认筛选器', JSON.stringify(filtersFor()) === JSON.stringify(DEFAULT_FILTERS))
+check(
+  '下钻只覆盖指定的那一项，其余全回默认',
+  (() => {
+    const f = filtersFor({ health: 'stale' })
+    return (
+      f.health === 'stale' &&
+      f.keyword === DEFAULT_FILTERS.keyword &&
+      f.language === DEFAULT_FILTERS.language &&
+      f.category === DEFAULT_FILTERS.category &&
+      f.onlyCloned === DEFAULT_FILTERS.onlyCloned &&
+      f.sort === DEFAULT_FILTERS.sort
+    )
+  })()
+)
+check(
+  '下钻"已 Clone"只剩 onlyCloned，不带任何关键词',
+  (() => {
+    const f = filtersFor({ onlyCloned: true })
+    return f.onlyCloned === true && f.keyword === '' && f.language === 'all' && f.health === 'all'
+  })()
+)
+check(
+  '下钻语言 / 分类用的是 languageOption 与真分类',
+  filtersFor({ language: languageOption('Rust') }).language === 'name:Rust' &&
+    names(selectRepos(REPOS, filtersFor({ language: languageOption('Rust') }), NOW)) === 'a/old-but-many-stars' &&
+    names(selectRepos(REPOS, filtersFor({ category: '前端' }), NOW)) === 'b/newest-star'
+)
+// 下钻的筛选器必须真的等于「总览卡片上的那个数字」——这是整条链路的落点
+check(
+  '下钻 health:stale 筛出的条数 == 卡片上的 stale 数字',
+  selectRepos(REPOS, filtersFor({ health: 'stale' }), NOW).length ===
+    computeCollectionStats(REPOS, NOW).stale
+)
+check(
+  '下钻 onlyCloned 筛出的条数 == 卡片上的 cloned 数字',
+  selectRepos(REPOS, filtersFor({ onlyCloned: true }), NOW).length ===
+    computeCollectionStats(REPOS, NOW).cloned
+)
+check(
+  'filtersFor 不修改 DEFAULT_FILTERS（两个下钻不会互相污染）',
+  (() => {
+    filtersFor({ health: 'stale', keyword: 'x' })
+    return DEFAULT_FILTERS.health === 'all' && DEFAULT_FILTERS.keyword === ''
+  })()
+)
 
 console.log(`\n== 结果：${failures === 0 ? '全部通过' : `${failures} 项失败`} ==`)
 process.exit(failures === 0 ? 0 : 1)

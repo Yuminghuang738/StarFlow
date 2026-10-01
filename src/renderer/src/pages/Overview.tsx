@@ -13,8 +13,10 @@ import {
   type CollectionStats
 } from '../lib/collectionStats'
 import { unwrap, ipcErrorMessage } from '../lib/api'
+import { filtersFor, languageOption, type RepoFilters } from '../lib/repoQuery'
 import { cn } from '../lib/cn'
 import { PageContainer, PageHeader } from '../components/layout/PageLayout'
+import { useNav } from '../components/layout/NavContext'
 import type { Repo } from '@shared/types'
 
 /**
@@ -24,10 +26,41 @@ import type { Repo } from '@shared/types'
  * 页面只负责渲染——这里**不**做计算，也**不**调 load()：初始加载已经提到 App.tsx 里
  * 全局跑一次了，总览和管理页各留一份就是双重拉取 + 双重 prune IPC。
  *
+ * 可点的卡片/条形（下钻）跳到收藏管理页并带上对应筛选。**必须整份覆盖筛选器**，
+ * 见 drill() 里的说明。
+ *
  * ⚠️ 「本周新增」与图表、周报页共用同一套 UTC 口径，改这里之前先看 report.ts。
  */
 export function Overview(): React.JSX.Element {
   const repos = useRepoStore((s) => s.repos)
+  const setFilters = useRepoStore((s) => s.setFilters)
+  const { goTo } = useNav()
+
+  /**
+   * 下钻：整份替换筛选器（而不是合并），然后跳到收藏管理页。
+   *
+   * ⚠️ 必须整份替换。用户在管理页可能留着上次的搜索词或语言筛选，
+   * 若只 patch 一个字段，卡片上写着 12、点进去却只有 3 条——数字对不上，
+   * 而页面上没有任何东西提示"还叠着别的条件"。filtersFor 就是这条约定本身，
+   * 单独放进 lib 是为了能让自检断言它（页面里的闭包断言不到）。
+   */
+  function drill(patch: Partial<RepoFilters>): void {
+    setFilters(filtersFor(patch))
+    goTo('manage')
+  }
+
+  /**
+   * 分类分布里那一行的点击处理；不是真分类（「未分类」）就返回 undefined，
+   * 那一行不可点。
+   *
+   * 单独抽成函数是为了让类型收窄生效：`isRealCategory(b.name) ? () => drill(...)`
+   * 这种写法里被收窄的是**属性路径** b.name，TS 不会把它带进闭包
+   * （属性随时可能被改），于是 category 那格退回 string、编译不过。
+   * 换成普通参数 name（全程不重新赋值）就保得住。
+   */
+  function byCategory(name: string): (() => void) | undefined {
+    return isRealCategory(name) ? () => drill({ category: name }) : undefined
+  }
 
   // 时钟与统计一起算进同一个 useMemo：纯函数仍然显式接收 now（自检可以喂固定时间），
   // 而时间戳作为**计算结果的一部分**返回，就不会出现「依赖数组里有 repos、函数体里
@@ -73,27 +106,48 @@ export function Overview(): React.JSX.Element {
     <PageContainer>
       <HeroHeader stats={stats} />
 
-      {/* 统计卡片：8 项。信息量对比只有 4 项时翻了一倍，且每项都补了一句参照文案 */}
+      {/* 统计卡片：8 项。信息量对比只有 4 项时翻了一倍，且每项都补了一句参照文案。
+          带 onClick 的会下钻到收藏管理页（卡片右下角有"去处理 →"的提示，
+          不然用户看不出它能点）。「本周新增」「主题标签」刻意不可点：
+          时间窗口与 topic 都没有对应的筛选维度，做成可点却跳到一个筛不出来的列表
+          比不可点更糟。 */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="仓库总数" value={stats.total} hint={`总星标 ${formatStars(stats.totalStars)}`} />
+        <StatCard
+          label="仓库总数"
+          value={stats.total}
+          hint={`总星标 ${formatStars(stats.totalStars)}`}
+          onClick={() => drill({})}
+        />
         <StatCard
           label="本周新增"
           value={stats.recent7}
           hint={trendHint(stats.recent7, stats.prev7)}
           tone={stats.recent7 > 0 ? 'up' : 'flat'}
         />
+        {/* 「AI 已分类」刻意不可点：这张卡数的是**所有**分类过的仓库，
+            而 category 筛选一次只能选一个分类，点进去必然只剩一小撮——
+            卡片写 N、点进去 M，就是撒谎。等有了"未分类"这个筛选态（它才是
+            真正的行动项）再接上。 */}
         <StatCard
           label="AI 已分类"
           value={stats.categorized}
           hint={`${percent(stats.categorized, stats.total)}，${stats.uncategorized} 个待补全`}
         />
+        {/* 「语言数」不可点：它是一个**去重后的类别数**，不是条数，没有对应的筛选。
+            想看某个语言，下面「语言分布」里点那一行。 */}
         <StatCard label="语言数" value={stats.languageCount} hint={`平均 ${formatStars(stats.avgStars)} 星`} />
-        <StatCard label="已 Clone" value={stats.cloned} hint={`Fork 过 ${stats.forked} 个`} />
+        <StatCard
+          label="已 Clone"
+          value={stats.cloned}
+          hint={`Fork 过 ${stats.forked} 个`}
+          onClick={() => drill({ onlyCloned: true })}
+        />
         <StatCard
           label="近期活跃"
           value={stats.activeRecently}
           hint="90 天内有过提交"
           tone={stats.activeRecently > 0 ? 'up' : 'flat'}
+          onClick={() => drill({ health: 'active' })}
         />
         <StatCard label="主题标签" value={stats.topicCount} hint="去重后的 topic 数" />
         <StatCard
@@ -101,12 +155,13 @@ export function Overview(): React.JSX.Element {
           value={stats.stale}
           hint={stats.unknownPush > 0 ? `另有 ${stats.unknownPush} 个拿不到提交时间` : '超过一年没有提交'}
           tone={stats.stale > stats.total / 3 ? 'warn' : 'flat'}
+          onClick={() => drill({ health: 'stale' })}
         />
       </section>
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <SectionTitle title="语言分布" subtitle={`Top ${stats.topLanguages.length}，按仓库数`} />
+          <SectionTitle title="语言分布" subtitle={`Top ${stats.topLanguages.length}，按仓库数，点一行可下钻`} />
           <div className="mt-3 space-y-2.5">
             {stats.topLanguages.map((b) => (
               <BarRow
@@ -115,13 +170,14 @@ export function Overview(): React.JSX.Element {
                 count={b.count}
                 ratio={b.ratio}
                 color={languageColor(b.name)}
+                onClick={() => drill({ language: languageOption(b.name) })}
               />
             ))}
           </div>
         </Card>
 
         <Card>
-          <SectionTitle title="AI 分类分布" subtitle="7 个固定分类各占多少" />
+          <SectionTitle title="AI 分类分布" subtitle="7 个固定分类各占多少，点一行可下钻" />
           <div className="mt-3 space-y-2">
             {stats.categories.map((b) => (
               <BarRow
@@ -133,6 +189,9 @@ export function Overview(): React.JSX.Element {
                 color={isRealCategory(b.name) ? categoryColor(b.name) : undefined}
                 muted={!isRealCategory(b.name)}
                 compact
+                // 「未分类」不可点：category 筛选表达不了"没有分类"（null 是"全部分类"），
+                // 见 Overview 顶部关于 AI 已分类卡片的说明。它不是分类，点了没去处。
+                onClick={byCategory(b.name)}
               />
             ))}
           </div>
@@ -297,19 +356,33 @@ function TopRepoCard({ repo }: { repo: Repo }): React.JSX.Element {
   )
 }
 
+/**
+ * 统计卡。传了 onClick 就变成按钮并显示"去处理 →"——不加这行提示，
+ * hover 之外看不出它能点（卡片本来就有一点点上浮效果，区分不出来）。
+ */
 function StatCard({
   label,
   value,
   hint,
-  tone = 'flat'
+  tone = 'flat',
+  onClick
 }: {
   label: string
   value: number
   hint?: string
   tone?: 'up' | 'warn' | 'flat'
+  onClick?: () => void
 }): React.JSX.Element {
-  return (
-    <Card className="min-w-0 transition-transform duration-200 hover:-translate-y-0.5">
+  const body = (
+    <Card
+      className={cn(
+        // h-full：可点的卡片里多了一行「去处理 →」（它只是 opacity-0，仍然占位），
+        // 不给 h-full 的话同一行里可点与不可点的卡片会差一个行高，边框对不齐。
+        'h-full min-w-0 transition-transform duration-200',
+        // 可点的卡片上浮得明显一点，与纯展示的卡片区分开
+        onClick ? 'group hover:-translate-y-0.5 hover:border-primary/40' : 'hover:-translate-y-0.5'
+      )}
+    >
       <div
         className={cn(
           'text-2xl font-semibold tabular-nums',
@@ -320,7 +393,25 @@ function StatCard({
       </div>
       <div className="mt-1 truncate text-xs text-fg-muted">{label}</div>
       {hint ? <div className="mt-0.5 truncate text-[11px] text-fg-subtle">{hint}</div> : null}
+      {onClick ? (
+        <div className="mt-1.5 text-[11px] text-primary opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+          去处理 →
+        </div>
+      ) : null}
     </Card>
+  )
+
+  if (!onClick) return body
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      // w-full text-left：button 在网格里默认不撑满、且文字居中，两个都要改掉。
+      // 圆角/边框交给里面的 Card，这里只做命中区域。
+      className="h-full w-full rounded-xl text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+    >
+      {body}
+    </button>
   )
 }
 
@@ -333,13 +424,19 @@ function SectionTitle({ title, subtitle }: { title: string; subtitle: string }):
   )
 }
 
+/**
+ * 分布条的一行。传了 onClick 就整行可点（下钻到收藏管理）。
+ * 计数本身就是"这批仓库有多少个"，所以点它跳过去的列表条数必须与它一致——
+ * drill() 整份替换筛选器就是在保这件事。
+ */
 function BarRow({
   name,
   count,
   ratio,
   color,
   muted = false,
-  compact = false
+  compact = false,
+  onClick
 }: {
   name: string
   count: number
@@ -347,10 +444,11 @@ function BarRow({
   color?: string
   muted?: boolean
   compact?: boolean
+  onClick?: () => void
 }): React.JSX.Element {
   const width = `${Math.round(ratio * 100)}%`
-  return (
-    <div className={cn('flex items-center gap-2', compact ? 'text-xs' : 'text-sm')}>
+  const inner = (
+    <>
       <span className={cn('w-24 shrink-0 truncate', muted ? 'text-fg-subtle' : 'text-fg-muted')}>
         {name}
       </span>
@@ -362,7 +460,24 @@ function BarRow({
         />
       </span>
       <span className="w-8 shrink-0 text-right tabular-nums text-fg-muted">{count}</span>
-    </div>
+    </>
+  )
+
+  const base = cn('flex items-center gap-2', compact ? 'text-xs' : 'text-sm')
+  if (!onClick) return <div className={base}>{inner}</div>
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        base,
+        'w-full rounded-md text-left transition-colors hover:bg-surface-2/60',
+        'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary'
+      )}
+    >
+      {inner}
+    </button>
   )
 }
 
