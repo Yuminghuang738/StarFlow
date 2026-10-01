@@ -1,10 +1,10 @@
 // ============================================================
 // IPC 通道名契约（冻结）
-// 只有集成工程师（P7）可以修改本文件。
+// 冻结契约：不要随意修改本文件。
 // ============================================================
 
 export const IPC = {
-  // GitHub 读写 —— 负责人 P1
+  // GitHub 读写
   GITHUB_FETCH_STARRED: 'github:fetchStarred',
   GITHUB_FETCH_README: 'github:fetchReadme',
   GITHUB_FETCH_RELEASES: 'github:fetchReleases',
@@ -12,7 +12,7 @@ export const IPC = {
   GITHUB_UNSTAR: 'github:unstar',
   GITHUB_FORK: 'github:fork',
 
-  // 本地 Git —— 负责人 P3
+  // 本地 Git
   LOCAL_CHOOSE_DIR: 'local:chooseDir',
   LOCAL_CLONE: 'local:clone',
   LOCAL_OPEN_DIR: 'local:openDir',
@@ -29,7 +29,7 @@ export const IPC = {
   // 由主进程在 clone 的 catch 里清掉——cloned_path 压根没写过，对账救不了它。
   LOCAL_CANCEL_CLONE: 'local:cancelClone',
 
-  // AI —— 负责人 P2
+  // AI
   AI_SUMMARIZE: 'ai:summarize',
   AI_CLASSIFY: 'ai:classify',
   AI_ENRICH_REPOS: 'ai:enrichRepos',
@@ -38,7 +38,7 @@ export const IPC = {
   // 这条走一次极简调用，并把错误分类成人话返回（不抛错）。
   AI_TEST_CONNECTION: 'ai:testConnection',
 
-  // 存储 —— 负责人 P3
+  // 存储
   STORE_GET_REPOS: 'store:getRepos',
   STORE_SAVE_REPOS: 'store:saveRepos',
   STORE_SAVE_TOKEN: 'store:saveToken',
@@ -53,23 +53,23 @@ export const IPC = {
   STORE_SAVE_AI_CONFIG: 'store:saveAiConfig',
   STORE_CLEAR_AI_KEY: 'store:clearAiKey',
 
-  // 周报 —— 负责人 P4
+  // 周报
   REPORT_GENERATE: 'report:generate',
 
-  // 推荐 —— 负责人 P4
+  // 推荐
   RECOMMEND_SIMILAR: 'recommend:similar',
 
-  // 定时追踪 —— 负责人 P4
+  // 定时追踪
   TRACKER_START: 'tracker:start',
   TRACKER_STOP: 'tracker:stop',
 
-  // 登录（GitHub OAuth Device Flow）—— 负责人 P7
+  // 登录（GitHub OAuth Device Flow）
   AUTH_GET_STATE: 'auth:getState',
   AUTH_START_DEVICE_FLOW: 'auth:startDeviceFlow',
   AUTH_WAIT_FOR_LOGIN: 'auth:waitForLogin',
   AUTH_CANCEL_DEVICE_FLOW: 'auth:cancelDeviceFlow',
 
-  // 无边框窗口控制 —— 负责人 P7
+  // 无边框窗口控制
   // 窗口本身没有"查 event.sender"的机会：handle() 包装器会主动丢弃第一个 event 参数，
   // 所以主进程维护一个模块级的当前窗口引用，这几个 handler 都对着它操作。
   WINDOW_MINIMIZE: 'window:minimize',

@@ -1,8 +1,8 @@
-// 负责人：P2 ｜ 接口规格见 docs/module-signatures.md（冻结），任务说明见 prompts/
+// 接口规格见 docs/module-signatures.md（冻结）
 // 真实实现：openai SDK（key 从 config.getEnv() 取），提示词内要求 JSON / 单词输出 + 本地清洗解析；
 // enrichRepos 内部用 p-limit 3 并发，结果写回 store.saveRepos() 后返回完整列表。
 //
-// 硬约束（见 prompts/p2-ai.md）：
+// 硬约束：
 //   1) 不使用 response_format（大量 OpenAI 兼容中转不支持，会直接 400）
 //   2) enrichRepos 并发严格为 3，用 p-limit，不裸跑 Promise.all
 
@@ -311,7 +311,7 @@ ${list}`
  * 把 store 里存的 AI 配置刷进 config.ts 的覆盖层。
  *
  * Phase 0 先落地**调用点**（index.ts 启动时一次、保存/清除 AI 配置各一次），
- * 函数体是空的。这样拆的理由：index.ts 是 P7 独占文件，两个并行分支不能同时
+ * 函数体是空的。这样拆的理由：index.ts 是唯一集成点，两个并行分支不能同时
  * 改它——先把调用点钉死在 Phase 0，填实现的那个 PR 就一行都不用碰 index.ts。
  *
  * 为什么用"覆盖层 + 预热"而不是把 client() 改成 async：client() 现在被四个

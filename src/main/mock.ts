@@ -1,4 +1,4 @@
-// 负责人：P7 ｜ mock.ts 是全项目唯一的假数据源，所有业务模块的 Mock 分支都调这里。
+// mock.ts 是全项目唯一的假数据源，所有业务模块的 Mock 分支都调这里。
 // 严禁调用 octokit / openai / simple-git；严禁在本文件读写文件或数据库（那是 store.ts 的职责）。
 
 import type { Repo, Release, Commit, AiCategory } from '@shared/types'
@@ -78,7 +78,7 @@ export async function mockReadme(fullName: string): Promise<string> {
 ${desc}
 
 这是一个使用 ${lang} 开发的开源项目，目前在 GitHub 上收获了 ${stars} 颗 Star。
-以下内容为演示用示例文档，由 StarPilot 的 Mock 层生成。
+以下内容为演示用示例文档，由 StarFlow 的 Mock 层生成。
 
 ## 安装
 
@@ -135,7 +135,7 @@ export function mockFork(fullName: string): Repo {
   }
   repo.local = {
     ...repo.local,
-    forked_full_name: `starpilot-demo/${repoName(fullName)}`,
+    forked_full_name: `starflow-demo/${repoName(fullName)}`,
     forked_at: new Date().toISOString()
   }
   return structuredClone(repo)

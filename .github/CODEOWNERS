@@ -1,12 +1,12 @@
 # CODEOWNERS —— 只做 @提醒，不强制审批（main 的分支保护没勾 Require approvals）
 #
-# 已替换成真实账号。模块划分见 README「谁负责什么」，工作包见 prompts/pN-*.md。
+# 已替换成真实账号。
 # 注意：CODEOWNERS 的匹配规则是「最后一个匹配的规则生效」，所以顺序不能随意调。
 #
-# /src/renderer/src/components/repo/ 与 charts/ 目前还不存在（P5 会新建），
+# /src/renderer/src/components/repo/ 与 charts/ 目前还不存在，
 # 先在这里占好位，目录一出现就自动生效。
 
-# ============ 集成工程师独占（P7）============
+# ============ 契约与基建文件 ============
 /src/shared/            @Yuminghuang738
 /src/preload/           @Yuminghuang738
 /src/main/index.ts      @Yuminghuang738
@@ -14,7 +14,7 @@
 /src/main/mock.ts       @Yuminghuang738
 /src/main/auth.ts       @Yuminghuang738
 
-# 渲染进程脚手架：不属于 P6 的 store/lib/components/pages，见 prompts/p6-renderer-core.md 第 2 节
+# 渲染进程脚手架：不属于 store/lib/components/pages
 /src/renderer/index.html        @Yuminghuang738
 /src/renderer/src/main.tsx      @Yuminghuang738
 /src/renderer/src/index.css     @Yuminghuang738

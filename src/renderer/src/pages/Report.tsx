@@ -20,7 +20,7 @@ function formatMonthDay(iso: string): string {
 /** 在渲染进程本地拼 Markdown，不动主进程、不加 IPC 通道。 */
 function buildMarkdown(report: WeeklyReport): string {
   const lines: string[] = []
-  lines.push('# StarPilot 周报')
+  lines.push('# StarFlow 周报')
   lines.push('')
   lines.push(`- 周期：${report.weekStart.slice(0, 10)} ~ ${report.weekEnd.slice(0, 10)}`)
   lines.push(`- 本周新增：${report.newStars.length} 个`)
@@ -62,7 +62,7 @@ function downloadMarkdown(report: WeeklyReport): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `starpilot-weekly-${report.weekStart.slice(0, 10)}.md`
+  a.download = `starflow-weekly-${report.weekStart.slice(0, 10)}.md`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)

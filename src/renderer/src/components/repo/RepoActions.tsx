@@ -9,7 +9,7 @@ import { formatRelative } from './repoFormat'
 /**
  * 卡片底部的四个操作按钮（Unstar / Fork / Clone / 打开目录）。
  *
- * ⚠️ Toast 归属：成功与失败的提示全部由 P6 的 repoStore 内部弹出，这里一个都不弹。
+ * ⚠️ Toast 归属：成功与失败的提示全部由 repoStore 内部弹出，这里一个都不弹。
  * 本组件只负责两件事：
  *   ① 控制 Unstar 二次确认弹窗的开关；
  *   ② 维护 pendingAction，让所有按钮在操作进行中统一禁用（避免并发点两次）。

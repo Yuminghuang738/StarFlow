@@ -15,7 +15,7 @@ import type {
   AiConnectionResult
 } from '@shared/types'
 
-export interface StarPilotApi {
+export interface StarFlowApi {
   github: {
     fetchStarred(): Promise<IpcResult<Repo[]>>
     fetchReadme(fullName: string): Promise<IpcResult<string>>
@@ -77,6 +77,6 @@ export interface StarPilotApi {
 
 declare global {
   interface Window {
-    api: StarPilotApi
+    api: StarFlowApi
   }
 }

@@ -1,4 +1,3 @@
-// 负责人：P7（集成工程师独占维护，Wave 1 期间不再改动）
 // 这是唯一把 renderer 的 invoke 和主进程业务模块接起来的地方。
 
 import 'dotenv/config'
@@ -61,7 +60,7 @@ function handle<T>(channel: string, fn: AnyFn<T>): void {
 // ============================================================
 
 function registerHandlers(): void {
-  // GitHub —— P1
+  // GitHub
   handle(IPC.GITHUB_FETCH_STARRED, () => github.fetchStarred())
   handle(IPC.GITHUB_FETCH_README, (fullName: string) => github.fetchReadme(fullName))
   handle(IPC.GITHUB_FETCH_RELEASES, (fullName: string) => github.fetchReleases(fullName))
@@ -76,7 +75,7 @@ function registerHandlers(): void {
   })
   handle(IPC.GITHUB_FORK, (fullName: string) => github.fork(fullName))
 
-  // 本地 Git —— P3
+  // 本地 Git
   handle(IPC.LOCAL_CHOOSE_DIR, () => local.chooseDir())
   handle(IPC.LOCAL_CLONE, (fullName: string, targetDir: string) => local.clone(fullName, targetDir))
   handle(IPC.LOCAL_OPEN_DIR, (path: string) => local.openDir(path))
@@ -121,7 +120,7 @@ function registerHandlers(): void {
   // 界面认为在跑、主进程这边已经结束的情况不算错，所以不抛。
   handle(IPC.LOCAL_CANCEL_CLONE, (fullName: string) => local.cancelClone(fullName))
 
-  // AI —— P2
+  // AI
   handle(IPC.AI_SUMMARIZE, (readme: string) => ai.summarize(readme))
   handle(IPC.AI_CLASSIFY, (repo: Repo) => ai.classify(repo))
   handle(IPC.AI_ENRICH_REPOS, (repos: Repo[]) => ai.enrichRepos(repos))
@@ -130,7 +129,7 @@ function registerHandlers(): void {
   // 让设置页能直接把 message 渲染成一行提示，而不是走 IpcResult 的 error 分支弹红 toast。
   handle(IPC.AI_TEST_CONNECTION, () => ai.testConnection())
 
-  // 存储 —— P3
+  // 存储
   handle(IPC.STORE_GET_REPOS, () => store.getRepos())
   handle(IPC.STORE_SAVE_REPOS, (repos: Repo[]) => store.saveRepos(repos))
   handle(IPC.STORE_SAVE_TOKEN, (token: string) => store.saveToken(token))
@@ -140,7 +139,7 @@ function registerHandlers(): void {
   )
   handle(IPC.STORE_CLEAR_TOKEN, () => store.clearToken())
 
-  // AI 配置 —— P7 只做编排，存储实现在 store.ts、缓存刷新在 ai.ts
+  // AI 配置 —— 只做编排，存储实现在 store.ts、缓存刷新在 ai.ts
   // 保存/清除之后必须 refresh：config.ts 的覆盖层是内存态，不刷就是"填了 key 但没生效"。
   // refresh 挂在 handler 里而不是只挂启动路径，是为了不依赖"先启动再配置"这个顺序。
   handle(IPC.STORE_GET_AI_CONFIG, () => store.getAiConfig())
@@ -153,17 +152,17 @@ function registerHandlers(): void {
     ai.refreshAiConfigCache()
   })
 
-  // 周报 —— P4
+  // 周报
   handle(IPC.REPORT_GENERATE, () => report.generate())
 
-  // 推荐 —— P4
+  // 推荐
   handle(IPC.RECOMMEND_SIMILAR, (fullName: string) => recommend.similar(fullName))
 
-  // 定时追踪 —— P4。刻意不在启动时自动 start，由前端显式调用
+  // 定时追踪。刻意不在启动时自动 start，由前端显式调用
   handle(IPC.TRACKER_START, () => tracker.start())
   handle(IPC.TRACKER_STOP, () => tracker.stop())
 
-  // 登录 —— P7
+  // 登录
   handle(IPC.AUTH_GET_STATE, () => auth.getState())
   handle(IPC.AUTH_START_DEVICE_FLOW, () => auth.startDeviceFlow())
   // 这个 handler 会一直挂到用户完成授权、超时或取消为止（最长 15 分钟）。
@@ -172,7 +171,7 @@ function registerHandlers(): void {
   handle(IPC.AUTH_WAIT_FOR_LOGIN, () => auth.waitForLogin())
   handle(IPC.AUTH_CANCEL_DEVICE_FLOW, () => auth.cancelDeviceFlow())
 
-  // 无边框窗口 —— P7
+  // 无边框窗口
   // 这四个都对着模块级的 mainWindow 操作（handle() 丢掉了 event，拿不到 sender）。
   // 窗口已经不在了就静默返回：用户连点两次关闭、或窗口管理器先一步关掉了窗口，
   // 都不该在界面上弹一条"窗口不存在"的错误。

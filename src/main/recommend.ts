@@ -1,4 +1,4 @@
-// 负责人：P4 ｜ 接口规格见 docs/module-signatures.md（冻结），任务说明见 prompts/
+// 接口规格见 docs/module-signatures.md（冻结）
 
 import type { Repo } from '@shared/types'
 import { isMockMode } from './config'

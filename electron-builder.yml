@@ -1,5 +1,5 @@
-appId: com.starpilot.app
-productName: StarPilot
+appId: com.starflow.app
+productName: StarFlow
 directories:
   output: dist
 files:

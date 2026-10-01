@@ -42,7 +42,7 @@ export function AppShell({ current, onNavigate, children }: AppShellProps): Reac
           <nav className="flex w-52 shrink-0 flex-col border-r border-slate-800 bg-slate-900/60 p-3">
             <div className="flex items-center gap-2 px-2 py-3">
               <LogoMark />
-              <span className="text-lg font-semibold tracking-tight">StarPilot</span>
+              <span className="text-lg font-semibold tracking-tight">StarFlow</span>
             </div>
             <div className="mt-2 flex flex-col gap-1">
               {TABS.map((t) => (

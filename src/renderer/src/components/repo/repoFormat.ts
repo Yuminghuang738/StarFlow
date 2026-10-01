@@ -7,8 +7,8 @@ import type { Repo } from '@shared/types'
  * 如果一边定义一边 import 会形成 RepoCard ⇄ RepoActions 的循环依赖，
  * 而且一旦两边各写一份，同一张卡片上的时间口径就会不一致。
  *
- * ⚠️ lib/api.ts 目前没有导出 formatRelative（那是 P6 的地盘，不能自己往里加），
- * 所以这里先放一份私有实现；等 P6 合了同名导出，把 RepoCard/RepoActions 的 import
+ * ⚠️ lib/api.ts 目前没有导出 formatRelative（不该自己往里加），
+ * 所以这里先放一份私有实现；等 lib/api.ts 补上同名导出，把 RepoCard/RepoActions 的 import
  * 换成 lib/api.ts 即可，逻辑不用动。
  */
 

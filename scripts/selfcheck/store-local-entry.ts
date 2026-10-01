@@ -14,7 +14,7 @@ import { dialog as stubDialog } from './electron-stub.mjs'
 
 const EXPECTED_SEED = (mockData as { repos: unknown[] }).repos.length
 const userData = app.getPath('userData')
-const dbFile = join(userData, 'starpilot.mock.db.json')
+const dbFile = join(userData, 'starflow.mock.db.json')
 const readDb = (): string => readFileSync(dbFile, 'utf8')
 
 let failures = 0

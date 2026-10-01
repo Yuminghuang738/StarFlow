@@ -163,7 +163,7 @@ async function runFlow(opts: {
 }
 
 function dbPath(): string {
-  const file = process.env.MOCK_MODE === 'true' ? 'starpilot.mock.db.json' : 'starpilot.db.json'
+  const file = process.env.MOCK_MODE === 'true' ? 'starflow.mock.db.json' : 'starflow.db.json'
   return join(app.getPath('userData'), file)
 }
 

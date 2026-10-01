@@ -48,7 +48,7 @@ function msgOf(err: unknown): string {
 }
 
 function freshBase(tag: string): string {
-  const base = join(tmpdir(), `starpilot-local-manage-${tag}-${process.pid}`)
+  const base = join(tmpdir(), `starflow-local-manage-${tag}-${process.pid}`)
   rmSync(base, { recursive: true, force: true })
   mkdirSync(base, { recursive: true })
   return base
@@ -92,7 +92,7 @@ function readDisk(dbFile: string, fullName: string): DiskRepo | undefined {
 
 async function runMain(): Promise<void> {
   const base = freshBase('main')
-  const dbFile = join(app.getPath('userData'), 'starpilot.db.json')
+  const dbFile = join(app.getPath('userData'), 'starflow.db.json')
 
   // ---------- clearClonedPath / clearClonedPaths ----------
   // 先造三条：一条同时有 cloned_path 和 fork 标记（验证只删一个键）、
@@ -267,7 +267,7 @@ async function runMain(): Promise<void> {
 // ============================================================
 
 async function runMock(): Promise<void> {
-  const demoRoot = join(app.getPath('downloads'), 'StarPilotDemo')
+  const demoRoot = join(app.getPath('downloads'), 'StarFlowDemo')
 
   const inside = join(demoRoot, 'Hello-World')
   mkdirSync(inside, { recursive: true })
@@ -289,7 +289,7 @@ async function runMock(): Promise<void> {
 
   await expectThrow(
     '演示目录本身也拒绝（不是"删了它下边的都行"）',
-    () => local.removeClone('x/StarPilotDemo', demoRoot),
+    () => local.removeClone('x/StarFlowDemo', demoRoot),
     '只允许删除演示目录内的副本'
   )
   check('演示目录本身还在', existsSync(demoRoot))

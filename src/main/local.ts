@@ -1,6 +1,6 @@
-// 负责人：P3 ｜ 接口规格见 docs/module-signatures.md（冻结），任务说明见 prompts/
-// chooseDir / clone 的真实实现（dialog.showOpenDialog、simple-git）由 P3 补，
-// 本轮只给 mock 分支。openDir 例外：它必须真的能打开目录，所以不走 mock。
+// 接口规格见 docs/module-signatures.md（冻结）
+// chooseDir / clone 的真实实现（dialog.showOpenDialog、simple-git）见下；
+// openDir 例外：它必须真的能打开目录，所以不走 mock。
 
 import { basename, dirname, join, parse as parsePath, sep } from 'node:path'
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
@@ -55,7 +55,7 @@ const progressByRepo = new Map<string, CloneProgressEntry>()
 export async function chooseDir(): Promise<string | null> {
   if (isMockMode()) {
     // mock 下不弹系统对话框，直接给一个确定存在的演示目录
-    const dir = join(app.getPath('downloads'), 'StarPilotDemo')
+    const dir = join(app.getPath('downloads'), 'StarFlowDemo')
     mkdirSync(dir, { recursive: true })
     return dir
   }
@@ -265,9 +265,9 @@ function isForbiddenRoot(p: string): boolean {
   return homes.some((h) => p === h || h.startsWith(p + sep))
 }
 
-/** mock 模式下 mock.clone 只往 <downloads>/StarPilotDemo 下面写，删除也只许删那里 */
+/** mock 模式下 mock.clone 只往 <downloads>/StarFlowDemo 下面写，删除也只许删那里 */
 async function mockCloneRoot(): Promise<string> {
-  const root = join(app.getPath('downloads'), 'StarPilotDemo')
+  const root = join(app.getPath('downloads'), 'StarFlowDemo')
   try {
     return await realpath(root)
   } catch {
@@ -329,7 +329,7 @@ export async function removeClone(fullName: string, path: string): Promise<strin
   }
 
   // 闸门 4：目录名必须等于仓库名。这条是根本性的——有 .git 只能证明"这是个 git 仓库"，
-  // 证明不了"这是 StarPilot 克隆出来的那份"。没有它，~/Documents、~/code、用户自己的
+  // 证明不了"这是 StarFlow 克隆出来的那份"。没有它，~/Documents、~/code、用户自己的
   // 工作仓库（都可能同时满足前面所有条件）会被当成克隆副本整个删掉。
   const expected = repoNameOf(fullName)
   if (basename(real) !== expected) {

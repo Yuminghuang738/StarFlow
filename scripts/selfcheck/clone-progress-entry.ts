@@ -39,7 +39,7 @@ function msgOf(err: unknown): string {
 
 /** 每个场景一个干净目录，避免上一轮的残留影响"目标目录已存在"这类断言 */
 function freshBase(tag: string): string {
-  const base = join(tmpdir(), `starpilot-clone-progress-${tag}-${process.pid}`)
+  const base = join(tmpdir(), `starflow-clone-progress-${tag}-${process.pid}`)
   rmSync(base, { recursive: true, force: true })
   mkdirSync(base, { recursive: true })
   return base
