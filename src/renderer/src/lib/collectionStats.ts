@@ -18,6 +18,30 @@ const ACTIVE_WINDOW_DAYS = 90
 /** 多久没 push 算「已停更」 */
 const STALE_WINDOW_DAYS = 365
 
+/**
+ * 一个仓库的活跃度分档。
+ *
+ * ⚠️ 四档**不是划分**：90 天到 365 天之间没有名字，会落到 'middle'。
+ * 四个名字各自对应总览页上的一个数字（'middle' 不对应任何数字），
+ * 所以列表筛选可以直接拿它当条件，筛出来的条数必然与卡片上的数字一致。
+ */
+export type ActivityBucket = 'active' | 'middle' | 'stale' | 'unknown'
+
+/**
+ * 活跃度分档。放在这里而不是让筛选那边自己判定，是为了**只有一处阈值**：
+ * 总览卡片上的「近期活跃 40」与筛选出来 40 条必须永远对得上，
+ * 两份各自 if 一遍迟早会漂移，而漂移之后页面只是在安静地撒谎。
+ */
+export function activityBucket(repo: Repo, now: number): ActivityBucket {
+  const pushedAt = safeTime(repo.pushed_at)
+  // null 是「拿不到」，不是「停更」，两者混在一起会让页面上的数字撒谎
+  if (pushedAt === null) return 'unknown'
+  const age = now - pushedAt
+  if (age >= STALE_WINDOW_DAYS * DAY) return 'stale'
+  if (age < ACTIVE_WINDOW_DAYS * DAY) return 'active'
+  return 'middle'
+}
+
 export interface Bucket {
   name: string
   count: number
@@ -134,14 +158,21 @@ export function computeCollectionStats(repos: Repo[], now: number): CollectionSt
       else if (starredAt >= prevStart) prev7 += 1
     }
 
-    const pushedAt = safeTime(r.pushed_at)
-    if (pushedAt === null) {
-      // null 是「拿不到」，不是「停更」，两者混在一起会让页面上的数字撒谎
-      unknownPush += 1
-    } else {
-      const age = now - pushedAt
-      if (age >= STALE_WINDOW_DAYS * DAY) stale += 1
-      if (age < ACTIVE_WINDOW_DAYS * DAY) activeRecently += 1
+    // 走 activityBucket 而不是在这里再判一次：阈值只有一处，
+    // 列表筛选那边用同一个函数，卡片数字与筛出来的条数就不会对不上。
+    switch (activityBucket(r, now)) {
+      case 'unknown':
+        unknownPush += 1
+        break
+      case 'stale':
+        stale += 1
+        break
+      case 'active':
+        activeRecently += 1
+        break
+      case 'middle':
+        // 90~365 天之间：两个数字都不算它，页面上也没有它对应的卡片
+        break
     }
   }
 

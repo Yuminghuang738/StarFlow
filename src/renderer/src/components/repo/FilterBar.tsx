@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AI_CATEGORIES, type AiCategory } from '@shared/types'
 import { useRepoStore } from '../../store/repoStore'
-import { DEFAULT_FILTERS, REPO_SORTS, type RepoSort } from '../../lib/repoQuery'
+import {
+  DEFAULT_FILTERS,
+  HEALTH_OPTIONS,
+  REPO_SORTS,
+  languageOption,
+  type HealthFilter,
+  type LanguageFilter,
+  type RepoSort
+} from '../../lib/repoQuery'
 import { Button } from '../common/Button'
 import { Input } from '../common/Input'
 import { Select } from '../common/Select'
@@ -10,16 +18,15 @@ import { Select } from '../common/Select'
 const KEYWORD_DEBOUNCE_MS = 200
 
 /**
- * 搜索框 + 语言筛选 + 分类筛选 + 只看已 clone + 排序 + 重置。
+ * 搜索框 + 语言筛选 + 分类筛选 + 活跃度筛选 + 只看已 clone + 排序 + 重置。
  *
  * ⚠️ 搜索框不能直接把 value 绑到 filters.keyword：
  * store 每次更新都会让受控输入重渲染，光标会跳到末尾。
  * 所以这里用本地 state 做即时值，再防抖 200ms 同步到 store。
  *
- * ⚠️ 语言下拉只列真实出现过的语言，不提供「未知语言」选项：
- * filters.language 的类型是 `string | null`，而 null 已经被约定为「全部语言」，
- * filterRepos 又用严格相等比较，所以「只看未知语言」这个筛选态在现有契约里无法表达
- * （硬塞一个 '__unknown__' 哨兵值只会筛出空列表）。待 P6 确认后再补。
+ * 「只看未知语言」原来是个补不了的洞（filters.language 是 `string | null`，
+ * null 已被约定为"全部语言"，没有第三个态可用）。现在 language 换成了显式的
+ * 'all' | 'unknown' | `name:xxx` 三态，这个选项才落得下来。
  */
 export function FilterBar(): React.JSX.Element {
   const repos = useRepoStore((s) => s.repos)
@@ -57,9 +64,10 @@ export function FilterBar(): React.JSX.Element {
 
   const isDirty =
     keyword !== '' ||
-    filters.language !== null ||
+    filters.language !== DEFAULT_FILTERS.language ||
     filters.category !== null ||
     filters.onlyCloned ||
+    filters.health !== DEFAULT_FILTERS.health ||
     // 排序也必须算进来：只看排序变过就该能一键回到默认顺序
     filters.sort !== DEFAULT_FILTERS.sort
 
@@ -82,18 +90,25 @@ export function FilterBar(): React.JSX.Element {
       />
 
       <Select
-        value={filters.language ?? ''}
-        onChange={(e) => setFilters({ language: e.target.value === '' ? null : e.target.value })}
+        value={filters.language}
+        onChange={(e) => setFilters({ language: e.target.value as LanguageFilter })}
         aria-label="语言筛选"
       >
-        <option value="">全部语言</option>
+        <option value="all">全部语言</option>
         {languages.map((l) => (
-          <option key={l} value={l}>
+          <option key={l} value={languageOption(l)}>
             {l}
           </option>
         ))}
+        {/* 放在列表末尾而不是紧跟「全部语言」：它是个例外情况，
+            不该插在正常语言名称中间打乱扫读 */}
+        <option value="unknown">未知语言</option>
       </Select>
 
+      {/* 分类这边仍然用空串表示"全部"、filters.category 用 null——与语言的 'all' 不统一，
+          这是**故意的**：AiCategory 是个非空字符串联合，null 不可能与任何一个分类撞车，
+          所以没有歧义。language 那边出问题恰恰是因为它的取值域是"任意字符串"，
+          null 既是"全部"又可能被当成一个语言名。别为了整齐把两处改成一样。 */}
       <Select
         value={filters.category ?? ''}
         onChange={(e) =>
@@ -105,6 +120,18 @@ export function FilterBar(): React.JSX.Element {
         {AI_CATEGORIES.map((c) => (
           <option key={c} value={c}>
             {c}
+          </option>
+        ))}
+      </Select>
+
+      <Select
+        value={filters.health}
+        onChange={(e) => setFilters({ health: e.target.value as HealthFilter })}
+        aria-label="活跃度筛选"
+      >
+        {HEALTH_OPTIONS.map((h) => (
+          <option key={h.value} value={h.value}>
+            {h.label}
           </option>
         ))}
       </Select>

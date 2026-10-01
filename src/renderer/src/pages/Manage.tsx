@@ -22,7 +22,11 @@ export function Manage(): React.JSX.Element {
   // 注意不要写成 useRepoStore((s) => s.visibleRepos())：visibleRepos() 每次返回新数组，
   // zustand v5 的 useSyncExternalStore 用严格相等比较快照，会判定值一直在变而无限重渲染。
   // 正确做法是订阅它依赖的两个切片，再用同一个纯函数算（filters 因此是真实的依赖）。
-  const visible = useMemo(() => selectRepos(repos, filters), [repos, filters])
+  //
+  // now 在 useMemo 里取：活跃度筛选（90 / 365 天）要一个"此刻"，但把 Date.now() 放进
+  // 依赖数组等于每次渲染都重算，memo 就白写了。放在这里意味着它是"这一版 repos/filters
+  // 算出结果的那个时刻"，对按天计的阈值来说完全够用。
+  const visible = useMemo(() => selectRepos(repos, filters, Date.now()), [repos, filters])
 
   // 两个按钮各自维护忙碌态。
   // 不能直接用 store 的 loading 决定文案：loading 是全局的，点「同步」时

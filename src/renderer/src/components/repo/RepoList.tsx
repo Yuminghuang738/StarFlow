@@ -1,12 +1,13 @@
 import type { Repo } from '@shared/types'
 import { useRepoStore } from '../../store/repoStore'
+import { DEFAULT_FILTERS } from '../../lib/repoQuery'
 import { Button } from '../common/Button'
 import { Card } from '../common/Card'
 import { SKELETON_COUNT } from '../common/SkeletonCard'
 import { RepoRow } from './RepoRow'
 
 export interface RepoListProps {
-  /** 已经由上层页面（Manage）用 filterRepos(repos, filters) 算好的可见列表 */
+  /** 已经由上层页面（Manage）用 selectRepos(repos, filters, now) 算好的可见列表 */
   visible: Repo[]
 }
 
@@ -67,7 +68,10 @@ export function RepoList({ visible }: RepoListProps): React.JSX.Element {
           size="sm"
           variant="primary"
           className="mt-3"
-          onClick={() => setFilters({ keyword: '', language: null, category: null, onlyCloned: false })}
+          // 走 DEFAULT_FILTERS 而不是手写一份字段列表：这里原本是第三处手写清单，
+          // 上一轮加 sort 时就被漏掉了（重置之后排序仍是用户选的那个）。
+          // 少一处手写清单，就少一次这种静默漂移。
+          onClick={() => setFilters({ ...DEFAULT_FILTERS })}
         >
           重置筛选
         </Button>

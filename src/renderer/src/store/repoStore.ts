@@ -77,7 +77,9 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
 
   visibleRepos() {
     const { repos, filters } = get()
-    return selectRepos(repos, filters)
+    // Date.now() 在这里是合理的：这是一个即时快照式的方法（组件不该订阅它，
+    // 见 lib/repoQuery.ts 的说明），活跃度筛选按「此刻」判正是它该有的语义。
+    return selectRepos(repos, filters, Date.now())
   },
 
   setFilters(patch) {

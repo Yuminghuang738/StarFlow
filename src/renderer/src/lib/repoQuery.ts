@@ -12,6 +12,7 @@
  */
 
 import type { AiCategory, Repo } from '@shared/types'
+import { activityBucket, type ActivityBucket } from './collectionStats'
 
 /**
  * 列表排序方式。
@@ -30,11 +31,45 @@ export const REPO_SORTS: readonly { value: RepoSort; label: string }[] = [
   { value: 'name_asc', label: '名称 A→Z' }
 ] as const
 
+/**
+ * 语言筛选。
+ *
+ * `'unknown'` 这个态以前表达不出来：language 的类型是 `string | null`，
+ * 而 null 早就被约定成「全部语言」了，于是「只看没有语言的仓库」无处安放
+ * （FilterBar 里那条注释说的就是这个）。现在改成显式三态。
+ *
+ * 具体语言带 `name:` 前缀，是为了不与 `'unknown'` / `'all'` 这两个保留字撞车
+ * ——真出现一个叫 "unknown" 的语言时，裸字符串会把它和保留态混为一谈。
+ */
+export type LanguageFilter = 'all' | 'unknown' | `name:${string}`
+
+/** 语言筛选项的构造 / 解析。别在两处各写一遍前缀 */
+export const languageOption = (name: string): LanguageFilter => `name:${name}`
+export const languageNameOf = (filter: LanguageFilter): string | null =>
+  filter.startsWith('name:') ? filter.slice('name:'.length) : null
+
+/**
+ * 活跃度筛选。三档各自对应总览页上的一个数字，判定复用 collectionStats 的
+ * `activityBucket`——**只有一处阈值**，否则卡片写 40、这里筛出 38，页面在安静地撒谎。
+ *
+ * 刻意不把 'middle'（90~365 天）也做成一个选项：总览页上没有它对应的数字，
+ * 单独放一个下拉项只会让人问「这是个啥」。它仍然能被「全部」看到。
+ */
+export type HealthFilter = 'all' | Extract<ActivityBucket, 'active' | 'stale' | 'unknown'>
+
+export const HEALTH_OPTIONS: readonly { value: HealthFilter; label: string }[] = [
+  { value: 'all', label: '全部活跃度' },
+  { value: 'active', label: '近期活跃（90 天内）' },
+  { value: 'stale', label: '可能已停更（一年以上）' },
+  { value: 'unknown', label: '拿不到提交时间' }
+] as const
+
 export interface RepoFilters {
   keyword: string
-  language: string | null
+  language: LanguageFilter
   category: AiCategory | null
   onlyCloned: boolean
+  health: HealthFilter
   sort: RepoSort
 }
 
@@ -49,9 +84,10 @@ export interface RepoFilters {
  */
 export const DEFAULT_FILTERS: RepoFilters = {
   keyword: '',
-  language: null,
+  language: 'all',
   category: null,
   onlyCloned: false,
+  health: 'all',
   sort: 'starred_desc'
 }
 
@@ -63,18 +99,27 @@ export const DEFAULT_FILTERS: RepoFilters = {
  *    从而无限重渲染。组件要订阅 repos / filters 两个切片，自己算。
  * 2. 这样 useMemo 的依赖数组是"真的被用到"的，不会触发
  *    react-hooks/exhaustive-deps 的误报，也不需要写 eslint-disable。
+ *
+ * `now` 必须显式传入（与 collectionStats 同一条约定）：活跃度是按「距今多久」判的，
+ * 藏在函数里读时钟就没法喂假数据卡 90 / 365 天的边界。
  */
-export function filterRepos(repos: Repo[], filters: RepoFilters): Repo[] {
+export function filterRepos(repos: Repo[], filters: RepoFilters, now: number): Repo[] {
   const keyword = filters.keyword.trim().toLowerCase()
+  const language = languageNameOf(filters.language)
 
   return repos.filter((r) => {
     if (keyword) {
       const haystack = `${r.full_name} ${r.description ?? ''} ${(r.topics ?? []).join(' ')}`.toLowerCase()
       if (!haystack.includes(keyword)) return false
     }
-    if (filters.language !== null && r.language !== filters.language) return false
+    if (filters.language === 'unknown') {
+      if (r.language !== null) return false
+    } else if (language !== null && r.language !== language) {
+      return false
+    }
     if (filters.category !== null && r.ai_category !== filters.category) return false
     if (filters.onlyCloned && !r.local?.cloned_path) return false
+    if (filters.health !== 'all' && activityBucket(r, now) !== filters.health) return false
     return true
   })
 }
@@ -131,6 +176,6 @@ export function sortRepos(repos: Repo[], sort: RepoSort): Repo[] {
 }
 
 /** 筛选 + 排序。页面和 store 都走这一个入口，别自己串。 */
-export function selectRepos(repos: Repo[], filters: RepoFilters): Repo[] {
-  return sortRepos(filterRepos(repos, filters), filters.sort)
+export function selectRepos(repos: Repo[], filters: RepoFilters, now: number): Repo[] {
+  return sortRepos(filterRepos(repos, filters, now), filters.sort)
 }
