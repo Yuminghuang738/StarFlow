@@ -261,7 +261,9 @@ export function Settings(): React.JSX.Element {
         <h2 className="text-sm font-medium text-fg">GitHub Token</h2>
         <p className="mt-1 text-xs text-fg-subtle">
           Token 需要 <code className="rounded bg-surface-2 px-1">public_repo</code> scope；
-          主进程用 safeStorage 加密后存在 userData 目录，不会明文落盘。
+          主进程用 safeStorage 加密后存在 userData 目录，不会明文落盘。这台机器若没有可用的
+          系统密钥环，Token 只留在主进程内存里、一个字节都不写盘，重启后需要重新填写
+          （宁可让你重填，也不把明文写到磁盘上）。
         </p>
         <p className="mt-1 text-xs text-danger">
           注意：unstar 是破坏性操作，会真正取消你 GitHub 上的 Star。
@@ -320,7 +322,8 @@ export function Settings(): React.JSX.Element {
           三项对上即可。在这里填一次就行，不用去改项目根目录的{' '}
           <code className="rounded bg-surface-2 px-1">.env</code>
           。保存后立即生效、无需重启；API Key 经 safeStorage 加密后存在 userData 目录，
-          永不回显，留空保存表示不修改已有 Key。
+          永不回显，留空保存表示不修改已有 Key；没有可用密钥环时与 Token 一样只留内存，
+          重启后需重填。
         </p>
 
         <div className="mt-3">
