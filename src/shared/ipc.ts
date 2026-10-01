@@ -24,12 +24,19 @@ export const IPC = {
   LOCAL_REMOVE_CLONE: 'local:removeClone',
   // 对账：记录里有 cloned_path、磁盘上却没有的，静默清掉记录。返回被清理的 fullName。
   LOCAL_PRUNE_CLONES: 'local:pruneClones',
+  // 中止正在进行的克隆。返回 true = 确实有在跑的克隆被中止，false = 本来就没人跑
+  // （界面认为在跑、主进程可能已经结束了，那种情况不算错，所以不抛）。中止后目标目录
+  // 由主进程在 clone 的 catch 里清掉——cloned_path 压根没写过，对账救不了它。
+  LOCAL_CANCEL_CLONE: 'local:cancelClone',
 
   // AI —— 负责人 P2
   AI_SUMMARIZE: 'ai:summarize',
   AI_CLASSIFY: 'ai:classify',
   AI_ENRICH_REPOS: 'ai:enrichRepos',
   AI_GENERATE_REPORT: 'ai:generateReport',
+  // 连接探针。**不能拿 summarize 当探针**——它在失败时静默降级成空串，永远"成功"。
+  // 这条走一次极简调用，并把错误分类成人话返回（不抛错）。
+  AI_TEST_CONNECTION: 'ai:testConnection',
 
   // 存储 —— 负责人 P3
   STORE_GET_REPOS: 'store:getRepos',
@@ -38,6 +45,13 @@ export const IPC = {
   STORE_HAS_TOKEN: 'store:hasToken',
   STORE_UPDATE_LOCAL_STATE: 'store:updateLocalState',
   STORE_CLEAR_TOKEN: 'store:clearToken',
+
+  // AI 配置 —— 与上面 token 三件套刻意对称：存储与加密都落在 store.ts，
+  // 所以归 store 命名空间而不是 ai。密钥**只进不出**，没有任何一条通道会回传明文
+  // （视图类型 AiConfigView 里就没有 apiKey 字段，这是契约层面的保证）。
+  STORE_GET_AI_CONFIG: 'store:getAiConfig',
+  STORE_SAVE_AI_CONFIG: 'store:saveAiConfig',
+  STORE_CLEAR_AI_KEY: 'store:clearAiKey',
 
   // 周报 —— 负责人 P4
   REPORT_GENERATE: 'report:generate',
@@ -54,6 +68,17 @@ export const IPC = {
   AUTH_START_DEVICE_FLOW: 'auth:startDeviceFlow',
   AUTH_WAIT_FOR_LOGIN: 'auth:waitForLogin',
   AUTH_CANCEL_DEVICE_FLOW: 'auth:cancelDeviceFlow',
+
+  // 无边框窗口控制 —— 负责人 P7
+  // 窗口本身没有"查 event.sender"的机会：handle() 包装器会主动丢弃第一个 event 参数，
+  // 所以主进程维护一个模块级的当前窗口引用，这几个 handler 都对着它操作。
+  WINDOW_MINIMIZE: 'window:minimize',
+  // 返回**切换之后**的状态（true = 现在是最大化）。必须返回：本项目没有 main→renderer
+  // 推送，图标只能靠"点击时用返回值权威更新"+"window.resize 兜底查询"两招来同步。
+  WINDOW_TOGGLE_MAXIMIZE: 'window:toggleMaximize',
+  WINDOW_CLOSE: 'window:close',
+  // resize 兜底：窗口被 WM 的快捷键 / 拖拽吸附改变时，点击路径是察觉不到的
+  WINDOW_IS_MAXIMIZED: 'window:isMaximized',
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];

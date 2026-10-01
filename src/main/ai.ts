@@ -8,7 +8,7 @@
 
 import OpenAI from 'openai'
 import pLimit from 'p-limit'
-import type { Repo, AiCategory } from '@shared/types'
+import type { Repo, AiCategory, AiConnectionResult } from '@shared/types'
 import { AI_CATEGORIES } from '@shared/types'
 import { isMockMode, getEnv } from './config'
 import * as store from './store'
@@ -301,4 +301,35 @@ ${list}`
     console.error('[ai] generateReport 失败，已降级为本地文案:', errorMessage(err))
     return fallback
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* 配置热更新与连接探针 —— Phase 0 只落调用点，函数体在 AI 配置那个 PR 里补 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 把 store 里存的 AI 配置刷进 config.ts 的覆盖层。
+ *
+ * Phase 0 先落地**调用点**（index.ts 启动时一次、保存/清除 AI 配置各一次），
+ * 函数体是空的。这样拆的理由：index.ts 是 P7 独占文件，两个并行分支不能同时
+ * 改它——先把调用点钉死在 Phase 0，填实现的那个 PR 就一行都不用碰 index.ts。
+ *
+ * 为什么用"覆盖层 + 预热"而不是把 client() 改成 async：client() 现在被四个
+ * 导出函数同步调用（`client().chat.completions.create(...)`），改成 async 会
+ * 把 async 传染到整条链路，而它唯一的异步点只是"读一次配置"。
+ */
+export function refreshAiConfigCache(): void {
+  // 空实现：config.setAiOverride 在这个相位还不存在。
+}
+
+/**
+ * 连接探针。
+ *
+ * ⚠️ 为什么不能拿 summarize 当探针：它在失败时会静默降级成空串（见上面的
+ * catch），探针永远"成功"。这条必须真的发一次极简请求，并把错误**分类**成
+ * 人话返回（未配置 key / 连不上 baseUrl / key 无效 / baseUrl 或 model 不对），
+ * 而不是把原始异常文本丢给用户。
+ */
+export async function testConnection(): Promise<AiConnectionResult> {
+  throw new Error('尚未实现')
 }

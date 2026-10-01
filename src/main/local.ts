@@ -184,6 +184,20 @@ export function getCloneProgress(fullName: string): CloneProgress | null {
   }
 }
 
+/**
+ * 中止正在进行的克隆。
+ *
+ * ⚠️ **Phase 0 占位**：真正的实现（AbortController + simpleGit 的 abort 选项）在
+ * 取消克隆那个 PR 里补。这里恒返回 false，含义是"本来就没有人在跑"——在当前
+ * 代码状态下这句话是真的，不算撒谎，所以刻意不抛「尚未实现」：渲染进程拿到
+ * false 会当作"没什么可取消的"安静收场，不会给用户弹一条看不懂的错。
+ * 返回 true 才表示确实中止了一个在跑的克隆。
+ */
+export function cancelClone(fullName: string): boolean {
+  void fullName
+  return false
+}
+
 export async function openDir(path: string): Promise<void> {
   try {
     // 刻意不走 mock：演示前会预先 clone 好仓库，"打开目录"必须真的打开文件管理器

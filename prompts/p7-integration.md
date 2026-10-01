@@ -573,11 +573,13 @@ git add -A && git commit -m "feat(preload): 暴露 window.api 完整签名"
 
 【src/preload/index.ts 要求】
 - 用 contextBridge.exposeInMainWorld('api', api) 暴露，api 对象结构严格如下
-  （一共 **30 个方法**，与 ipc.ts 的 30 个通道一一对应）：
-  github 6 + local 6 + ai 4 + store 6 + report 1 + recommend 1 + tracker 2 + auth 4 = 30
+  （一共 **39 个方法**，与 ipc.ts 的 39 个通道一一对应）：
+  github 6 + local 7 + ai 5 + store 9 + report 1 + recommend 1 + tracker 2 + auth 4 + window 4 = 39
   （22 → 27 是后加的 GitHub OAuth Device Flow 登录，见 Part D；27 → 28 是后加的
     local:cloneProgress，用于 Clone 进度条；28 → 30 是后加的 local:removeClone /
-    local:pruneClones，用于删除本地副本与磁盘对账）
+    local:pruneClones，用于删除本地副本与磁盘对账；30 → 39 是后加的 local:cancelClone
+    （取消克隆）、store 的 AI 配置三件套 + ai:testConnection（AI 配置打通）、
+    window 四条（frame:false 之后自绘标题栏要用的窗口控制））
   ⚠️ 最容易在抄写时被漏掉的是 ai.enrichRepos（因为它不在 guide.md 原契约里，是后加的），务必确认它在
 - 每个方法就是 ipcRenderer.invoke(IPC.XXX, ...args)，**不做任何错误处理**，因为主进程已经统一包了 IpcResult
 - 从 '@shared/ipc' 引入 IPC，从 '@shared/types' 引入类型
@@ -890,10 +892,10 @@ git add -A && git commit -m "feat(main): 各业务模块 stub 与可用版 store
 **完成后必做**：
 ```bash
 npm run typecheck && npm run lint && npm run build
-# 检查 30 个通道是否都注册了
+# 检查 39 个通道是否都注册了
 # ⚠️ 不能写 grep -c "ipcMain.handle"：代码是通过 handle<T>() 包装器注册的，
 #    ipcMain.handle 全文只出现一次，那样数出来永远是 1。要数 handle(IPC.XXX)
-grep -oE "handle(?:<[^>]*>)?\(IPC\." src/main/index.ts | wc -l    # 必须是 30
+grep -oE "handle(?:<[^>]*>)?\(IPC\." src/main/index.ts | wc -l    # 必须是 39
 ls out/preload/                                # 确认产物文件名是 index.mjs
 ```
 ```bash
@@ -926,7 +928,7 @@ git add -A && git commit -m "feat(main): 注册全部 IPC handler 与窗口生�
 注意：ipcMain.handle 的回调第一个参数是 event，必须丢弃掉再传业务参数，
 否则业务函数会收到多余的 event 参数。
 
-【必须注册的 30 个通道（一个都不能少，也不能多）】
+【必须注册的 39 个通道（一个都不能少，也不能多）】
 handle(IPC.GITHUB_FETCH_STARRED, () => github.fetchStarred())
 handle(IPC.GITHUB_FETCH_README, (fullName: string) => github.fetchReadme(fullName))
 handle(IPC.GITHUB_FETCH_RELEASES, (fullName: string) => github.fetchReleases(fullName))
@@ -1232,7 +1234,7 @@ MOCK_MODE=true npm run dev
 请检查你刚才为 StarPilot 生成的全部骨架代码，逐条回答"是/否"并给出文件与行号：
 
 1. src/shared/types.ts 和 src/shared/ipc.ts 是否与需求文档逐字一致？有没有被改动、增删字段？
-2. src/main/index.ts 是否注册了全部 30 个 IPC 通道？有没有漏掉 AI_ENRICH_REPOS 或多注册？
+2. src/main/index.ts 是否注册了全部 39 个 IPC 通道？有没有漏掉 AI_ENRICH_REPOS 或多注册？
 3. ipcMain.handle 的包装器是否正确丢弃了第一个 event 参数，没有把它传给业务函数？
 4. 所有 handler 是否都返回 IpcResult 结构（{ ok: true, data } / { ok: false, error }）？
 5. GITHUB_UNSTAR 的 handler 是否在调用 github.unstar 之后，还从 store 删除了该仓库并写回？

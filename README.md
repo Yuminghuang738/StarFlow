@@ -112,7 +112,7 @@ CI 的 `check` job 只跑 typecheck / lint / build，不需要这个二进制，
 | 目录 | 一句话 |
 | --- | --- |
 | `src/main/` | 主进程：GitHub 读写、本地 git、AI、存储、周报、推荐、定时追踪，以及 IPC handler 注册 |
-| `src/preload/` | 唯一的跨进程桥：把 30 个 IPC 通道包成 `window.api` |
+| `src/preload/` | 唯一的跨进程桥：把 39 个 IPC 通道包成 `window.api` |
 | `src/renderer/` | React 界面（Zustand 状态 + Tailwind） |
 | `src/shared/` | **冻结契约**：数据结构与 IPC 通道名。**不要修改** |
 | `docs/` | 冻结的模块签名契约与渲染进程契约 |

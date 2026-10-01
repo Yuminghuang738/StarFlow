@@ -140,6 +140,48 @@ export interface CloneProgress {
   elapsedMs: number;
 }
 
+// ============================================================
+// AI 配置（OpenAI 兼容端点）
+// ============================================================
+
+/** 密钥的来源：界面里填的 / .env 里的 / 都没有。界面填的优先，.env 兜底 */
+export type AiKeySource = 'store' | 'env' | 'none'
+
+/**
+ * 设置页要展示的 AI 配置视图。
+ *
+ * ⚠️ **这里刻意没有 apiKey 字段**：密钥只允许从渲染进程流向主进程，永不回传。
+ * 界面只需要知道「配没配」（hasKey），以及两个本来就不是秘密的字段。
+ * 想往这里加字段之前，先读 docs/module-signatures.md 里 store.ts 那节的 safeStorage 说明。
+ */
+export interface AiConfigView {
+  hasKey: boolean
+  baseUrl: string
+  model: string
+  source: AiKeySource
+}
+
+/**
+ * 保存 AI 配置的入参。**只进不出**：apiKey 有值就写入，缺省表示「不动现有的 key」。
+ * 要清除请走 store:clearAiKey，不要传空串——空串会被 store 当作非法值拒绝（与 saveToken 一致）。
+ */
+export interface AiConfigPatch {
+  apiKey?: string
+  baseUrl?: string
+  model?: string
+}
+
+/**
+ * 连接探针的结果。ok 为 false 时 message 是**已经分类过的**人话
+ * （未配置 key / 连不上 baseUrl / key 无效 / baseUrl 或 model 不对），
+ * 而不是原始异常文本——调用方直接渲染即可。
+ */
+export interface AiConnectionResult {
+  ok: boolean
+  message: string
+  model: string
+}
+
 export type IpcResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string };
