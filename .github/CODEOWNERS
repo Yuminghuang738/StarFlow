@@ -1,34 +1,41 @@
 # CODEOWNERS —— 只做 @提醒，不强制审批（main 的分支保护没勾 Require approvals）
 #
-# TODO(必做): 把下面所有 @P1账号 之类的占位替换成真实 GitHub 用户名。
-# 验收清单里明确检查这一项。未替换的 owner 在 GitHub 上会显示为 Unknown owner（只是警告，不会让 CI 红）。
+# 已替换成真实账号。模块划分见 README「谁负责什么」，工作包见 prompts/pN-*.md。
+# 注意：CODEOWNERS 的匹配规则是「最后一个匹配的规则生效」，所以顺序不能随意调。
 #
-# 注意：文件里出现 /src/main/index.ts 这类具体路径，CODEOWNERS 的匹配规则是
-# "最后一个匹配的规则生效"，所以顺序不能随意调。
+# /src/renderer/src/components/repo/ 与 charts/ 目前还不存在（P5 会新建），
+# 先在这里占好位，目录一出现就自动生效。
 
-# ============ 集成工程师独占 ============
-/src/shared/            @P7账号
-/src/preload/           @P7账号
-/src/main/index.ts      @P7账号
-/src/main/config.ts     @P7账号
-/src/main/mock.ts       @P7账号
+# ============ 集成工程师独占（P7）============
+/src/shared/            @xiaoyu8745
+/src/preload/           @xiaoyu8745
+/src/main/index.ts      @xiaoyu8745
+/src/main/config.ts     @xiaoyu8745
+/src/main/mock.ts       @xiaoyu8745
+
+# 渲染进程脚手架：不属于 P6 的 store/lib/components/pages，见 prompts/p6-renderer-core.md 第 2 节
+/src/renderer/index.html        @xiaoyu8745
+/src/renderer/src/main.tsx      @xiaoyu8745
+/src/renderer/src/index.css     @xiaoyu8745
+/src/renderer/src/env.d.ts      @xiaoyu8745
 
 # ============ 主进程业务模块 ============
-/src/main/github.ts     @P1账号
-/src/main/local.ts      @P3账号
-/src/main/store.ts      @P3账号
-/src/main/ai.ts         @P2账号
-/src/main/report.ts     @P4账号
-/src/main/recommend.ts  @P4账号
-/src/main/tracker.ts    @P4账号
+/src/main/github.ts     @Yuminghuang738
+/src/main/local.ts      @Chang-66
+/src/main/store.ts      @Chang-66
+/src/main/ai.ts         @xiaoran77-web
+/src/main/report.ts     @nothing6741
+/src/main/recommend.ts  @nothing6741
+/src/main/tracker.ts    @nothing6741
 
 # ============ 渲染进程 ============
-/src/renderer/src/pages/Dashboard.tsx  @P5账号
-/src/renderer/src/components/repo/     @P5账号
-/src/renderer/src/components/charts/   @P5账号
-/src/renderer/src/pages/Report.tsx     @P6账号
-/src/renderer/src/App.tsx              @P6账号
-/src/renderer/src/store/               @P6账号
-/src/renderer/src/lib/                 @P6账号
-/src/renderer/src/components/common/   @P6账号
-/src/renderer/src/components/layout/   @P6账号
+/src/renderer/src/pages/Dashboard.tsx  @syeu-oss
+/src/renderer/src/components/repo/     @syeu-oss
+/src/renderer/src/components/charts/   @syeu-oss
+/src/renderer/src/pages/Report.tsx     @zoushiying
+/src/renderer/src/pages/Settings.tsx   @zoushiying
+/src/renderer/src/App.tsx              @zoushiying
+/src/renderer/src/store/               @zoushiying
+/src/renderer/src/lib/                 @zoushiying
+/src/renderer/src/components/common/   @zoushiying
+/src/renderer/src/components/layout/   @zoushiying

@@ -1098,7 +1098,8 @@ jobs:
       - name: 检查契约与基建文件是否被非集成工程师修改
         run: |
           # 集成工程师的 GitHub 账号列表（多个用 | 分隔）
-          INTEGRATORS="REPLACE_WITH_INTEGRATOR_USERNAME"
+          # xiaoyu8745 = P7（集成工程师）；Yuminghuang738 = 仓库所有者，保留以便其能提交基建改动。
+          INTEGRATORS="xiaoyu8745|Yuminghuang738"
           if echo "$INTEGRATORS" | grep -qw "${{ github.actor }}"; then
             echo "集成工程师提交，跳过检查"
             exit 0
@@ -1106,7 +1107,7 @@ jobs:
           CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
           echo "变更文件："; echo "$CHANGED"
           if echo "$CHANGED" | grep -E '^(src/shared/|src/preload/|src/main/index\.ts$|src/main/config\.ts$|src/main/mock\.ts$|mock-data\.json$|package(-lock)?\.json$|tsconfig\.json$|electron\.vite\.config\.ts$|electron-builder\.yml$|eslint\.config\.js$|tailwind\.config\.js$|postcss\.config\.js$|\.github/|docs/|README\.md$|\.env\.example$)'; then
-            echo "❌ 契约/基建文件被修改，必须由集成工程师提交（见 split-plan.md 第二节）"
+            echo "❌ 契约/基建文件被修改，必须由集成工程师提交（见 prompts/p7-integration.md 的 Part D 协作规则）"
             exit 1
           fi
           echo "✅ 只改了业务文件"
@@ -1122,32 +1123,40 @@ jobs:
           fi
           echo "✅ 渲染进程隔离正常"
 
-注意：把 REPLACE_WITH_INTEGRATOR_USERNAME 换成真实账号，并在文件里注释提醒替换。
 如果 grep 没匹配到任何文件，脚本不能因为 grep 返回 1 而失败（用 if 包住）。
 
-【2】.github/CODEOWNERS（只做 @提醒，不强制审批）
-/src/shared/            @集成工程师账号
-/src/preload/           @集成工程师账号
-/src/main/index.ts      @集成工程师账号
-/src/main/config.ts     @集成工程师账号
-/src/main/mock.ts       @集成工程师账号
-/src/main/github.ts     @P1账号
-/src/main/local.ts      @P3账号
-/src/main/store.ts      @P3账号
-/src/main/ai.ts         @P2账号
-/src/main/report.ts     @P4账号
-/src/main/recommend.ts  @P4账号
-/src/main/tracker.ts    @P4账号
-/src/renderer/src/pages/Dashboard.tsx  @P5账号
-/src/renderer/src/components/repo/     @P5账号
-/src/renderer/src/components/charts/   @P5账号
-/src/renderer/src/pages/Report.tsx     @P6账号
-/src/renderer/src/App.tsx              @P6账号
-/src/renderer/src/store/               @P6账号
-/src/renderer/src/lib/                 @P6账号
-/src/renderer/src/components/common/   @P6账号
-/src/renderer/src/components/layout/   @P6账号
-（把 @P1账号 之类的占位替换成真实 GitHub 用户名）
+【2】.github/CODEOWNERS（只做 @提醒，不强制审批）—— 已填真实账号，内容如下
+⚠️ 注意 CODEOWNERS 的匹配规则是「**最后一个**匹配的规则生效」，所以顺序不能随意调。
+/src/shared/            @xiaoyu8745
+/src/preload/           @xiaoyu8745
+/src/main/index.ts      @xiaoyu8745
+/src/main/config.ts     @xiaoyu8745
+/src/main/mock.ts       @xiaoyu8745
+/src/renderer/index.html        @xiaoyu8745
+/src/renderer/src/main.tsx      @xiaoyu8745
+/src/renderer/src/index.css     @xiaoyu8745
+/src/renderer/src/env.d.ts      @xiaoyu8745
+/src/main/github.ts     @Yuminghuang738
+/src/main/local.ts      @Chang-66
+/src/main/store.ts      @Chang-66
+/src/main/ai.ts         @xiaoran77-web
+/src/main/report.ts     @nothing6741
+/src/main/recommend.ts  @nothing6741
+/src/main/tracker.ts    @nothing6741
+/src/renderer/src/pages/Dashboard.tsx  @syeu-oss
+/src/renderer/src/components/repo/     @syeu-oss
+/src/renderer/src/components/charts/   @syeu-oss
+/src/renderer/src/pages/Report.tsx     @zoushiying
+/src/renderer/src/pages/Settings.tsx   @zoushiying
+/src/renderer/src/App.tsx              @zoushiying
+/src/renderer/src/store/               @zoushiying
+/src/renderer/src/lib/                 @zoushiying
+/src/renderer/src/components/common/   @zoushiying
+/src/renderer/src/components/layout/   @zoushiying
+说明：原模板漏了 `pages/Settings.tsx`（P6 的地盘）和渲染进程脚手架四个文件
+（`index.html` / `main.tsx` / `index.css` / `env.d.ts`，属于 P7，不在 P6 的可改清单里），
+已补齐。`components/repo/` 与 `charts/` 目前还不存在（P5 会新建），
+先占位，目录一出现就自动生效——这是有意为之，不是错误。
 
 【3】.github/pull_request_template.md
 ## 改了什么
@@ -1254,12 +1263,15 @@ MOCK_MODE=true npm run dev
 
 **仓库**
 - [ ] `main` 分支保护已开（Require PR + Require status checks = `ci / check`，未勾 Require approvals）
-- [x] ✅ `.github/workflows/ci.yml` 里的 `REPLACE_WITH_INTEGRATOR_USERNAME` 已替换成 `Yuminghuang738`
+- [x] ✅ `.github/workflows/ci.yml` 的 `INTEGRATORS` 已填 `xiaoyu8745|Yuminghuang738`
       （**必须最先做**：留占位会让所有 PR 都走"非集成工程师"分支，
-      连引入契约的骨架 PR 自己都会被 `protect-contracts` 拦下）
-- [ ] ⚠️ `.github/CODEOWNERS` 里 `@P1账号` ~ `@P6账号` 占位 **仍未替换**；
-      同一份文件还引用了**并不存在**的 `components/repo/`、`components/charts/` 目录，
-      并且漏了 `pages/Settings.tsx`。拿到 6 个人的 GitHub 账号后一并订正
+      连引入契约的骨架 PR 自己都会被 `protect-contracts` 拦下。
+      `xiaoyu8745` = P7 集成工程师，`Yuminghuang738` = 仓库所有者；
+      想严格只留集成工程师一个人，删掉 `|` 后面那段即可）
+- [x] ✅ `.github/CODEOWNERS` 的 `@P1账号` ~ `@P7账号` 占位已全部替换成真实账号，
+      并补上了原先漏掉的 `pages/Settings.tsx` 与渲染进程脚手架四个文件。
+      ⚠️ 原先我在这一条里写"引用了不存在的 `components/repo/`、`charts/` 目录"是**我判断错了**：
+      那是**有意占位**，CODEOWNERS 允许写还不存在的路径，目录一建出来就自动生效，不是缺陷
 - [ ] 7 个 issue 已创建（见本文件 Part B），每个 issue 里贴好了该模块的提示词包（P1~P6 的工作包已拆成 `prompts/p1-github.md` ~ `prompts/p6-renderer-core.md`，直接作为 issue 正文附件发给本人）
 
 ---
@@ -1338,15 +1350,23 @@ React 19 已移除全局 `JSX` 命名空间（坑 #15）。p7 第 4 节要求"�
 
 ### issue 一览
 
-| # | 负责人 | issue 标题 | 分支名 | 目标文件 |
-|---|---|---|---|---|
-| 1 | P1 | `[P1] 实现 github.ts：Star 拉取 / README / Release / Commit / unstar / fork` | `feat/github-你的名字` | `src/main/github.ts` |
-| 2 | P2 | `[P2] 实现 ai.ts：AI 摘要 / 分类 / 批量补全 / 周报文案` | `feat/ai-你的名字` | `src/main/ai.ts` |
-| 3 | P3 | `[P3] 加固 store.ts 并实现 local.ts：本地存储 / Token 加密 / clone` | `feat/store-local-你的名字` | `src/main/store.ts`、`src/main/local.ts` |
-| 4 | P4 | `[P4] 实现 report.ts / recommend.ts / tracker.ts：周报 / 推荐 / 定时追踪` | `feat/report-recommend-你的名字` | `src/main/report.ts`、`recommend.ts`、`tracker.ts` |
-| 5 | P5 | `[P5] 实现 Dashboard：列表 / 筛选 / 操作按钮 / ECharts 图表` | `feat/dashboard-你的名字` | `src/renderer/src/pages/Dashboard.tsx`、`components/repo/**`、`components/charts/**` |
-| 6 | P6 | `[P6] 加固渲染进程公共层并实现周报页` | `feat/renderer-core-你的名字` | `src/renderer/src/store/**`、`lib/**`、`components/common/**`、`components/layout/**`、`pages/Report.tsx`、`pages/Settings.tsx`、`App.tsx` |
-| 7 | P7 | `[P7] 集成收口：关 Mock、端到端、录屏兜底` | `chore/integration-你的名字` | 契约文件 + 集成修复 |
+⚠️⚠️ **建 issue 前必读：下面的 "#1 ~ #7" 只是人数序号，不是 GitHub 上的真实 issue 号。**
+GitHub 里 **issue 和 PR 共用同一个编号空间**，而本仓库已经用掉了 `#1`（GPL 协议 PR）、
+`#2`（骨架 PR）、`#3`（提示词重写 PR），所以这 7 条 issue 实际会分到 **#4 ~ #10**。
+不要把序号当编号用（早先六份提示词里写的"有问题在 issue #1~#6 里问"就是这么错的，
+已全部改成"在你收到这份工作包的那个 issue 里问"，不再写死数字）。
+
+| 序号 | 负责人 | GitHub 账号（设为 assignee） | issue 标题 | 分支名 | 目标文件 |
+|---|---|---|---|---|---|
+| 1 | P1 | `Yuminghuang738` | `[P1] 实现 github.ts：Star 拉取 / README / Release / Commit / unstar / fork` | `feat/github-你的名字` | `src/main/github.ts` |
+| 2 | P2 | `xiaoran77-web` | `[P2] 实现 ai.ts：AI 摘要 / 分类 / 批量补全 / 周报文案` | `feat/ai-你的名字` | `src/main/ai.ts` |
+| 3 | P3 | `Chang-66` | `[P3] 加固 store.ts 并实现 local.ts：本地存储 / Token 加密 / clone` | `feat/store-local-你的名字` | `src/main/store.ts`、`src/main/local.ts` |
+| 4 | P4 | `nothing6741` | `[P4] 实现 report.ts / recommend.ts / tracker.ts：周报 / 推荐 / 定时追踪` | `feat/report-recommend-你的名字` | `src/main/report.ts`、`recommend.ts`、`tracker.ts` |
+| 5 | P5 | `syeu-oss` | `[P5] 实现 Dashboard：列表 / 筛选 / 操作按钮 / ECharts 图表` | `feat/dashboard-你的名字` | `src/renderer/src/pages/Dashboard.tsx`、`components/repo/**`、`components/charts/**` |
+| 6 | P6 | `zoushiying` | `[P6] 加固渲染进程公共层并实现周报页` | `feat/renderer-core-你的名字` | `src/renderer/src/store/**`、`lib/**`、`components/common/**`、`components/layout/**`、`pages/Report.tsx`、`pages/Settings.tsx`、`App.tsx` |
+| 7 | P7 | `xiaoyu8745` | `[P7] 集成收口：关 Mock、端到端、录屏兜底` | `chore/integration-你的名字` | 契约文件 + 集成修复 |
+
+模块 → 账号的对应关系同时写在 `README.md` 的「谁负责什么」表和 `.github/CODEOWNERS` 里，三处同源。
 
 ---
 

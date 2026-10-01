@@ -26,9 +26,9 @@ jobs:
       - name: 检查契约与基建文件是否被非集成工程师修改
         run: |
           # 集成工程师的 GitHub 账号列表（多个用 | 分隔）
-          # TODO(必做): 把下面的占位替换成真实账号，多个账号用 | 分隔。
-          # 验收清单里明确检查这一行，留占位会让所有 PR 都走"非集成工程师"分支。
-          INTEGRATORS="Yuminghuang738"
+          # xiaoyu8745 = P7（集成工程师）；Yuminghuang738 = 仓库所有者，保留以便其能提交基建改动。
+          # 想严格只留集成工程师一个人，删掉 | 后面那段即可。
+          INTEGRATORS="xiaoyu8745|Yuminghuang738"
           if echo "$INTEGRATORS" | grep -qw "${{ github.actor }}"; then
             echo "集成工程师提交，跳过检查"
             exit 0
