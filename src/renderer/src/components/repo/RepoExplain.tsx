@@ -17,6 +17,9 @@ import { cn } from '../../lib/cn'
  *      仓库已有的 ai_summary（AI 补全跑过）直接当缓存用，一次请求都不发。
  *   3. **失败用 call()（它会弹 toast）而不是 unwrap()**，这里只补一行就地说明——
  *      与 repoStore 的约定一致：toast 归 store/API 层，组件内不重复弹。
+ *      三条失败分支都必须**就地留字**（不要把 text 留空：那样这一行看起来与没点过
+ *      毫无区别，而 toast 3 秒就没了），并且留下之后按钮要变成「重试」——
+ *      "可以稍后再试"这句提示只有真能再试才算数。
  */
 
 /** full_name → 已生成的一句话解释。模块级，跨卡片重挂载存活 */
@@ -43,8 +46,12 @@ export function RepoExplain({ repo }: { repo: Repo }): React.JSX.Element {
   }, [known])
 
   async function explain(): Promise<void> {
-    // 已有内容：纯粹是展开/收起，不再发请求
-    if (text) {
+    // 已有内容：纯粹是展开/收起，不再发请求。
+    // ⚠️ 但 error 态除外：那时 text 里存的是**失败说明**（"AI 这次没给出解释，
+    // 可以稍后再试"），不是解释内容。如果这里一并被当成"有内容"短路掉，那句
+    // "可以稍后再试"就成了空话——按钮只会把错误说明收起来，根本重试不了，
+    // 用户唯一的出路是切走页面再切回来。所以出错之后这个按钮必须能再发一次请求。
+    if (text !== '' && status !== 'error') {
       setOpen((v) => !v)
       return
     }
@@ -54,7 +61,10 @@ export function RepoExplain({ repo }: { repo: Repo }): React.JSX.Element {
     try {
       const readme = await call(window.api.github.fetchReadme(repo.full_name))
       if (readme === null) {
+        // 与下面两条失败分支一样，就地留一句话：只弹 toast 的话，3 秒之后
+        // 这一行看起来跟"没点过"完全一样。
         setStatus('error')
+        setText('没能读到这个仓库的 README，看右上角的提示了解原因。')
         return
       }
       // README 太短说明大概率是空文件或占位，主进程的 summarize 也会直接返回空串
@@ -95,7 +105,17 @@ export function RepoExplain({ repo }: { repo: Repo }): React.JSX.Element {
         )}
       >
         <span aria-hidden>✦</span>
-        {status === 'loading' ? '解释中…' : text ? (open ? '收起解释' : 'AI 解释') : 'AI 解释'}
+        {/* error 态下 text 装的是失败说明，标签得说"重试"而不是"收起解释"——
+            否则用户会以为自己点开的是一段解释 */}
+        {status === 'loading'
+          ? '解释中…'
+          : status === 'error'
+            ? '重试'
+            : text
+              ? open
+                ? '收起解释'
+                : 'AI 解释'
+              : 'AI 解释'}
       </button>
 
       {open && text !== '' ? (
