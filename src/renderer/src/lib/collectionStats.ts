@@ -144,7 +144,7 @@ export function computeCollectionStats(repos: Repo[], now: number): CollectionSt
 
   for (const r of repos) {
     if (r.language !== null) bump(languageCounts, r.language)
-    bump(categoryCounts, r.ai_category ?? '未分类')
+    bump(categoryCounts, r.ai_category ?? UNCATEGORIZED_LABEL)
     for (const t of r.topics) bump(topicCounts, t)
 
     if (r.local?.cloned_path) cloned += 1
@@ -207,7 +207,7 @@ export function computeCollectionStats(repos: Repo[], now: number): CollectionSt
 }
 
 function categoryBucketsCount(counts: Map<string, number>, total: number): Bucket[] {
-  const names: string[] = [...AI_CATEGORIES, '未分类']
+  const names: string[] = [...AI_CATEGORIES, UNCATEGORIZED_LABEL]
   return names.map((name) => {
     const count = counts.get(name) ?? 0
     return { name, count, ratio: total > 0 ? count / total : 0 }
@@ -218,6 +218,13 @@ function categoryBucketsCount(counts: Map<string, number>, total: number): Bucke
 export function isRealCategory(name: string): name is AiCategory {
   return (AI_CATEGORIES as readonly string[]).includes(name)
 }
+
+/**
+ * 「未分类」这个桶的名字。它不是一个 AiCategory，但「分类分布」那张表要把它
+ * 和其它 7 个一起列出来。单独导出是因为总览页要靠它认出那一行、接上下钻
+ * （桶名 → 筛选态 'uncategorized' 的映射），写死在两处迟早会漂。
+ */
+export const UNCATEGORIZED_LABEL = '未分类'
 
 /**
  * 把统计结果压成一段**给模型看的摘要**。

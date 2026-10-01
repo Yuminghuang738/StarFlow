@@ -17,7 +17,12 @@ import {
   type RepoSort,
   type LanguageFilter
 } from '../../src/renderer/src/lib/repoQuery'
-import { activityBucket, computeCollectionStats } from '../../src/renderer/src/lib/collectionStats'
+import {
+  activityBucket,
+  computeCollectionStats,
+  isRealCategory,
+  UNCATEGORIZED_LABEL
+} from '../../src/renderer/src/lib/collectionStats'
 
 let failures = 0
 function check(name: string, ok: boolean, detail = ''): void {
@@ -42,8 +47,8 @@ const vis = (over: Partial<RepoFilters> = {}): Repo[] => filterRepos(REPOS, F(ov
 // 六条各自承担一个边界：
 //   a  星标最多 + 已停更（2000 天没 push）
 //   b  最近收藏（starred_at 最新）+ 近期活跃（3 天前 push）
-//   c  拿不到推送时间（pushed_at = null）
-//   d  starred_at 解析不出来 + 星标第二多
+//   c  拿不到推送时间（pushed_at = null）+ 没有 ai_category（未分类）
+//   d  starred_at 解析不出来 + 星标第二多 + 没有 ai_category（未分类）
 //   e  落在 90~365 天的空档里（既不算活跃也不算停更）——这一条专门守
 //      「三档不是划分」这件事
 //   f  语言名字就叫 "unknown"，用来验证语言筛选的 name: 前缀确实区分了保留字
@@ -122,9 +127,10 @@ console.log('\n== 1. 默认值与选项表 ==')
 check('DEFAULT_FILTERS.sort 是 starred_desc', DEFAULT_FILTERS.sort === 'starred_desc')
 check('DEFAULT_FILTERS.language 是 all', DEFAULT_FILTERS.language === 'all')
 check('DEFAULT_FILTERS.health 是 all', DEFAULT_FILTERS.health === 'all')
+check('DEFAULT_FILTERS.category 是 all', DEFAULT_FILTERS.category === 'all')
 check(
   'DEFAULT_FILTERS 的其它字段是「全不过滤」',
-  DEFAULT_FILTERS.keyword === '' && DEFAULT_FILTERS.category === null && DEFAULT_FILTERS.onlyCloned === false
+  DEFAULT_FILTERS.keyword === '' && DEFAULT_FILTERS.onlyCloned === false
 )
 check('默认筛选不丢任何仓库', vis().length === REPOS.length)
 check('REPO_SORTS 的 value 无重复', new Set(REPO_SORTS.map((s) => s.value)).size === REPO_SORTS.length)
@@ -158,7 +164,7 @@ check('关键词命中 topics', names(vis({ keyword: 'tui' })) === 'a/old-but-ma
 check('关键词忽略大小写与首尾空格', names(vis({ keyword: '  OCR  ' })) === 'c/middle')
 check('关键词无命中时返回空数组', vis({ keyword: 'zzz' }).length === 0)
 check('category 筛选是严格相等', names(vis({ category: '前端' })) === 'b/newest-star')
-check('category 为 null 表示全部分类', vis({ category: null }).length === REPOS.length)
+check('category 为 all 表示全部分类', vis({ category: 'all' }).length === REPOS.length)
 check(
   '每个 AI_CATEGORIES 都能被当作筛选值用',
   AI_CATEGORIES.every((c) => Array.isArray(vis({ category: c })))
@@ -451,6 +457,97 @@ check(
   (() => {
     filtersFor({ health: 'stale', keyword: 'x' })
     return DEFAULT_FILTERS.health === 'all' && DEFAULT_FILTERS.keyword === ''
+  })()
+)
+
+// ============================================================
+console.log('\n== 8. 分类筛选的三态（全部分类 / 真分类 / 未分类）==')
+// ============================================================
+// 「未分类」这个态以前表达不出来：category 的类型是 `AiCategory | null`，
+// 而 null 早被约定成"全部分类"了。于是总览页那句「还有 N 个未分类」——整页
+// 最可行动的一个数字——没有任何去处。
+check('category 为 all 时不过滤', vis({ category: 'all' }).length === REPOS.length)
+
+// 两个保留值都不能是某个真分类。AiCategory 是封闭枚举，这条能直接查出来；
+// 万一将来有人往 AI_CATEGORIES 里加了 'all'，这里立刻红。
+check(
+  'all / uncategorized 都不在 AI_CATEGORIES 里',
+  !(AI_CATEGORIES as readonly string[]).includes('all') &&
+    !(AI_CATEGORIES as readonly string[]).includes('uncategorized'),
+  AI_CATEGORIES.join(',')
+)
+check(
+  'isRealCategory 不认这两个保留值',
+  !isRealCategory('all') && !isRealCategory('uncategorized')
+)
+
+check(
+  'uncategorized 只取没有 ai_category 的',
+  names(vis({ category: 'uncategorized' })) === 'c/middle,d/invalid-date',
+  names(vis({ category: 'uncategorized' }))
+)
+check(
+  '真分类筛选不受三态改动影响',
+  names(vis({ category: '工具' })) === 'a/old-but-many-stars' &&
+    names(vis({ category: '前端' })) === 'b/newest-star' &&
+    names(vis({ category: '后端' })) === 'e/middle-band' &&
+    names(vis({ category: '其他' })) === 'f/language-named-unknown'
+)
+
+// 三态必须构成划分：真分类们 + 未分类 = 全部，且两两不重叠。
+// 少给一个状态的话（比如把"未分类"忘了），这里会露馅。
+check(
+  '7 个真分类 + 未分类 = 全部（三态构成划分）',
+  AI_CATEGORIES.reduce<number>((n, c) => n + vis({ category: c }).length, 0) +
+    vis({ category: 'uncategorized' }).length ===
+    REPOS.length
+)
+check(
+  '未分类与任何真分类都不重叠',
+  AI_CATEGORIES.every((c) =>
+    vis({ category: c }).every((r) => r.full_name !== 'c/middle' && r.full_name !== 'd/invalid-date')
+  )
+)
+
+// —— 本轮最重要的一条：这个筛选态存在的理由就是那个数字 ——
+// 总览页「还有 N 个未分类」，点进去必须恰好是 N 条。判据两边同源
+// （collectionStats 里数 `if (r.ai_category)`），这条断言把同源这件事锁住。
+const stats8 = computeCollectionStats(REPOS, NOW)
+check(
+  '下钻 uncategorized 筛出的条数 == 卡片上的 uncategorized 数字',
+  selectRepos(REPOS, filtersFor({ category: 'uncategorized' }), NOW).length === stats8.uncategorized,
+  `${selectRepos(REPOS, filtersFor({ category: 'uncategorized' }), NOW).length} vs ${stats8.uncategorized}`
+)
+check(
+  '未分类 + 已分类 = 总数（与 categorized 口径一致）',
+  stats8.uncategorized + stats8.categorized === stats8.total &&
+    vis({ category: 'uncategorized' }).length === stats8.uncategorized
+)
+// 桶名与筛选态是两个不同的字符串，页面靠 UNCATEGORIZED_LABEL 做映射。
+// 这里守住"桶确实叫这个名字"，否则总览页那一行会变成不可点。
+check(
+  '分类分布里未分类桶的名字就是 UNCATEGORIZED_LABEL',
+  stats8.categories.some((b) => b.name === UNCATEGORIZED_LABEL) &&
+    !isRealCategory(UNCATEGORIZED_LABEL),
+  stats8.categories.map((b) => b.name).join(',')
+)
+check(
+  '未分类桶的计数就是 uncategorized',
+  stats8.categories.find((b) => b.name === UNCATEGORIZED_LABEL)?.count === stats8.uncategorized
+)
+
+check(
+  '下钻未分类只带 category，其余回默认',
+  (() => {
+    const f = filtersFor({ category: 'uncategorized' })
+    return (
+      f.category === 'uncategorized' &&
+      f.keyword === '' &&
+      f.language === 'all' &&
+      f.onlyCloned === false &&
+      f.health === 'all' &&
+      f.sort === DEFAULT_FILTERS.sort
+    )
   })()
 )
 

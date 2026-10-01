@@ -10,6 +10,7 @@ import {
   buildAiDigest,
   computeCollectionStats,
   isRealCategory,
+  UNCATEGORIZED_LABEL,
   type CollectionStats
 } from '../lib/collectionStats'
 import { unwrap, ipcErrorMessage } from '../lib/api'
@@ -50,16 +51,21 @@ export function Overview(): React.JSX.Element {
   }
 
   /**
-   * 分类分布里那一行的点击处理；不是真分类（「未分类」）就返回 undefined，
-   * 那一行不可点。
+   * 分类分布里那一行的点击处理。
    *
-   * 单独抽成函数是为了让类型收窄生效：`isRealCategory(b.name) ? () => drill(...)`
-   * 这种写法里被收窄的是**属性路径** b.name，TS 不会把它带进闭包
-   * （属性随时可能被改），于是 category 那格退回 string、编译不过。
-   * 换成普通参数 name（全程不重新赋值）就保得住。
+   * 真分类直接当筛选值用；「未分类」不行——collectionStats 给它的桶名是
+   * '未分类'，而筛选态叫 'uncategorized'，两者是不同的值域，必须显式映射一次。
+   * 把桶名直接当筛选值传下去的话，filterRepos 会拿它去和 r.ai_category 严格相等
+   * 比较，筛出空列表：点一下"未分类 12"，列表空了。
+   *
+   * 单独抽成函数还有一个类型上的原因：`isRealCategory(b.name) ? () => drill(...)`
+   * 这种写法里被收窄的是**属性路径** b.name，TS 不会把它带进闭包（属性随时可能被改），
+   * category 那格会退回 string、编译不过。换成普通参数 name（全程不重新赋值）就保得住。
    */
   function byCategory(name: string): (() => void) | undefined {
-    return isRealCategory(name) ? () => drill({ category: name }) : undefined
+    if (isRealCategory(name)) return () => drill({ category: name })
+    if (name === UNCATEGORIZED_LABEL) return () => drill({ category: 'uncategorized' })
+    return undefined
   }
 
   // 时钟与统计一起算进同一个 useMemo：纯函数仍然显式接收 now（自检可以喂固定时间），
@@ -93,7 +99,7 @@ export function Overview(): React.JSX.Element {
   if (repos.length === 0) {
     return (
       <PageContainer>
-        <HeroHeader stats={stats} />
+        <HeroHeader stats={stats} onShowUncategorized={() => drill({ category: 'uncategorized' })} />
         <EmptyState
           title="还没有同步过 Star"
           description="到「设置」页配好 GitHub Token，再到「收藏管理」点一次同步，这里就会长出图表"
@@ -104,7 +110,7 @@ export function Overview(): React.JSX.Element {
 
   return (
     <PageContainer>
-      <HeroHeader stats={stats} />
+      <HeroHeader stats={stats} onShowUncategorized={() => drill({ category: 'uncategorized' })} />
 
       {/* 统计卡片：8 项。信息量对比只有 4 项时翻了一倍，且每项都补了一句参照文案。
           带 onClick 的会下钻到收藏管理页（卡片右下角有"去处理 →"的提示，
@@ -124,10 +130,10 @@ export function Overview(): React.JSX.Element {
           hint={trendHint(stats.recent7, stats.prev7)}
           tone={stats.recent7 > 0 ? 'up' : 'flat'}
         />
-        {/* 「AI 已分类」刻意不可点：这张卡数的是**所有**分类过的仓库，
-            而 category 筛选一次只能选一个分类，点进去必然只剩一小撮——
-            卡片写 N、点进去 M，就是撒谎。等有了"未分类"这个筛选态（它才是
-            真正的行动项）再接上。 */}
+        {/* 「AI 已分类」仍然不可点：它数的是**所有**分类过的仓库，而 category 筛选
+            一次只能选一个分类，点进去必然只剩一小撮——卡片写 N、点进去 M，就是撒谎。
+            真正可行动的入口是它的补集「未分类」：下面分类分布的最后一行，
+            以及 hero 区那句「还有 N 个未分类」，两处都能筛出恰好 N 条。 */}
         <StatCard
           label="AI 已分类"
           value={stats.categorized}
@@ -189,8 +195,8 @@ export function Overview(): React.JSX.Element {
                 color={isRealCategory(b.name) ? categoryColor(b.name) : undefined}
                 muted={!isRealCategory(b.name)}
                 compact
-                // 「未分类」不可点：category 筛选表达不了"没有分类"（null 是"全部分类"），
-                // 见 Overview 顶部关于 AI 已分类卡片的说明。它不是分类，点了没去处。
+                // 「未分类」也能点了：byCategory 把桶名映射成保留态 'uncategorized'，
+                // 筛出来恰好是 stats.uncategorized 条。这行是整页最可行动的数字。 */}
                 onClick={byCategory(b.name)}
               />
             ))}
@@ -286,7 +292,13 @@ export function Overview(): React.JSX.Element {
 /* 局部组件                                                            */
 /* ------------------------------------------------------------------ */
 
-function HeroHeader({ stats }: { stats: CollectionStats }): React.JSX.Element {
+function HeroHeader({
+  stats,
+  onShowUncategorized
+}: {
+  stats: CollectionStats
+  onShowUncategorized: () => void
+}): React.JSX.Element {
   return (
     <section className="relative overflow-hidden rounded-2xl border border-border bg-surface p-5">
       {/* 这一层渐变光斑是整页唯一的装饰性用色，压得很淡：太浓会和图表抢注意力 */}
@@ -313,10 +325,16 @@ function HeroHeader({ stats }: { stats: CollectionStats }): React.JSX.Element {
             </>
           }
           actions={
+            // 这行以前是纯文字"可到「收藏管理」跑一次 AI 补全"——告诉用户有个入口，
+            // 却没把他送过去。现在它本身就是那个入口。
             stats.uncategorized > 0 ? (
-              <p className="text-xs text-fg-subtle">
-                还有 {stats.uncategorized} 个未分类，可到「收藏管理」跑一次 AI 补全
-              </p>
+              <button
+                type="button"
+                onClick={onShowUncategorized}
+                className="rounded-md text-xs text-primary transition-colors hover:text-primary/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              >
+                还有 {stats.uncategorized} 个未分类 · 去补全 →
+              </button>
             ) : undefined
           }
         />

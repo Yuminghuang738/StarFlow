@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AI_CATEGORIES, type AiCategory } from '@shared/types'
+import { AI_CATEGORIES } from '@shared/types'
 import { useRepoStore } from '../../store/repoStore'
 import {
   DEFAULT_FILTERS,
   HEALTH_OPTIONS,
   REPO_SORTS,
   languageOption,
+  type CategoryFilter,
   type HealthFilter,
   type LanguageFilter,
   type RepoSort
@@ -65,7 +66,7 @@ export function FilterBar(): React.JSX.Element {
   const isDirty =
     keyword !== '' ||
     filters.language !== DEFAULT_FILTERS.language ||
-    filters.category !== null ||
+    filters.category !== DEFAULT_FILTERS.category ||
     filters.onlyCloned ||
     filters.health !== DEFAULT_FILTERS.health ||
     // 排序也必须算进来：只看排序变过就该能一键回到默认顺序
@@ -105,23 +106,23 @@ export function FilterBar(): React.JSX.Element {
         <option value="unknown">未知语言</option>
       </Select>
 
-      {/* 分类这边仍然用空串表示"全部"、filters.category 用 null——与语言的 'all' 不统一，
-          这是**故意的**：AiCategory 是个非空字符串联合，null 不可能与任何一个分类撞车，
-          所以没有歧义。language 那边出问题恰恰是因为它的取值域是"任意字符串"，
-          null 既是"全部"又可能被当成一个语言名。别为了整齐把两处改成一样。 */}
+      {/* 分类也是三态：全部分类 / 7 个真分类 / 未分类。'all' 与 'uncategorized'
+          都是保留值；AiCategory 是封闭枚举，撞不上（语言那边取值域是任意字符串，
+          所以才必须加 name: 前缀）。
+          「未分类」放在末尾，与语言那边同理：它是个例外情况，不该插在正常分类
+          中间打乱扫读。 */}
       <Select
-        value={filters.category ?? ''}
-        onChange={(e) =>
-          setFilters({ category: e.target.value === '' ? null : (e.target.value as AiCategory) })
-        }
+        value={filters.category}
+        onChange={(e) => setFilters({ category: e.target.value as CategoryFilter })}
         aria-label="分类筛选"
       >
-        <option value="">全部分类</option>
+        <option value="all">全部分类</option>
         {AI_CATEGORIES.map((c) => (
           <option key={c} value={c}>
             {c}
           </option>
         ))}
+        <option value="uncategorized">未分类</option>
       </Select>
 
       <Select

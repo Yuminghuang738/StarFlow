@@ -64,10 +64,24 @@ export const HEALTH_OPTIONS: readonly { value: HealthFilter; label: string }[] =
   { value: 'unknown', label: '拿不到提交时间' }
 ] as const
 
+/**
+ * 分类筛选。
+ *
+ * 与语言那边同一个来由：`null` 早就被约定成「全部分类」了，于是「只看未分类」
+ * 没有第三个态可用——而 `stats.uncategorized`（总览页那句「还有 N 个待补全」）
+ * 恰恰是整页最可行动的数字，点不过去就等于没写。
+ *
+ * 这里**不需要** language 那种 `name:` 前缀：AiCategory 是固定 7 个枚举，取值域
+ * 封闭，'all' / 'uncategorized' 不可能与某个真分类撞车。语言那边加了前缀，
+ * 是因为它的取值域是「任意字符串」，真出现一个语言叫 "unknown" 时裸字符串
+ * 会把两者混为一谈。
+ */
+export type CategoryFilter = 'all' | 'uncategorized' | AiCategory
+
 export interface RepoFilters {
   keyword: string
   language: LanguageFilter
-  category: AiCategory | null
+  category: CategoryFilter
   onlyCloned: boolean
   health: HealthFilter
   sort: RepoSort
@@ -85,7 +99,7 @@ export interface RepoFilters {
 export const DEFAULT_FILTERS: RepoFilters = {
   keyword: '',
   language: 'all',
-  category: null,
+  category: 'all',
   onlyCloned: false,
   health: 'all',
   sort: 'starred_desc'
@@ -117,7 +131,14 @@ export function filterRepos(repos: Repo[], filters: RepoFilters, now: number): R
     } else if (language !== null && r.language !== language) {
       return false
     }
-    if (filters.category !== null && r.ai_category !== filters.category) return false
+    // 未分类：判据必须与 collectionStats 里 categorized 的算法**逐字同源**——
+    // 那边数的是 `if (r.ai_category)`，这里筛的是它的补集。两处口径一旦不同，
+    // 「还有 N 个未分类」点进去就是另一个条数，而两边都"看着对"。
+    if (filters.category === 'uncategorized') {
+      if (r.ai_category) return false
+    } else if (filters.category !== 'all' && r.ai_category !== filters.category) {
+      return false
+    }
     if (filters.onlyCloned && !r.local?.cloned_path) return false
     if (filters.health !== 'all' && activityBucket(r, now) !== filters.health) return false
     return true
