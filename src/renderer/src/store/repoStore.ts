@@ -87,7 +87,10 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
   },
 
   async load() {
-    set({ loading: true })
+    // error 必须在这里清掉：它是"这一次读取的结果"，不是"历史上出过错"。
+    // 不清的话，重试成功之后 error 还挂着，而下面几个页面现在会**把它画出来**
+    // ——那就会在一次成功的加载之后继续显示"读取失败"。
+    set({ loading: true, error: null })
     let loaded = false
     try {
       set({ repos: await unwrap(window.api.store.getRepos()) })

@@ -24,6 +24,8 @@ export interface RepoListProps {
 export function RepoList({ visible }: RepoListProps): React.JSX.Element {
   const repos = useRepoStore((s) => s.repos)
   const loading = useRepoStore((s) => s.loading)
+  const error = useRepoStore((s) => s.error)
+  const load = useRepoStore((s) => s.load)
   const setFilters = useRepoStore((s) => s.setFilters)
 
   // ① 首次加载：还没有任何数据，用横条骨架顶着。
@@ -47,8 +49,27 @@ export function RepoList({ visible }: RepoListProps): React.JSX.Element {
     )
   }
 
-  // ② 一条数据都没有：引导去设置页同步
+  // ② 一条数据都没有：**先分清"读失败"和"确实没有"**。
+  // 这两件事在界面上曾经长得一模一样（都落到下面那个"还没有数据"），而给用户的
+  // 下一步动作正好相反：读失败要重试，确实没有才该去配 Token。把一次失败的读取
+  // 说成"你的收藏是空的"，就是本项目最忌讳的那类谎。
   if (repos.length === 0) {
+    if (error !== null) {
+      return (
+        <Card className="py-10 text-center">
+          <p className="text-sm text-danger">读取本地数据失败</p>
+          {/* 原文照登：这句话里有真正的原因（文件损坏 / 权限 / 主进程没起来），
+              概括成"出错了"等于把它扔掉 */}
+          <p className="mx-auto mt-2 max-w-lg break-words text-xs text-fg-subtle">{error}</p>
+          <p className="mt-2 text-xs text-fg-muted">
+            这不代表你的收藏是空的——是这一次没读到。本地数据都在，重试一下。
+          </p>
+          <Button size="sm" variant="primary" className="mt-3" onClick={() => void load()}>
+            重试
+          </Button>
+        </Card>
+      )
+    }
     return (
       <Card className="py-10 text-center">
         <p className="text-sm text-fg-muted">还没有数据</p>

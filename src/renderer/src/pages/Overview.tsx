@@ -37,6 +37,11 @@ import type { Repo } from '@shared/types'
 export function Overview(): React.JSX.Element {
   const repos = useRepoStore((s) => s.repos)
   const setFilters = useRepoStore((s) => s.setFilters)
+  // 只有空态用得上：一条数据都没有时，得先分清是"读失败"还是"确实没同步过"。
+  // 订阅 error 是必要的——读取失败时 repos 不变（保持上一次读到的那份，
+  // 也可能是空数组），只有 error 会变，页面得靠它才知道该显示哪一半。
+  const loadError = useRepoStore((s) => s.error)
+  const load = useRepoStore((s) => s.load)
   const { goTo } = useNav()
 
   /**
@@ -99,6 +104,25 @@ export function Overview(): React.JSX.Element {
   }
 
   if (repos.length === 0) {
+    // 空态分两种，而且给用户的下一步动作正好相反。曾经它们长得一模一样：
+    // 读盘失败也会显示「还没有同步过 Star → 去配 Token」，于是用户去重配 Token、
+    // 重新同步，而真正的问题（本地库读不出来）一直没被说出来。
+    if (loadError !== null) {
+      return (
+        <PageContainer>
+          <HeroHeader stats={stats} onShowUncategorized={() => drill({ category: 'uncategorized' })} />
+          <EmptyState
+            title="读取本地数据失败"
+            description={`${loadError}——这不代表你的收藏是空的，是这一次没读到。`}
+            action={
+              <Button size="sm" variant="primary" onClick={() => void load()}>
+                重试
+              </Button>
+            }
+          />
+        </PageContainer>
+      )
+    }
     return (
       <PageContainer>
         <HeroHeader stats={stats} onShowUncategorized={() => drill({ category: 'uncategorized' })} />
