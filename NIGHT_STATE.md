@@ -60,12 +60,33 @@ tasks:
       环境），所以残留 bug 会持续堆在这一半，且都是「看起来一切正常」的那一类
 - [ ] 优先级 4：重复代码 / 长函数拆分（候选：report.ts 的 dailyStarCount 与
       starTrendBuckets 是同一件东西的两种算法，但一在主进程一在渲染进程，
-      要共用就得把天数常量提到 src/shared/）
+      要共用就得把天数常量提到 src/shared/。**本轮不做**：两边都有自检钉着，
+      搬常量属于动契约面，收益不抵风险 —— 已记入 OPTIMIZATION_LOG 的 R32）
+- [x] 优先级 4（重复代码）：星标数 / 相对时间的格式化合成一份（2aa72a7，R28）——
+      两处 `formatStars` 规则不同（toFixed(1) vs 四舍五入），同一个仓库在两个页面
+      显示两个数；收到 lib/format.ts，旧位置改成纯 re-export（导出面不变）
+- [x] 优先级 5（R26–R33，共 8 轮）：**同一类缺陷的最后一批收口**——
+      单实例锁（5650a59，两个进程互相整份覆盖库文件）、Fork 拿新仓库替换原仓库
+      （eb6fd08，内存与磁盘分家）、AI 分类全军覆没却把一份全「其他」当成功落盘 +
+      补全结果按库合并（a02b35a）、库文件读坏后 Promise 被永久缓存导致只能重启
+      （f201302）、OAuth 取消后拿到的 token 偷偷落盘（f201302）、读盘失败装成
+      「你的收藏是空的」（f557e8c）、总览那张卡把滚动 7 天叫成「本周新增」（799e71a）、
+      Token 徽章把「读不到」说成「未配置」（3510da8）
 - [ ] 优先级 5：错误处理、日志、边界条件（继续；组件层是主战场）
 - [x] 优先级 6：文档与注释（含 recommend.ts:271 那个粘在 export 上的 `*/`，已随
       d72df77 清掉）
 
 ## 已知的收尾事项
+- **本轮刻意不修的两处**（都已记进 OPTIMIZATION_LOG，别当成漏掉的）：
+  1. `CloneProgressBar` 的进度条在克隆结束后可能停在 100% 不清零。根因是共享类型
+     `CloneProgress`（src/shared/types.ts）里没有 `startedAt`，前端**分不出**
+     "这个 100% 是刚刚那次"还是"上一次留下的"；靠时间阈值猜比留着更糟——
+     而给类型加字段属于动冻结契约。契约放开之前不修。
+  2. store 层的读改写竞态：`GITHUB_STAR` / `GITHUB_UNSTAR` 是
+     `getRepos()` → 改数组 → `saveRepos()`，两次并发的读改写会丢掉其中一次的改动。
+     触发条件是"同时点 Star 和取消 Star"（或与一次同步重叠），窗口极窄；
+     正经的修法是给 store 加一个串行化的 mutate(fn)，属于新增公共 API，
+     收益不抵本轮风险。留待后续。
 - **偶发（已解决）**：mock e2e 的「两个字段都在且 undefined 没抹掉值」在 R18
   定位到根因并修掉（ad230d1）。教训值得留着：**"连跑 N 次全绿"不等于不是 bug**，
   尤其是竞态——只差一个让其中一方变慢的条件（比如机器正被十几个自检进程压着）。
@@ -75,6 +96,12 @@ tasks:
   weekActivity 里写死的 `'未分类'` 换成 collectionStats 的 UNCATEGORIZED_LABEL
 - 本分支基于**未合并**的 feat/ai-endpoint-agnostic（PR #31），若开 PR 到 main 会带上
   PR #31 的改动，需在描述里显著标注
+- 全量自检口径（R26–R33 之后跑过，全绿）：
+  13 个非 Electron 驱动器（ai / ai-config / ai-concurrency / ai-provider / auth /
+  clone-cancel / clone-progress / collection-stats / local-manage / recommend-search /
+  repo-query / store-local / week-report）+ 2 个 Electron e2e
+  （store-local-e2e / store-local-e2e-realclone）。跑法：
+  `node scripts/selfcheck/<名字>.mjs`，最后一行是汇总。
 - 自检的经验教训（新增脚本时照做）：跑真实 Electron 的脚本必须带
   `--user-data-dir`（用 e2e-profile.mjs），且必须自己清干净目标目录再建，
   否则要么污染开发者数据、要么第二次跑就红/假绿
