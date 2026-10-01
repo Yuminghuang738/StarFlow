@@ -1,176 +1,132 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AI_CATEGORIES, type AiCategory } from '@shared/types'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRepoStore, filterRepos } from '../store/repoStore'
-import { Card } from '../components/common/Card'
 import { Button } from '../components/common/Button'
-import { ConfirmDialog } from '../components/common/ConfirmDialog'
+import { Card } from '../components/common/Card'
+import { FilterBar } from '../components/repo/FilterBar'
+import { RepoList } from '../components/repo/RepoList'
+import { LanguagePie } from '../components/charts/LanguagePie'
+import { StarTrendChart } from '../components/charts/StarTrendChart'
+
+const DAY = 86_400_000
+
+/** 统计卡片：宽屏四个一行，窄屏两列 */
+function StatCard({ label, value }: { label: string; value: number }): React.JSX.Element {
+  return (
+    <Card className="min-w-0">
+      <div className="text-2xl font-semibold tabular-nums text-slate-100">{value}</div>
+      <div className="mt-1 truncate text-xs text-slate-400">{label}</div>
+    </Card>
+  )
+}
 
 export function Dashboard(): React.JSX.Element {
   const repos = useRepoStore((s) => s.repos)
   const loading = useRepoStore((s) => s.loading)
   const filters = useRepoStore((s) => s.filters)
-  const setFilters = useRepoStore((s) => s.setFilters)
   const load = useRepoStore((s) => s.load)
-  const unstar = useRepoStore((s) => s.unstar)
-  const fork = useRepoStore((s) => s.fork)
-  const clone = useRepoStore((s) => s.clone)
-  const openDir = useRepoStore((s) => s.openDir)
+  const refreshFromGitHub = useRepoStore((s) => s.refreshFromGitHub)
+  const enrich = useRepoStore((s) => s.enrich)
 
   // 注意不要写成 useRepoStore((s) => s.visibleRepos())：visibleRepos() 每次返回新数组，
   // zustand v5 的 useSyncExternalStore 用严格相等比较快照，会判定值一直在变而无限重渲染。
   // 正确做法是订阅它依赖的两个切片，再用同一个纯函数算（filters 因此是真实的依赖）。
   const visible = useMemo(() => filterRepos(repos, filters), [repos, filters])
 
-  const [pendingUnstar, setPendingUnstar] = useState<string | null>(null)
-
+  // 挂载时加载一次。用 ref 兜住重复挂载，避免在重复执行 effect 的环境下白拉两遍数据。
+  const loadedOnce = useRef(false)
   useEffect(() => {
+    if (loadedOnce.current) return
+    loadedOnce.current = true
     void load()
   }, [load])
 
-  const languages = useMemo(
-    () =>
-      [...new Set(repos.map((r) => r.language).filter((l): l is string => l !== null))].sort((a, b) =>
-        a.localeCompare(b)
-      ),
-    [repos]
-  )
+  // 顶部两个按钮各自维护忙碌态。
+  // 不能直接用 store 的 loading 决定文案：loading 是全局的，点「同步」时
+  // 「AI 补全分类」也会被算成 busy 而显示成"补全中…"，两个按钮的文案会错配。
+  const [syncBusy, setSyncBusy] = useState(false)
+  const [enrichBusy, setEnrichBusy] = useState(false)
+  // 任一在跑就都禁用，避免两个操作并发（store 的 loading 也会兜住 UI 状态）
+  const headerBusy = loading || syncBusy || enrichBusy
 
-  const onCancelUnstar = useCallback(() => setPendingUnstar(null), [])
-  const onConfirmUnstar = useCallback(() => {
-    const fullName = pendingUnstar
-    setPendingUnstar(null)
-    if (fullName !== null) void unstar(fullName)
-  }, [pendingUnstar, unstar])
+  async function onRefresh(): Promise<void> {
+    setSyncBusy(true)
+    try {
+      await refreshFromGitHub()
+    } finally {
+      setSyncBusy(false)
+    }
+  }
+
+  async function onEnrich(): Promise<void> {
+    setEnrichBusy(true)
+    try {
+      await enrich()
+    } finally {
+      setEnrichBusy(false)
+    }
+  }
+
+  const stats = useMemo(() => {
+    const languageSet = new Set<string>()
+    let cloned = 0
+    for (const r of repos) {
+      if (r.language !== null) languageSet.add(r.language)
+      if (r.local?.cloned_path) cloned += 1
+    }
+
+    // 本周新增 = starred_at 落在最近 7 天内的数量。
+    // ⚠️ 用 UTC 的日历天算，和 Repo.starred_at（UTC ISO 8601）、主进程 report.ts 同口径；
+    // 用本地时间算会让东八区深夜的记录前后差一天。
+    const now = new Date()
+    const todayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+    const windowStart = todayStart - 6 * DAY
+    const recent = repos.filter((r) => {
+      const t = new Date(r.starred_at).getTime()
+      return Number.isFinite(t) && t >= windowStart
+    }).length
+
+    return { total: repos.length, languages: languageSet.size, recent, cloned }
+  }, [repos])
 
   return (
-    <div className="mx-auto max-w-4xl">
-      <header className="flex items-baseline justify-between">
-        <h1 className="text-xl font-semibold">Star 管理</h1>
-        <span className="text-sm text-slate-400">
-          {loading ? '加载中…' : `共 ${repos.length} 个仓库，当前显示 ${visible.length} 个`}
-        </span>
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <h1 className="text-xl font-semibold">我的 Star</h1>
+          <span className="rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-xs tabular-nums text-slate-300">
+            {stats.total}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="primary"
+            onClick={() => void onRefresh()}
+            disabled={headerBusy}
+          >
+            {syncBusy ? '同步中…' : '从 GitHub 同步'}
+          </Button>
+          <Button onClick={() => void onEnrich()} disabled={headerBusy}>
+            {enrichBusy ? '补全中…' : 'AI 补全分类'}
+          </Button>
+        </div>
       </header>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <input
-          value={filters.keyword}
-          onChange={(e) => setFilters({ keyword: e.target.value })}
-          placeholder="搜索仓库名或描述"
-          className="w-64 rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm outline-none placeholder:text-slate-500 focus:border-sky-500"
-        />
-        <select
-          value={filters.language ?? ''}
-          onChange={(e) => setFilters({ language: e.target.value === '' ? null : e.target.value })}
-          className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm outline-none focus:border-sky-500"
-        >
-          <option value="">全部语言</option>
-          {languages.map((l) => (
-            <option key={l} value={l}>
-              {l}
-            </option>
-          ))}
-        </select>
-        <select
-          value={filters.category ?? ''}
-          onChange={(e) =>
-            setFilters({ category: e.target.value === '' ? null : (e.target.value as AiCategory) })
-          }
-          className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm outline-none focus:border-sky-500"
-        >
-          <option value="">全部分类</option>
-          {AI_CATEGORIES.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-        <label className="flex select-none items-center gap-1.5 text-sm text-slate-300">
-          <input
-            type="checkbox"
-            checked={filters.onlyCloned}
-            onChange={(e) => setFilters({ onlyCloned: e.target.checked })}
-          />
-          只看已 clone
-        </label>
-      </div>
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard label="仓库总数" value={stats.total} />
+        <StatCard label="语言数" value={stats.languages} />
+        <StatCard label="本周新增" value={stats.recent} />
+        <StatCard label="已 Clone" value={stats.cloned} />
+      </section>
 
-      <div className="mt-5 flex flex-col gap-3">
-        {visible.length === 0 ? (
-          <Card className="text-center text-sm text-slate-400">
-            {repos.length === 0 ? '还没有数据，去设置页同步' : '没有符合条件的仓库'}
-          </Card>
-        ) : (
-          visible.map((r) => (
-            <Card key={r.full_name}>
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <a
-                    href={r.html_url}
-                    className="font-medium text-sky-400 hover:underline"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {r.full_name}
-                  </a>
-                  <p className="mt-1 line-clamp-2 text-sm text-slate-400">
-                    {r.description ?? '（无描述）'}
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                    <span>{r.language ?? '未知语言'}</span>
-                    <span>★ {r.stargazers_count.toLocaleString('en-US')}</span>
-                    {r.ai_category ? (
-                      <span className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">
-                        {r.ai_category}
-                      </span>
-                    ) : null}
-                    {r.local?.cloned_path ? (
-                      <span className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">
-                        已 clone
-                      </span>
-                    ) : null}
-                    {r.local?.forked_full_name ? (
-                      <span className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">
-                        Fork → {r.local.forked_full_name}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
+      <FilterBar />
 
-                <div className="flex shrink-0 gap-2">
-                  <Button size="sm" variant="danger" onClick={() => setPendingUnstar(r.full_name)}>
-                    取消 Star
-                  </Button>
-                  <Button size="sm" onClick={() => void fork(r.full_name)}>
-                    Fork
-                  </Button>
-                  <Button size="sm" variant="primary" onClick={() => void clone(r.full_name)}>
-                    Clone
-                  </Button>
-                  {r.local?.cloned_path ? (
-                    <Button size="sm" variant="ghost" onClick={() => void openDir(r.local!.cloned_path!)}>
-                      打开目录
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-            </Card>
-          ))
-        )}
-      </div>
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <LanguagePie />
+        <StarTrendChart />
+      </section>
 
-      <ConfirmDialog
-        open={pendingUnstar !== null}
-        danger
-        title="取消 Star？"
-        description={
-          pendingUnstar === null
-            ? undefined
-            : `将把 ${pendingUnstar} 从你的 Star 列表里移除，本地列表也会同步删除。`
-        }
-        confirmText="取消 Star"
-        onConfirm={onConfirmUnstar}
-        onCancel={onCancelUnstar}
-      />
+      <RepoList visible={visible} />
     </div>
   )
 }

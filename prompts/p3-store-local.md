@@ -139,28 +139,31 @@ lowdb 7 的 JSONFile 适配器内部用 steno 做原子写，**不要**自己写
 - updateLocalState 成功后要同步更新 reposCache 里对应的那条
 （不要做定时失效，进程内一致性就够）
 
-【A4】Token 加解密
+【A4】Token 加解密    ← ⚠️ 已按 issue #12 重做：结论是方案 (c)，不落盘
 - safeStorage.isEncryptionAvailable() 为 true：
-    存 safeStorage.encryptString(token).toString('base64')      ← 骨架已实现
-- 为 false（Linux 无 keyring 时会走到）：
-    骨架现状是 console.warn('[store] 系统未提供加密后端，token 将以明文保存') 后**直接存裸明文**，
-    **没有** 'PLAIN:' 前缀。原文写的前缀和告警文案都和骨架不一致，以骨架为准再改。
-- getToken()：读到以 'PLAIN:' 开头的值就去掉前缀返回；否则用
-  safeStorage.decryptString(Buffer.from(value, 'base64'))       ← 骨架已实现（含解密失败兜底）
+    存 safeStorage.encryptString(token).toString('base64')，并把 memoryToken 置 null
+- 为 false（Linux 无 keyring 时会走到）：**一个字节都不写盘**
+    memoryToken = token            ← 新增模块级变量 let memoryToken: string | null = null
+    db.data.token = null           ← 同时把历史上可能残留的 'PLAIN:' 明文从文件里抹掉
+    console.warn('[store] 系统未提供加密后端，token 仅保存在内存中，重启后需重新填写')
+    两种情况都要 await db.write()；false 分支这次写盘正是本次的迁移路径，不能省
+- getToken()：memoryToken 非 null → 直接返回它；否则读 db.data.token：
+    · 以 'PLAIN:' 开头 → 去掉前缀返回（**只读不写**，兼容别人机器上遗留的旧数据）
+    · 否则 safeStorage.decryptString(Buffer.from(value, 'base64'))
+  'PLAIN:' 前缀的**判断要保留**，**写入分支要删掉**
+- hasToken()：memoryToken !== null || (await getToken()) !== null
 - ⚠️ decryptString 在密钥环变化后会抛错（换机器 / 换用户），必须 try/catch：
-  失败时 console.error 并返回 null，**绝对不能让应用启动就崩**       ← 骨架已实现
-- saveToken 要校验：token 为空或 trim 后为空时抛 new Error('Token 不能为空')   ← 骨架里**没有**这条
+  失败时 console.error 并返回 null，**绝不往外抛**
+- saveToken 要校验：token 为空或 trim 后为空时抛 new Error('Token 不能为空')，位置在 try 外面
 
-⚠️⚠️ 这一条有**未决的契约冲突，动手前必须看**：
-  docs/module-signatures.md:21 写的是「saveToken 用 Electron safeStorage 加密后存本地，**禁止明文落盘**」。
-  但在没有 keyring 的 Linux 上 isEncryptionAvailable() 返回 false，严格"禁止明文"就只能抛错——
-  而 saveToken/getToken 是启动路径上的调用，抛错会让应用**直接打不开**。
-  骨架选了"降级 + 告警"，README 里也如实披露了。
-  这两条路必须选一条，**这是 P7 的决定，不是你自己的**：
-    (a) 维持降级 → 那就把 'PLAIN:' 前缀补上（至少让明文在文件里可识别），并在 issue 里 @P7
-        请他同步修改 module-signatures.md:21 的措辞；
-    (b) 改成抛错 → 演示机必须提前确认有 keyring，否则应用起不来。
-  在你拿到答复之前按 (a) 做，**不要擅自删掉降级分支**。
+为什么是 (c) 而不是 (a)/(b)：
+  (a)（带 'PLAIN:' 前缀的明文）仍然把明文写进了磁盘，契约字面满足不了，前缀也不提供任何保护；
+  (b)（抛错）会让无 keyring 的机器上**真实模式完全不可用**。
+  ⚠️ 另外纠正一句原来的错误说法：saveToken / getToken **不在启动路径上**——
+  调用点是 IPC.STORE_SAVE_TOKEN ← 设置页的保存按钮、IPC.STORE_HAS_TOKEN ← 打开设置页、
+  store.getToken() ← github.ts 的 client()，app.whenReady() 一个都不碰。
+  抛错的实际后果只是弹一条 toast，应用照常打开（详见 issue #9 里的核实评论）。
+  完整规格见 issue #12。
 
 【A5】getRepos 的种子逻辑
 读到的列表为空数组、且 isMockMode() 为 true 时，用 mockStarred() 的结果作为种子写入并返回。
