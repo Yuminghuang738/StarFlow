@@ -8,13 +8,22 @@ import { mkdirSync } from 'node:fs'
 import { app, safeStorage } from 'electron'
 import type { Low } from 'lowdb'
 import { JSONFilePreset } from 'lowdb/node'
-import type { Repo, LocalState, AiConfigView, AiConfigPatch } from '@shared/types'
-import { isMockMode } from './config'
+import type { Repo, LocalState, AiConfigView, AiConfigPatch, AiKeySource } from '@shared/types'
+import { isMockMode, getEnv } from './config'
 import { mockStarred } from './mock'
 
 interface DbSchema {
   repos: Repo[]
   token: string | null
+  /**
+   * AI 配置。密钥与 token 同一套存法：safeStorage 可用就存 base64 密文，不可用则
+   * 恒为 null（明文一个字节都不写盘）。baseUrl / model 不是秘密，明文存、可回传。
+   *
+   * ⚠️ 旧库文件里没有这三个键，读取处一律 `?? ''` / `?? null` 兜底。
+   */
+  aiKey: string | null
+  aiBaseUrl: string
+  aiModel: string
 }
 
 /**
@@ -33,6 +42,9 @@ let dbPromise: Promise<Low<DbSchema>> | null = null
 // 无加密后端（例如没装 keyring 的 Linux）时，token 只存活在这个变量里，绝不落盘。
 // 进程退出即丢失，这是刻意的：宁可让用户重填一次，也不把明文写到磁盘上。
 let memoryToken: string | null = null
+
+// AI 密钥同理：无加密后端时只留内存。与 token 分开存，避免两条链路的缓存互相污染。
+let memoryAiKey: string | null = null
 
 // 读缓存：进程内缓存最近一次读到的 repos，避免每次 IPC 都同步读盘。
 // 刻意不做定时失效——单进程内一致性就够，也没人会绕过 store 直接改文件。
@@ -55,7 +67,15 @@ function getDb(): Promise<Low<DbSchema>> {
       throw new Error(`创建数据目录失败：${message}`)
     }
     // 原子写交给 lowdb 7 的 JSONFile 适配器（内部用 steno），不要自己写 tmp + rename
-    dbPromise = JSONFilePreset<DbSchema>(file, { repos: [], token: null })
+    dbPromise = JSONFilePreset<DbSchema>(file, {
+      repos: [],
+      token: null,
+      // AI 三键必须给默认值：JSONFilePreset 会把默认对象与磁盘内容做深合并，
+      // 旧库文件缺这些键时就靠这里补齐（补上之后读取处仍要 ?? 兜底，防御更早版本的库）。
+      aiKey: null,
+      aiBaseUrl: '',
+      aiModel: ''
+    })
   }
   return dbPromise
 }
@@ -306,7 +326,7 @@ export async function clearClonedPaths(fullNames: string[]): Promise<void> {
 }
 
 /* ------------------------------------------------------------------ */
-/* AI 配置 —— Phase 0 占位，实现在 AI 配置那个 PR 里补                   */
+/* AI 配置                                                             */
 /* ------------------------------------------------------------------ */
 /*
  * 为什么这三条归 store 而不是 ai：加密与落盘全都复用本文件上面那套 token 范式
@@ -315,21 +335,115 @@ export async function clearClonedPaths(fullNames: string[]): Promise<void> {
  * 契约上最要紧的一条：**密钥只进不出**。getAiConfig 返回的 AiConfigView 里
  * 压根没有 apiKey 字段，所以"界面上不回显明文"不是靠调用方自觉，是类型层面
  * 就做不到。baseUrl / model 不是秘密，明文存、可以回传。
- *
- * 这里刻意抛「尚未实现」而不是返回假数据：设置页一旦被接到这些桩上，会立刻
- * 看见一条明确的错误，而不是显示"未配置"让人以为 key 丢了。
  */
 
+/**
+ * 主进程内部读取明文密钥（token 那边对应 getToken）。
+ *
+ * ⚠️ 只给主进程内部用（ai.refreshAiConfigCache），**绝不能让明文流向渲染进程**：
+ * 跨进程的视图是 getAiConfig()，而 AiConfigView 里没有 apiKey 字段。
+ * 内存优先——无加密后端时 key 只活在这里，磁盘上什么都没有。
+ */
+export async function getAiKey(): Promise<string | null> {
+  try {
+    if (memoryAiKey !== null) return memoryAiKey
+
+    const db = await getDb()
+    const stored = db.data.aiKey ?? ''
+    if (!stored) return null
+
+    try {
+      return safeStorage.decryptString(Buffer.from(stored, 'base64'))
+    } catch (err) {
+      // 换机器 / keyring 变更会导致解不开。降级成"没有 key"，绝不往外抛——
+      // 界面随后会显示"未配置"，用户可以重填（与 getToken 的降级一致）。
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`[store] AI 密钥解密失败，已忽略：${message}`)
+      return null
+    }
+  } catch (err) {
+    return fail('读取 AI 密钥', err)
+  }
+}
+
 export async function getAiConfig(): Promise<AiConfigView> {
-  throw new Error('尚未实现')
+  try {
+    const env = getEnv()
+    const key = await getAiKey()
+    const db = await getDb()
+
+    // source 如实反映"这个 key 是从哪来的"：界面存了 → store；界面没有但 .env 有 → env。
+    const source: AiKeySource = key ? 'store' : env.openaiKey ? 'env' : 'none'
+
+    // baseUrl / model 与 key 同一优先级：界面存的优先，否则回落到 .env。
+    // 用 `?? ''` 兜底旧库文件：它们没有 aiBaseUrl / aiModel 这两个键。
+    const storedBaseUrl = db.data.aiBaseUrl ?? ''
+    const storedModel = db.data.aiModel ?? ''
+
+    return {
+      hasKey: source !== 'none',
+      baseUrl: storedBaseUrl || env.openaiBaseUrl,
+      model: storedModel || env.modelName,
+      source
+    }
+  } catch (err) {
+    return fail('读取 AI 配置', err)
+  }
 }
 
 export async function saveAiConfig(patch: AiConfigPatch): Promise<void> {
-  void patch
-  throw new Error('尚未实现')
+  // 空 key 会让 hasKey() 误判成"已配置"，直接拒绝；放在 try 外面让消息原样透出。
+  // （baseUrl / model 允许传空串，那表示"清掉界面里存的值、退回 .env 默认"。）
+  if (patch.apiKey !== undefined && patch.apiKey.trim() === '') {
+    throw new Error('API Key 不能为空')
+  }
+
+  try {
+    const db = await getDb()
+
+    // 只有 patch 里带了 apiKey 才动密钥；缺省表示"不动现有的 key"。
+    let keyState = '未改动密钥'
+    if (patch.apiKey !== undefined) {
+      const encrypted = safeStorage.isEncryptionAvailable()
+      if (encrypted) {
+        db.data.aiKey = safeStorage.encryptString(patch.apiKey).toString('base64')
+        // 后端可用时要清掉内存残留，否则 getAiKey() 会优先命中旧的内存值
+        memoryAiKey = null
+        keyState = 'safeStorage 加密'
+      } else {
+        // 与 saveToken 一致：无加密后端时一个字节都不写盘，key 只留在主进程内存里。
+        console.warn('[store] 系统未提供加密后端，AI 密钥仅保存在内存中，重启后需重新填写')
+        memoryAiKey = patch.apiKey
+        // 置 null 清掉可能残留的旧密文
+        db.data.aiKey = null
+        keyState = '仅内存，未落盘'
+      }
+    }
+
+    // baseUrl / model 不是秘密，明文存；undefined 表示不动。
+    if (patch.baseUrl !== undefined) db.data.aiBaseUrl = patch.baseUrl
+    if (patch.model !== undefined) db.data.aiModel = patch.model
+
+    await db.write()
+    // 只打印是否加密，绝不打印 key 本身
+    console.log(`[store] AI 配置已保存（${keyState}）`)
+  } catch (err) {
+    fail('保存 AI 配置', err)
+  }
 }
 
 /** 只清密钥，baseUrl / model 保留（与 clearToken 只清 token 同一个粒度） */
 export async function clearAiKey(): Promise<void> {
-  throw new Error('尚未实现')
+  try {
+    const db = await getDb()
+    db.data.aiKey = null
+    // 顺序是**先写盘、再清内存**，和 saveAiConfig 相反，这是刻意的：
+    // getAiKey() 内存优先，如果写盘失败却已经清了内存，下一次 getAiKey() 会读到磁盘上
+    // 残留的密文，等于悄悄把会话复活了。宁可失败得响一点。
+    await db.write()
+    memoryAiKey = null
+    console.log('[store] AI 密钥已清除')
+  } catch (err) {
+    fail('清除 AI 密钥', err)
+  }
 }
