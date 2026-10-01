@@ -41,9 +41,9 @@ tasks:
 - [x] 优先级 5（边界条件）：语言下拉候选项必须包含当前选中项（6a94cc7）——
       从 repos 现推候选 + 独立保存的筛选态，重同步后会凑出"选中的语言已不在收藏里"，
       原生 select 找不到匹配项就渲染成空白，而筛选还在生效
-- [ ] 优先级 0（候选）：把「本周新增」也接上下钻——需要新增一个"最近 7 天"的
-      布尔筛选维（复用 collectionStats 的窗口起点，别在 repoQuery 里再定一次阈值），
-      这样总览 8 张卡里最后一"有对应条数"的数字也有去处
+- [x] 优先级 0（候选）：把「本周新增」也接上下钻（fd2f412）——collectionStats 新增
+      starredBucket（与 activityBucket 同构，阈值只在一处），repoQuery 加 onlyRecent
+      一维，FilterBar 多一个开关，天数从 RECENT_WINDOW_DAYS 拼出来
 - [ ] 优先级 4：重复代码 / 长函数拆分
 - [ ] 优先级 5：错误处理、日志、边界条件（继续）
 - [ ] 优先级 6：文档与注释（含 recommend.ts:271 那个粘在 export 上的 `*/`）

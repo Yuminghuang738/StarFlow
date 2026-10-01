@@ -467,3 +467,43 @@ option value——这条把 R15 的三态设计从"筛选"一侧延伸到了"候
 
 验证：repo-query 96/96（R17 是 87）、tsc 干净、eslint 干净、npm run build 通过、
 mock e2e 13/13。
+
+## R20 · Phase 2：把「本周新增」接上下钻（优先级 0 候选收口）
+done · commit fd2f412
+
+R16 把总览的统计卡接成下钻入口时，刻意留了四张卡不可点，理由是「凑不出一个条数
+恰好等于它的筛选，点了就是撒谎」。其中三张（AI 已分类 / 语言数 / 主题标签）确实
+凑不出来，但「本周新增」是**能**凑出来的——只是当时缺一个筛选维度。这一条把它补上。
+
+新增的维度是"收藏时间"，与已有的"活跃度"是两回事：一个仓库可能 2019 年就 Star 了
+但上周刚 push。所以不能复用 `health`，得单开一档。
+
+设计上唯一值得说的还是**阈值只有一处**。`collectionStats` 里本来就有
+`todayStart` / `recentStart` / `prevStart` 三个局部常量，在 `computeCollectionStats`
+里算一次、用完即弃；筛选那边如果照抄一份 `>= todayStart - 6 * DAY`，两份就开始各自
+演化。所以这次把它们抽成 `starredBucket(repo, now)`——与 `activityBucket` 完全同构：
+计数那边 `switch (b) { case 'week': recent7 += 1 }`，筛选那边
+`starredBucket(r, now) !== 'week'` 就淘汰。自检里直接钉了
+`stats.recent7 === filterRepos({onlyRecent: true}).length`，两处永远不可能悄悄分家。
+
+`'prevWeek'` 这一档的存在理由与 `activityBucket` 的 `'middle'` 一样：趋势文案
+（比上周多/少）需要它，界面上却没有对应的筛选，所以它必须存在、但不必做成一个选项。
+`'unknown'`（starred_at 解析不出来）同理不计入任何一档——和 `activityBucket` 里
+"拿不到 push 时间 ≠ 停更"是同一条原则：null 是「拿不到」，不是「归零」。
+
+顺带修掉一处自找的麻烦：上周的下界原来写成 `(2 * RECENT_WINDOW_DAYS - 1) * DAY`，
+读的人得在脑子里推一遍才敢信它对。改成 `start - RECENT_WINDOW_DAYS * DAY`——就是
+「上一个窗口 = 再往前整整一个窗口」这句话本身，不需要推。
+
+界面上是一个开关：「只看最近 7 天新增」，那个 7 由 `RECENT_WINDOW_DAYS` 拼出来
+（写死数字的话，改了窗口文案就开始骗人——这条在 R15 就立下了）。`isDirty` 把它算
+进去，否则「重置」会让这个开关失效而按钮不亮。下钻照旧走 `filtersFor`（整份替换
+而非叠加），所以卡片写 5、点进去就是 5 条。
+
+自检新增第 10 节（+13）：四个档的边界各钉一条（今天/6 天前进 week，7 天/13 天前
+进 prevWeek，14 天前进 earlier）、窗口长度跟着 `RECENT_WINDOW_DAYS` 走、1ms 边界、
+四档对 fixture 构成划分、`stats.recent7`/`prev7` 各为 2、下钻整份覆盖不与用户
+当前条件叠加。
+
+验证：repo-query 109/109（R19 是 96）、collection-stats / week-report /
+recommend-search 全绿、tsc 干净、eslint 干净、npm run build 通过、mock e2e 13/13。
