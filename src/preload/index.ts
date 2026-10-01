@@ -1,6 +1,67 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
+import { IPC } from '@shared/ipc'
+import type {
+  Repo,
+  Release,
+  Commit,
+  AiCategory,
+  LocalState,
+  IpcResult,
+  WeeklyReport
+} from '@shared/types'
 
-// 本轮只是临时的最小可运行版本，P0.3 会整体替换成完整的 window.api
-contextBridge.exposeInMainWorld('api', {
-  ping: () => 'pong'
-})
+const api = {
+  github: {
+    fetchStarred: (): Promise<IpcResult<Repo[]>> => ipcRenderer.invoke(IPC.GITHUB_FETCH_STARRED),
+    fetchReadme: (fullName: string): Promise<IpcResult<string>> =>
+      ipcRenderer.invoke(IPC.GITHUB_FETCH_README, fullName),
+    fetchReleases: (fullName: string): Promise<IpcResult<Release[]>> =>
+      ipcRenderer.invoke(IPC.GITHUB_FETCH_RELEASES, fullName),
+    fetchCommits: (fullName: string): Promise<IpcResult<Commit[]>> =>
+      ipcRenderer.invoke(IPC.GITHUB_FETCH_COMMITS, fullName),
+    unstar: (fullName: string): Promise<IpcResult<void>> =>
+      ipcRenderer.invoke(IPC.GITHUB_UNSTAR, fullName),
+    fork: (fullName: string): Promise<IpcResult<Repo>> =>
+      ipcRenderer.invoke(IPC.GITHUB_FORK, fullName)
+  },
+  local: {
+    chooseDir: (): Promise<IpcResult<string | null>> => ipcRenderer.invoke(IPC.LOCAL_CHOOSE_DIR),
+    clone: (fullName: string, targetDir: string): Promise<IpcResult<string>> =>
+      ipcRenderer.invoke(IPC.LOCAL_CLONE, fullName, targetDir),
+    openDir: (path: string): Promise<IpcResult<void>> =>
+      ipcRenderer.invoke(IPC.LOCAL_OPEN_DIR, path)
+  },
+  ai: {
+    summarize: (readme: string): Promise<IpcResult<string>> =>
+      ipcRenderer.invoke(IPC.AI_SUMMARIZE, readme),
+    classify: (repo: Repo): Promise<IpcResult<AiCategory>> =>
+      ipcRenderer.invoke(IPC.AI_CLASSIFY, repo),
+    enrichRepos: (repos: Repo[]): Promise<IpcResult<Repo[]>> =>
+      ipcRenderer.invoke(IPC.AI_ENRICH_REPOS, repos),
+    generateReport: (repos: Repo[]): Promise<IpcResult<string>> =>
+      ipcRenderer.invoke(IPC.AI_GENERATE_REPORT, repos)
+  },
+  store: {
+    getRepos: (): Promise<IpcResult<Repo[]>> => ipcRenderer.invoke(IPC.STORE_GET_REPOS),
+    saveRepos: (repos: Repo[]): Promise<IpcResult<void>> =>
+      ipcRenderer.invoke(IPC.STORE_SAVE_REPOS, repos),
+    saveToken: (token: string): Promise<IpcResult<void>> =>
+      ipcRenderer.invoke(IPC.STORE_SAVE_TOKEN, token),
+    hasToken: (): Promise<IpcResult<boolean>> => ipcRenderer.invoke(IPC.STORE_HAS_TOKEN),
+    updateLocalState: (fullName: string, state: Partial<LocalState>): Promise<IpcResult<void>> =>
+      ipcRenderer.invoke(IPC.STORE_UPDATE_LOCAL_STATE, fullName, state)
+  },
+  report: {
+    generate: (): Promise<IpcResult<WeeklyReport>> => ipcRenderer.invoke(IPC.REPORT_GENERATE)
+  },
+  recommend: {
+    similar: (fullName: string): Promise<IpcResult<Repo[]>> =>
+      ipcRenderer.invoke(IPC.RECOMMEND_SIMILAR, fullName)
+  },
+  tracker: {
+    start: (): Promise<IpcResult<void>> => ipcRenderer.invoke(IPC.TRACKER_START),
+    stop: (): Promise<IpcResult<void>> => ipcRenderer.invoke(IPC.TRACKER_STOP)
+  }
+}
+
+contextBridge.exposeInMainWorld('api', api)
