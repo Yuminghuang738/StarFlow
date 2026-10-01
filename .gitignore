@@ -4,3 +4,6 @@ dist/
 .env
 *.db.json
 wave0-skeleton.md
+
+# 本地工作区（会话笔记、预览截图等），不进仓库
+.workbuddy/
