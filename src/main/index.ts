@@ -44,7 +44,7 @@ function handle<T>(channel: string, fn: AnyFn<T>): void {
 }
 
 // ============================================================
-// 27 个通道，一个都不能少也不能多
+// 28 个通道，一个都不能少也不能多
 // ============================================================
 
 function registerHandlers(): void {
@@ -67,6 +67,8 @@ function registerHandlers(): void {
   handle(IPC.LOCAL_CHOOSE_DIR, () => local.chooseDir())
   handle(IPC.LOCAL_CLONE, (fullName: string, targetDir: string) => local.clone(fullName, targetDir))
   handle(IPC.LOCAL_OPEN_DIR, (path: string) => local.openDir(path))
+  // 纯内存查询，不会失败也不会阻塞：渲染进程在 clone 进行中按固定间隔调它
+  handle(IPC.LOCAL_CLONE_PROGRESS, (fullName: string) => local.getCloneProgress(fullName))
 
   // AI —— P2
   handle(IPC.AI_SUMMARIZE, (readme: string) => ai.summarize(readme))

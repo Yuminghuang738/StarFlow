@@ -16,6 +16,9 @@ export const IPC = {
   LOCAL_CHOOSE_DIR: 'local:chooseDir',
   LOCAL_CLONE: 'local:clone',
   LOCAL_OPEN_DIR: 'local:openDir',
+  // 克隆进度。单独开一条通道而不是让 clone 自己回报：clone 是一次长驻 invoke，
+  // 在它返回之前渲染进程什么也拿不到，而本项目没有 main→renderer 的推送机制。
+  LOCAL_CLONE_PROGRESS: 'local:cloneProgress',
 
   // AI —— 负责人 P2
   AI_SUMMARIZE: 'ai:summarize',

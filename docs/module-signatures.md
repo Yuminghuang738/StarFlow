@@ -51,9 +51,18 @@ export function fork(fullName: string): Promise<Repo>
 export function chooseDir(): Promise<string | null>
 export function clone(fullName: string, targetDir: string): Promise<string>
 export function openDir(path: string): Promise<void>
+export function getCloneProgress(fullName: string): CloneProgress | null
 
 说明：MOCK_MODE=true 时 openDir 仍然走真实实现（shell.openPath），
 因为演示前会预先 clone 好仓库，"打开目录"必须真的能打开。
+
+getCloneProgress 是**同步的内存查询**，给渲染进程在 clone 进行中按固定间隔轮询用。
+返回 null 表示该仓库当前没有进行中的克隆，界面据此不画进度条。
+数据来自 simple-git 的 progress 回调（本仓库的 git 会在 stderr 上报
+"Receiving objects: 47% (1234/2624)"），stage 为 null 表示 clone 已启动但 git
+还没吐出第一行；elapsedMs 在每次读取时现算，不在写进度时算死（git 在 counting /
+resolving 阶段可能十几秒不吭声，算死的话界面的秒数会冻住）。
+MOCK_MODE=true 时不产生任何记录（全项目只有 mock.ts 一个假数据源，这里不另造假进度）。
 
 ## src/main/ai.ts —— 负责人 P2
 export function summarize(readme: string): Promise<string>

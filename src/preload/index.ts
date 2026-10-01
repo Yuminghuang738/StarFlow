@@ -10,7 +10,8 @@ import type {
   WeeklyReport,
   AuthState,
   DeviceFlowInfo,
-  LoginOutcome
+  LoginOutcome,
+  CloneProgress
 } from '@shared/types'
 
 const api = {
@@ -32,7 +33,10 @@ const api = {
     clone: (fullName: string, targetDir: string): Promise<IpcResult<string>> =>
       ipcRenderer.invoke(IPC.LOCAL_CLONE, fullName, targetDir),
     openDir: (path: string): Promise<IpcResult<void>> =>
-      ipcRenderer.invoke(IPC.LOCAL_OPEN_DIR, path)
+      ipcRenderer.invoke(IPC.LOCAL_OPEN_DIR, path),
+    // 返回 null = 这个仓库还没开始克隆（或没克隆过），渲染进程据此不显示进度条
+    getCloneProgress: (fullName: string): Promise<IpcResult<CloneProgress | null>> =>
+      ipcRenderer.invoke(IPC.LOCAL_CLONE_PROGRESS, fullName)
   },
   ai: {
     summarize: (readme: string): Promise<IpcResult<string>> =>

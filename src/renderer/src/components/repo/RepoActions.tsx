@@ -3,6 +3,7 @@ import type { Repo } from '@shared/types'
 import { useRepoStore } from '../../store/repoStore'
 import { Button } from '../common/Button'
 import { ConfirmDialog } from '../common/ConfirmDialog'
+import { CloneProgressBar } from './CloneProgressBar'
 import { formatRelative } from './repoFormat'
 
 /**
@@ -115,6 +116,10 @@ export function RepoActions({ repo }: { repo: Repo }): React.JSX.Element {
           </Button>
         )}
       </div>
+
+      {/* 只在克隆进行中挂载：卸载即停止轮询。clone 结束后主进程的记录还在，
+          常挂会一直显示上一次的 100% */}
+      {pendingAction === 'clone' ? <CloneProgressBar fullName={repo.full_name} /> : null}
 
       <ConfirmDialog
         open={confirmOpen}
