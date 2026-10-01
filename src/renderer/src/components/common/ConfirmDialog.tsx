@@ -37,11 +37,11 @@ export function ConfirmDialog(props: ConfirmDialogProps): React.JSX.Element {
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="w-full max-w-sm rounded-lg border border-slate-700 bg-slate-900 p-5 shadow-xl"
+        className="w-full max-w-sm rounded-lg border border-border-strong bg-surface p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-base font-semibold text-slate-100">{title}</h2>
-        {description ? <p className="mt-2 text-sm text-slate-400">{description}</p> : null}
+        <h2 className="text-base font-semibold text-fg">{title}</h2>
+        {description ? <p className="mt-2 text-sm text-fg-muted">{description}</p> : null}
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="ghost" onClick={onCancel}>
             取消

@@ -13,32 +13,34 @@ export function RepoCard({ repo }: { repo: Repo }): React.JSX.Element {
   const category = repo.ai_category
 
   return (
-    <Card className="flex flex-col transition-colors hover:border-sky-500/50">
+    <Card className="flex flex-col transition-colors hover:border-primary/50">
       <div className="flex items-start justify-between gap-3">
+        {/* 悬停只加下划线、不改颜色：原先是 hover:text-sky-300（暗底上变亮），
+            换成语义 token 之后没有对应的「更亮」档，写 /90 反而会让它变淡。 */}
         <a
           href={repo.html_url}
           target="_blank"
           rel="noreferrer"
-          className="min-w-0 break-all font-medium text-sky-400 underline-offset-2 hover:text-sky-300 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500"
+          className="min-w-0 break-all font-medium text-link underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           title={repo.full_name}
         >
           {repo.full_name}
         </a>
-        <span className="shrink-0 text-xs tabular-nums text-slate-400">
+        <span className="shrink-0 text-xs tabular-nums text-fg-muted">
           ★ {formatStars(repo.stargazers_count)}
         </span>
       </div>
 
       {repo.description === null ? (
-        <p className="mt-2 line-clamp-2 text-sm italic text-slate-500">暂无描述</p>
+        <p className="mt-2 line-clamp-2 text-sm italic text-fg-subtle">暂无描述</p>
       ) : (
-        <p className="mt-2 line-clamp-2 text-sm text-slate-400">{repo.description}</p>
+        <p className="mt-2 line-clamp-2 text-sm text-fg-muted">{repo.description}</p>
       )}
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-slate-400">
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-fg-muted">
         <span className="inline-flex items-center gap-1.5">
           <span
-            className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+            className="inline-block h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-inset ring-black/10 dark:ring-white/15"
             style={{ backgroundColor: languageColor(repo.language) }}
             aria-hidden="true"
           />
@@ -46,11 +48,11 @@ export function RepoCard({ repo }: { repo: Repo }): React.JSX.Element {
         </span>
 
         {category ? (
-          <span className="rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-sky-300">
+          <span className="rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-primary">
             {category}
           </span>
         ) : (
-          <span className="rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-slate-400">
+          <span className="rounded border border-border-strong bg-surface-2 px-1.5 py-0.5 text-fg-muted">
             未分类
           </span>
         )}
@@ -63,7 +65,7 @@ export function RepoCard({ repo }: { repo: Repo }): React.JSX.Element {
           {topics.map((t) => (
             <span
               key={t}
-              className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300"
+              className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-fg-muted"
             >
               {t}
             </span>

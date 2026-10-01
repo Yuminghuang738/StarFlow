@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { cn } from '../../lib/cn'
 
 /**
  * 自绘标题栏（Phase 0 的最简版，样式留给界面重做那个 PR 换皮）。
@@ -85,7 +86,7 @@ function CloseIcon(): React.JSX.Element {
 }
 
 const BUTTON_BASE =
-  'app-region-no-drag flex h-8 w-10 items-center justify-center text-slate-400 transition-colors'
+  'app-region-no-drag flex h-8 w-10 items-center justify-center text-fg-muted transition-colors'
 
 export function TitleBar(): React.JSX.Element {
   // 初值 false：启动时窗口一定不是最大化，省掉一次首屏 IPC 往返
@@ -126,10 +127,10 @@ export function TitleBar(): React.JSX.Element {
   }
 
   return (
-    <header className="app-region-drag flex h-9 shrink-0 select-none items-center justify-between border-b border-slate-800 bg-slate-900 pl-3">
-      <div className="flex items-center gap-2 text-xs font-medium tracking-wide text-slate-400">
+    <header className="app-region-drag flex h-9 shrink-0 select-none items-center justify-between border-b border-border bg-surface pl-3">
+      <div className="flex items-center gap-2 text-xs font-medium tracking-wide text-fg-muted">
         <svg
-          className="h-3.5 w-3.5 text-sky-500"
+          className="h-3.5 w-3.5 text-primary"
           viewBox="0 0 24 24"
           fill="currentColor"
           aria-hidden="true"
@@ -145,7 +146,7 @@ export function TitleBar(): React.JSX.Element {
           type="button"
           aria-label="最小化"
           title="最小化"
-          className={`${BUTTON_BASE} hover:bg-slate-800 hover:text-slate-100`}
+          className={cn(BUTTON_BASE, 'hover:bg-surface-2 hover:text-fg')}
           onClick={() => void fire(() => window.api.window.minimize())}
         >
           <MinimizeIcon />
@@ -154,7 +155,7 @@ export function TitleBar(): React.JSX.Element {
           type="button"
           aria-label={maximized ? '还原' : '最大化'}
           title={maximized ? '还原' : '最大化'}
-          className={`${BUTTON_BASE} hover:bg-slate-800 hover:text-slate-100`}
+          className={cn(BUTTON_BASE, 'hover:bg-surface-2 hover:text-fg')}
           onClick={() => void fire(onToggleMaximize)}
         >
           {maximized ? <RestoreIcon /> : <MaximizeIcon />}
@@ -163,7 +164,7 @@ export function TitleBar(): React.JSX.Element {
           type="button"
           aria-label="关闭"
           title="关闭"
-          className={`${BUTTON_BASE} hover:bg-red-600 hover:text-white`}
+          className={cn(BUTTON_BASE, 'hover:bg-danger-solid hover:text-solid-fg')}
           onClick={() => void fire(() => window.api.window.close())}
         >
           <CloseIcon />

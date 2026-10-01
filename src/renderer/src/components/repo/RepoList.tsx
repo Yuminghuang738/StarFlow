@@ -11,20 +11,20 @@ function SkeletonCard(): React.JSX.Element {
   return (
     <Card className="flex animate-pulse flex-col">
       <div className="flex items-start justify-between gap-3">
-        <div className="h-4 w-40 rounded bg-slate-800" />
-        <div className="h-3 w-10 rounded bg-slate-800" />
+        <div className="h-4 w-40 rounded bg-surface-2" />
+        <div className="h-3 w-10 rounded bg-surface-2" />
       </div>
-      <div className="mt-3 h-3 w-full rounded bg-slate-800" />
-      <div className="mt-2 h-3 w-2/3 rounded bg-slate-800" />
+      <div className="mt-3 h-3 w-full rounded bg-surface-2" />
+      <div className="mt-2 h-3 w-2/3 rounded bg-surface-2" />
       <div className="mt-4 flex gap-2">
-        <div className="h-3 w-16 rounded bg-slate-800" />
-        <div className="h-3 w-12 rounded bg-slate-800" />
-        <div className="h-3 w-20 rounded bg-slate-800" />
+        <div className="h-3 w-16 rounded bg-surface-2" />
+        <div className="h-3 w-12 rounded bg-surface-2" />
+        <div className="h-3 w-20 rounded bg-surface-2" />
       </div>
       <div className="mt-auto flex gap-2 pt-5">
-        <div className="h-6 w-16 rounded bg-slate-800" />
-        <div className="h-6 w-14 rounded bg-slate-800" />
-        <div className="h-6 w-14 rounded bg-slate-800" />
+        <div className="h-6 w-16 rounded bg-surface-2" />
+        <div className="h-6 w-14 rounded bg-surface-2" />
+        <div className="h-6 w-14 rounded bg-surface-2" />
       </div>
     </Card>
   )
@@ -63,8 +63,8 @@ export function RepoList({ visible }: RepoListProps): React.JSX.Element {
   if (repos.length === 0) {
     return (
       <Card className="py-10 text-center">
-        <p className="text-sm text-slate-300">还没有数据</p>
-        <p className="mt-2 text-xs text-slate-500">
+        <p className="text-sm text-fg-muted">还没有数据</p>
+        <p className="mt-2 text-xs text-fg-subtle">
           先到「设置」页配置 GitHub Token，再点「从 GitHub 同步」把 Star 列表拉下来。
         </p>
       </Card>
@@ -75,7 +75,7 @@ export function RepoList({ visible }: RepoListProps): React.JSX.Element {
   if (visible.length === 0) {
     return (
       <Card className="py-10 text-center">
-        <p className="text-sm text-slate-300">没有符合条件的仓库</p>
+        <p className="text-sm text-fg-muted">没有符合条件的仓库</p>
         <Button
           size="sm"
           variant="primary"

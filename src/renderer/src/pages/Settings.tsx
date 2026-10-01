@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { unwrap, ipcErrorMessage } from '../lib/api'
+import { cn } from '../lib/cn'
 import { useRepoStore } from '../store/repoStore'
 import { Button } from '../components/common/Button'
 import { Card } from '../components/common/Card'
 import { Badge } from '../components/common/Badge'
 import { GithubLoginCard } from '../components/auth/GithubLoginCard'
+import { ThemeCard } from '../components/settings/ThemeCard'
 import type { AiConfigView } from '@shared/types'
 
 /** 来源徽章的文案与配色：界面存的 / .env 兜底的 / 没配 */
@@ -13,6 +15,13 @@ const SOURCE_LABEL: Record<AiConfigView['source'], string> = {
   env: '来自 .env',
   none: '未配置'
 }
+
+/**
+ * 输入框基类。第 5 处重复在 FilterBar，PR 2 会把它和那边一起抽成 common/Input.tsx；
+ * 这里先收成一个常量，免得改了边框色漏掉某一个。
+ */
+const FIELD_CLASS =
+  'rounded-md border border-border-strong bg-surface px-3 py-1.5 text-sm outline-none placeholder:text-fg-subtle focus:border-primary'
 
 export function Settings(): React.JSX.Element {
   const [token, setToken] = useState('')
@@ -178,13 +187,15 @@ export function Settings(): React.JSX.Element {
 
       <GithubLoginCard onAuthChange={() => void refreshTokenStatus()} />
 
+      <ThemeCard />
+
       <Card className="mt-4">
-        <h2 className="text-sm font-medium text-slate-200">GitHub Token</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          Token 需要 <code className="rounded bg-slate-800 px-1">public_repo</code> scope；
+        <h2 className="text-sm font-medium text-fg">GitHub Token</h2>
+        <p className="mt-1 text-xs text-fg-subtle">
+          Token 需要 <code className="rounded bg-surface-2 px-1">public_repo</code> scope；
           主进程用 safeStorage 加密后存在 userData 目录，不会明文落盘。
         </p>
-        <p className="mt-1 text-xs text-red-400">
+        <p className="mt-1 text-xs text-danger">
           注意：unstar 是破坏性操作，会真正取消你 GitHub 上的 Star。
         </p>
         <div className="mt-3 flex gap-2">
@@ -193,7 +204,7 @@ export function Settings(): React.JSX.Element {
             value={token}
             onChange={(e) => setToken(e.target.value)}
             placeholder="ghp_..."
-            className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm outline-none placeholder:text-slate-500 focus:border-sky-500"
+            className={cn(FIELD_CLASS, 'min-w-0 flex-1')}
           />
           <Button variant="ghost" onClick={() => setShowToken((v) => !v)}>
             {showToken ? '隐藏' : '显示'}
@@ -203,7 +214,7 @@ export function Settings(): React.JSX.Element {
           </Button>
         </div>
         <div className="mt-3 flex items-center gap-2">
-          <span className="text-sm text-slate-400">状态：</span>
+          <span className="text-sm text-fg-muted">状态：</span>
           {hasToken === null ? (
             <Badge tone="muted">未知</Badge>
           ) : hasToken ? (
@@ -215,10 +226,10 @@ export function Settings(): React.JSX.Element {
       </Card>
 
       <Card className="mt-4">
-        <h2 className="text-sm font-medium text-slate-200">AI 配置（OpenAI 兼容端点）</h2>
-        <p className="mt-1 text-xs text-slate-500">
+        <h2 className="text-sm font-medium text-fg">AI 配置（OpenAI 兼容端点）</h2>
+        <p className="mt-1 text-xs text-fg-subtle">
           填在这里的配置优先级高于项目根目录{' '}
-          <code className="rounded bg-slate-800 px-1">.env</code>，保存后立即生效，无需重启。
+          <code className="rounded bg-surface-2 px-1">.env</code>，保存后立即生效，无需重启。
           API Key 同样经 safeStorage 加密存储、永不回显；留空保存表示不修改已有 Key。
         </p>
 
@@ -229,7 +240,7 @@ export function Settings(): React.JSX.Element {
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={aiConfig?.hasKey ? '已保存（留空则不修改）' : 'sk-...'}
-              className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm outline-none placeholder:text-slate-500 focus:border-sky-500"
+              className={cn(FIELD_CLASS, 'min-w-0 flex-1')}
             />
             <Button variant="ghost" onClick={() => setShowApiKey((v) => !v)}>
               {showApiKey ? '隐藏' : '显示'}
@@ -242,25 +253,25 @@ export function Settings(): React.JSX.Element {
               value={aiBaseUrl}
               onChange={(e) => setAiBaseUrl(e.target.value)}
               placeholder="Base URL（留空使用 .env / 官方默认）"
-              className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm outline-none placeholder:text-slate-500 focus:border-sky-500"
+              className={cn(FIELD_CLASS, 'w-full')}
             />
             {baseUrlMissingScheme ? (
-              <p className="mt-1 text-xs text-red-400">
+              <p className="mt-1 text-xs text-danger">
                 Base URL 缺少 http(s):// 前缀，例如 https://api.openai.com/v1
               </p>
             ) : null}
             {baseUrlInsecure ? (
-              <p className="mt-1 text-xs text-amber-400">
+              <p className="mt-1 text-xs text-warning">
                 这是 http:// 地址，API Key 会以明文传输，建议改用 https。
               </p>
             ) : null}
             {baseUrlMissingV1 ? (
-              <p className="mt-1 flex items-center gap-2 text-xs text-amber-400">
+              <p className="mt-1 flex items-center gap-2 text-xs text-warning">
                 <span>地址不以 /v1 结尾，这是 404 最常见的原因。</span>
                 <button
                   type="button"
                   onClick={() => setAiBaseUrl(`${baseUrlTrimmed.replace(/\/+$/, '')}/v1`)}
-                  className="rounded border border-amber-700 px-1.5 py-0.5 text-amber-300 hover:bg-amber-900/40"
+                  className="rounded border border-warning/40 px-1.5 py-0.5 text-warning hover:bg-warning/15"
                 >
                   补 /v1
                 </button>
@@ -273,12 +284,12 @@ export function Settings(): React.JSX.Element {
             value={aiModel}
             onChange={(e) => setAiModel(e.target.value)}
             placeholder="模型名（留空使用 .env / 官方默认 gpt-4o-mini）"
-            className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm outline-none placeholder:text-slate-500 focus:border-sky-500"
+            className={cn(FIELD_CLASS, 'w-full')}
           />
         </div>
 
         <div className="mt-3 flex items-center gap-2">
-          <span className="text-sm text-slate-400">状态：</span>
+          <span className="text-sm text-fg-muted">状态：</span>
           {aiConfig === null ? (
             <Badge tone="muted">未知</Badge>
           ) : aiConfig.hasKey ? (
@@ -304,19 +315,17 @@ export function Settings(): React.JSX.Element {
             测试 AI 连接
           </Button>
         </div>
-        {aiNotice ? <p className="mt-3 text-sm text-slate-400">{aiNotice}</p> : null}
+        {aiNotice ? <p className="mt-3 text-sm text-fg-muted">{aiNotice}</p> : null}
         {aiTestResult ? (
-          <p
-            className={`mt-1 text-sm ${aiTestResult.ok ? 'text-emerald-400' : 'text-red-400'}`}
-          >
+          <p className={cn('mt-1 text-sm', aiTestResult.ok ? 'text-success' : 'text-danger')}>
             {aiTestResult.message}
           </p>
         ) : null}
       </Card>
 
       <Card className="mt-4">
-        <h2 className="text-sm font-medium text-slate-200">数据与 AI</h2>
-        <p className="mt-1 text-xs text-slate-500">
+        <h2 className="text-sm font-medium text-fg">数据与 AI</h2>
+        <p className="mt-1 text-xs text-fg-subtle">
           同步会保留已 Fork / 已 clone / 已分类的标记；AI 补全只填空缺的摘要与分类。
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -331,15 +340,15 @@ export function Settings(): React.JSX.Element {
           </Button>
         </div>
         {testResult ? (
-          <p className={`mt-3 text-sm ${testResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+          <p className={cn('mt-3 text-sm', testResult.ok ? 'text-success' : 'text-danger')}>
             {testResult.message}
           </p>
         ) : null}
       </Card>
 
-      <p className="mt-4 text-xs text-slate-500">
+      <p className="mt-4 text-xs text-fg-subtle">
         当前运行模式由项目根目录{' '}
-        <code className="rounded bg-slate-800 px-1">.env</code> 的 MOCK_MODE 控制。
+        <code className="rounded bg-surface-2 px-1">.env</code> 的 MOCK_MODE 控制。
       </p>
     </div>
   )

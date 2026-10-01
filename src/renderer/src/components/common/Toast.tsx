@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { cn } from '../../lib/cn'
 
 export interface ToastItem {
   id: string
@@ -55,8 +56,10 @@ export function useToast(): { push(t: PushArg): void } {
 }
 
 const TYPE_CLASS: Record<ToastItem['type'], string> = {
-  success: 'bg-emerald-600 text-white',
-  error: 'bg-red-600 text-white'
+  // 实心底 + 白字，走 `-solid` 那组 token（见 index.css）：
+  // 用 --c-success / --c-danger 当底的话，暗色主题下是浅色底配白字，读不出来。
+  success: 'bg-success-solid text-solid-fg',
+  error: 'bg-danger-solid text-solid-fg'
 }
 
 /** 只负责渲染；列表状态在模块级 store 里 */
@@ -73,7 +76,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }): Reac
             key={t.id}
             type="button"
             onClick={() => remove(t.id)}
-            className={`pointer-events-auto rounded-md px-3.5 py-2.5 text-left text-sm shadow-lg ${TYPE_CLASS[t.type]}`}
+            className={cn(
+              'pointer-events-auto rounded-md px-3.5 py-2.5 text-left text-sm shadow-lg',
+              TYPE_CLASS[t.type]
+            )}
           >
             {t.message}
           </button>

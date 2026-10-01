@@ -13,8 +13,8 @@ const DAY = 86_400_000
 function StatCard({ label, value }: { label: string; value: number }): React.JSX.Element {
   return (
     <Card className="min-w-0">
-      <div className="text-2xl font-semibold tabular-nums text-slate-100">{value}</div>
-      <div className="mt-1 truncate text-xs text-slate-400">{label}</div>
+      <div className="text-2xl font-semibold tabular-nums text-fg">{value}</div>
+      <div className="mt-1 truncate text-xs text-fg-muted">{label}</div>
     </Card>
   )
 }
@@ -93,7 +93,7 @@ export function Dashboard(): React.JSX.Element {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <h1 className="text-xl font-semibold">我的 Star</h1>
-          <span className="rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-xs tabular-nums text-slate-300">
+          <span className="rounded-full border border-border-strong bg-surface-2 px-2 py-0.5 text-xs tabular-nums text-fg-muted">
             {stats.total}
           </span>
         </div>

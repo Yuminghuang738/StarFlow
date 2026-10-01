@@ -207,6 +207,15 @@ function createWindow(): void {
     // 是否支持客户端装饰。所以 Fedora 上很可能既没有阴影圆角、也拖不动边——先按现状做，
     // 实测之后要是真拖不动，再补 8 条自绘缩放热区（那需要多开一条 window:setBounds）。
     frame: false,
+    // 首帧底色 = 亮色主题的 body 底色。窗口在渲染进程完成首次绘制前、以及后续
+    // resize / 从最小化恢复时会露出这个颜色，不给就是 Chromium 默认的白。
+    // 默认主题是亮色，所以这里给亮色最贴合。
+    backgroundColor: '#f8fafc',
+    // 先不显示，等渲染进程画完第一帧再 show。**这是防白闪的关键一步**：
+    // index.html 里的防闪脚本能在首次绘制前就把 .dark 定下来，但如果窗口已经可见，
+    // 用户仍会看到脚本执行前的那一帧。配合 show:false，暗色用户启动时就完全看不到白闪，
+    // backgroundColor 只是 resize 之类场合的兜底。
+    show: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
@@ -214,6 +223,15 @@ function createWindow(): void {
       sandbox: false
     }
   })
+
+  win.once('ready-to-show', () => win.show())
+
+  // 兜底：渲染进程加载失败（打包路径写错、被 CSP 拦下、dev server 没起来）时
+  // ready-to-show 永远不会触发，窗口就一直不显示——那比白闪糟糕得多，用户会以为程序没启动。
+  // 2s 后无条件显示，把"窗口存在"这件事的主动权拿回来。
+  setTimeout(() => {
+    if (!win.isDestroyed() && !win.isVisible()) win.show()
+  }, 2000)
 
   // window:* 那几个 handler 全靠这个引用（见文件顶部 mainWindow 的说明）
   mainWindow = win

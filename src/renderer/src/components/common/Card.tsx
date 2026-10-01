@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { cn } from '../../lib/cn'
 
 export interface CardProps {
   className?: string
@@ -7,9 +8,7 @@ export interface CardProps {
 
 export function Card({ className = '', children }: CardProps): React.JSX.Element {
   return (
-    <div
-      className={`rounded-lg border border-slate-800 bg-slate-900 p-4 shadow-sm ${className}`}
-    >
+    <div className={cn('rounded-lg border border-border bg-surface p-4 shadow-sm', className)}>
       {children}
     </div>
   )

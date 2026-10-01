@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AI_CATEGORIES, type AiCategory } from '@shared/types'
 import { useRepoStore, type RepoFilters } from '../../store/repoStore'
 import { Button } from '../common/Button'
+import { cn } from '../../lib/cn'
 
 const EMPTY_FILTERS: Partial<RepoFilters> = {
   keyword: '',
@@ -10,8 +11,10 @@ const EMPTY_FILTERS: Partial<RepoFilters> = {
   onlyCloned: false
 }
 
+// 基础边框用 border-border、悬停才升到 border-strong。
+// ⚠️ 两者不能都写 border-strong：那样 hover 与静止态同色，悬停反馈会整个消失。
 const CONTROL_CLASS =
-  'rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 outline-none transition-colors placeholder:text-slate-500 hover:border-slate-600 focus:border-sky-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500'
+  'rounded-md border border-border bg-surface px-2.5 py-1.5 text-sm text-fg outline-none transition-colors placeholder:text-fg-subtle hover:border-border-strong focus:border-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary'
 
 /** 搜索防抖延迟：太短会让 store 频繁更新，太长会让输入感觉迟钝 */
 const KEYWORD_DEBOUNCE_MS = 200
@@ -78,7 +81,7 @@ export function FilterBar(): React.JSX.Element {
         onChange={(e) => setKeyword(e.target.value)}
         placeholder="搜索仓库名或描述"
         aria-label="搜索仓库"
-        className={`w-64 max-w-full ${CONTROL_CLASS}`}
+        className={cn('w-64 max-w-full', CONTROL_CLASS)}
       />
 
       <select
@@ -111,12 +114,12 @@ export function FilterBar(): React.JSX.Element {
         ))}
       </select>
 
-      <label className="flex select-none items-center gap-1.5 text-sm text-slate-300">
+      <label className="flex select-none items-center gap-1.5 text-sm text-fg-muted">
         <input
           type="checkbox"
           checked={filters.onlyCloned}
           onChange={(e) => setFilters({ onlyCloned: e.target.checked })}
-          className="h-3.5 w-3.5 accent-sky-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500"
+          className="h-3.5 w-3.5 accent-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         />
         只看已 clone
       </label>

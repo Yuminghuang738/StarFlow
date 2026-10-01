@@ -2,6 +2,134 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================================
+   语义化主题 token
+   ----------------------------------------------------------------------------
+   两套主题各给一组值，靠 <html> 上的 .dark 类切换（见 tailwind.config.js 的
+   darkMode:'class'，以及 index.html 的防闪脚本、lib/theme.ts 的运行时）。
+
+   三条约束：
+   1) **必须是空格分隔的 RGB 三元组**，不能写十六进制——Tailwind 的
+      `bg-surface/60` 要把 <alpha-value> 注进去，十六进制做不到。
+   2) 亮色是默认，写在 :root；暗色只覆盖差异项。所以新增 token 一定要给
+      :root 一个值，否则暗色下会继承到亮色值。
+   3) `--c-chart-*` 是**给 JS 读的**（echarts 读不了 Tailwind 类）。
+      components/charts/chartTheme.ts 用 getComputedStyle 取它们，再拼回 CSS 颜色。
+      所以颜色类的（series/text/axis/...）写三元组，而 `--c-chart-area-*` 需要带
+      alpha、没法拆成三元组，就直接存 rgba() 字面量——chartTheme 两种都认。
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* 表面与底纹。底纹是 135° 渐变，端点由 --c-grad-* 控制 */
+  --c-bg: 248 250 252;
+  --c-grad-from: 238 242 255;
+  --c-grad-to: 253 242 248;
+  --c-surface: 255 255 255;
+  --c-surface-2: 241 245 249;
+
+  --c-border: 226 232 240;
+  --c-border-strong: 203 213 225;
+
+  /* 文字三级 */
+  --c-fg: 15 23 42;
+  --c-fg-muted: 71 85 105;
+  --c-fg-subtle: 100 116 139;
+
+  /* 强调色。--c-primary 是**当文字/描边**用的（Badge、统计数字、焦点边框）；
+     实心按钮和选中态走下面的 --c-primary-solid；渐变只留给 hero / CTA。 */
+  --c-primary: 79 70 229;
+  --c-link: 79 70 229;
+  --c-accent-from: 99 102 241;
+  --c-accent-to: 236 72 153;
+
+  --c-success: 5 150 105;
+  --c-warning: 180 83 9;
+  --c-danger: 220 38 38;
+
+  /* 实心语义背景：「有色底 + 白字」的表面（实心按钮、toast）。
+     和上面那三个是**两种用途**，不能混用——
+       · --c-success/--c-danger/… 是**当文字和描边**用的，暗色下要调亮才看得清；
+       · --c-*-solid 是**当背景**用的，必须压得住白字，暗色下反而是略深一点。
+     拿 --c-danger 直接当背景 + 白字，在暗色主题下是浅红配白字，对比度只有 2:1 左右。
+     新增一处有色底之前，先想清楚是哪一种。 */
+  --c-primary-solid: 79 70 229;
+  --c-success-solid: 5 150 105;
+  --c-warning-solid: 217 119 6;
+  --c-danger-solid: 220 38 38;
+  --c-solid-fg: 255 255 255;
+
+  /* 图表。亮色下同一组色相要压暗，否则白底上发虚 */
+  --c-chart-text: 51 65 85;
+  --c-chart-axis: 148 163 184;
+  --c-chart-split: 226 232 240;
+  --c-chart-tooltip-bg: 255 255 255;
+  --c-chart-pie-border: 255 255 255;
+  --c-chart-series-1: 79 70 229;
+  --c-chart-series-2: 2 132 199;
+  --c-chart-series-3: 219 39 119;
+  --c-chart-series-4: 234 88 12;
+  --c-chart-series-5: 217 119 6;
+  --c-chart-series-6: 5 150 105;
+  --c-chart-series-7: 13 148 136;
+  --c-chart-series-8: 124 58 237;
+  --c-chart-area-top: rgba(99, 102, 241, 0.38);
+  --c-chart-area-bottom: rgba(99, 102, 241, 0.02);
+}
+
+.dark {
+  color-scheme: dark;
+
+  --c-bg: 2 6 23;
+  /* 暗色底纹要保持很克制：太亮会跟内容抢注意力，也更容易看出色带 */
+  --c-grad-from: 17 14 45;
+  --c-grad-to: 34 14 38;
+  --c-surface: 15 23 42;
+  --c-surface-2: 30 41 59;
+
+  --c-border: 30 41 59;
+  --c-border-strong: 51 65 85;
+
+  --c-fg: 241 245 249;
+  --c-fg-muted: 148 163 184;
+  --c-fg-subtle: 100 116 139;
+
+  /* 主色在暗色下必须**调亮**：它主要当文字用（Badge 的 text-primary、统计数字、
+     选中态），indigo-500 压在 #0f172a 上只有 ~4:1。做背景走 --c-primary-solid。 */
+  --c-primary: 129 140 248;
+  --c-link: 129 140 248;
+  --c-accent-from: 99 102 241;
+  --c-accent-to: 236 72 153;
+
+  --c-success: 52 211 153;
+  --c-warning: 251 191 36;
+  --c-danger: 248 113 113;
+
+  /* 实心背景比亮色主题略深一档：暗底上太亮的色块会跟内容抢注意力，
+     而且白字压不住。--c-solid-fg 两套主题都是白，故此处不覆盖。 */
+  --c-primary-solid: 99 102 241;
+  --c-success-solid: 4 120 87;
+  --c-warning-solid: 180 83 9;
+  --c-danger-solid: 185 28 28;
+
+  --c-chart-text: 203 213 225;
+  --c-chart-axis: 148 163 184;
+  --c-chart-split: 30 41 59;
+  --c-chart-tooltip-bg: 15 23 42;
+  --c-chart-pie-border: 15 23 42;
+  --c-chart-series-1: 129 140 248;
+  --c-chart-series-2: 56 189 248;
+  --c-chart-series-3: 244 114 182;
+  --c-chart-series-4: 251 146 60;
+  --c-chart-series-5: 251 191 36;
+  --c-chart-series-6: 52 211 153;
+  --c-chart-series-7: 45 212 191;
+  --c-chart-series-8: 167 139 250;
+  --c-chart-area-top: rgba(56, 189, 248, 0.45);
+  --c-chart-area-bottom: rgba(56, 189, 248, 0.02);
+}
+
 @layer base {
   html,
   body,
@@ -10,7 +138,9 @@
   }
 
   body {
-    @apply bg-slate-950 text-slate-100;
+    @apply bg-bg bg-app text-fg;
+    /* 底纹固定，滚动时不跟着走，否则长列表滚起来背景会「流动」 */
+    background-attachment: fixed;
     margin: 0;
     font-family:
       system-ui,
@@ -18,6 +148,17 @@
       'Segoe UI',
       'Noto Sans CJK SC',
       sans-serif;
+    /*
+      这里刻意**不**给 body 加 color/background 过渡：可见的底色是 `bg-app` 那张
+      全屏渐变，background-image 本身不可过渡，所以对 background-color 做动画是
+      看不见的死代码。切换由 .theme-switching 一次性冻结，走瞬时翻面。
+    */
+  }
+
+  /* 切换主题的那两帧里冻住所有过渡：否则每个元素各自 200ms 淡过去，
+     起始时刻一样但缓动不同，看起来像是没对齐。见 lib/theme.ts 的 paint()。 */
+  .theme-switching * {
+    transition: none !important;
   }
 }
 

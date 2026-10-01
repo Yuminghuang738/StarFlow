@@ -1,10 +1,12 @@
+import { cn } from '../../lib/cn'
+
 type Tone = 'default' | 'success' | 'warning' | 'muted'
 
 const TONE_CLASS: Record<Tone, string> = {
-  default: 'bg-sky-900/60 text-sky-300',
-  success: 'bg-emerald-900/60 text-emerald-300',
-  warning: 'bg-amber-900/60 text-amber-300',
-  muted: 'bg-slate-800 text-slate-400'
+  default: 'bg-primary/15 text-primary',
+  success: 'bg-success/15 text-success',
+  warning: 'bg-warning/15 text-warning',
+  muted: 'bg-surface-2 text-fg-muted'
 }
 
 export function Badge({
@@ -16,7 +18,10 @@ export function Badge({
 }): React.JSX.Element {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${TONE_CLASS[tone]}`}
+      className={cn(
+        'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
+        TONE_CLASS[tone]
+      )}
     >
       {children}
     </span>

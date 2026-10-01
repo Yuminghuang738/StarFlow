@@ -1,3 +1,5 @@
+import { cn } from '../../lib/cn'
+
 const SIZE_CLASS: Record<'sm' | 'md' | 'lg', string> = {
   sm: 'h-4 w-4',
   md: 'h-6 w-6',
@@ -7,7 +9,7 @@ const SIZE_CLASS: Record<'sm' | 'md' | 'lg', string> = {
 export function Spinner({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }): React.JSX.Element {
   return (
     <svg
-      className={`animate-spin text-sky-500 ${SIZE_CLASS[size]}`}
+      className={cn('animate-spin text-primary', SIZE_CLASS[size])}
       viewBox="0 0 24 24"
       fill="none"
       role="status"
