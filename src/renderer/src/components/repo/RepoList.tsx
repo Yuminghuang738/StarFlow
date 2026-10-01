@@ -78,8 +78,8 @@ export function RepoList({ visible }: RepoListProps): React.JSX.Element {
   // ④ 正常渲染。key 用 repo.id，卸载/重排都不会错位
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-surface">
-      {visible.map((r) => (
-        <RepoRow key={r.id} repo={r} />
+      {visible.map((r, i) => (
+        <RepoRow key={r.id} repo={r} index={i} />
       ))}
     </div>
   )

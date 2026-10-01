@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { MotionConfig, motion, type Transition } from 'framer-motion'
 import { AppShell } from './components/layout/AppShell'
 import { useRepoStore } from './store/repoStore'
 import type { AppTab } from './components/layout/nav'
@@ -20,6 +21,22 @@ const PAGES: { key: AppTab; render: () => React.JSX.Element }[] = [
 
 /** 首屏板块。选总览而不是推荐：没配 token 时推荐页是个死胡同，总览永远有东西看。 */
 const DEFAULT_TAB: AppTab = 'overview'
+
+/**
+ * 板块切换的入场动效：淡入 + 轻微上移。
+ *
+ * **不能用 AnimatePresence 做页面切换**（这是本项目的一条硬约束）：页面是保活的，
+ * 切走只是 display:none、不卸载，没有卸载就没有 exit，AnimatePresence 也就无从播起。
+ * 这里改用同一个 motion.div 的两种 animate 目标值：非激活态挂在 opacity:0 / y:6 上
+ * （反正被 display:none 挡着，看不见），一旦变成激活态，framer 会从这组值动画到
+ * 1 / 0——入场观感与 AnimatePresence 一样，但组件在动画前后始终是同一个，
+ * 页面里的 report / 克隆进度 / 搜索框一个字都不会丢。这正是保活要保住的东西。
+ *
+ * 非激活态给 duration: 0：切走时不必再跑一遍淡出（display:none 立刻生效，根本看不见），
+ * 不给 0 的话六个页面会在后台各空转 0.24 秒。
+ */
+const PAGE_ENTER: Transition = { duration: 0.24, ease: 'easeOut' }
+const PAGE_IDLE: Transition = { duration: 0 }
 
 /**
  * 入口：用 useState 管理 tab，不引 react-router。
@@ -70,16 +87,30 @@ export default function App(): React.JSX.Element {
   }, [tab])
 
   return (
-    <AppShell current={tab} onNavigate={setTab}>
-      {PAGES.map((page) =>
-        mounted.includes(page.key) ? (
-          // 这一层 div 只为承载 hidden：它在激活时没有任何类，对布局完全透明，
-          // 页面各自的 mx-auto / max-w-* 照常生效
-          <div key={page.key} className={page.key === tab ? undefined : 'hidden'}>
-            {page.render()}
-          </div>
-        ) : null
-      )}
-    </AppShell>
+    // reducedMotion="user"：用户在系统里开了「减少动态效果」时，framer 会自动跳过
+    // 位移 / 缩放这类动画（透明度保留）。只靠 CSS 的 prefers-reduced-motion 拦不住
+    // framer——它走的是 JS 驱动的动画，不过 CSS transition，两处都要管。
+    <MotionConfig reducedMotion="user">
+      <AppShell current={tab} onNavigate={setTab}>
+        {PAGES.map((page) => {
+          if (!mounted.includes(page.key)) return null
+          const active = page.key === tab
+          return (
+            // 这一层 div 承载 hidden 与切换动效：非激活时加 hidden，激活时不加任何类，
+            // 对布局完全透明，页面各自的 mx-auto / max-w-* 照常生效。
+            <motion.div
+              key={page.key}
+              className={active ? undefined : 'hidden'}
+              // initial={false}：首屏那一次不要播动画，否则启动时整页会淡入一下
+              initial={false}
+              animate={active ? { opacity: 1, y: 0 } : { opacity: 0, y: 6 }}
+              transition={active ? PAGE_ENTER : PAGE_IDLE}
+            >
+              {page.render()}
+            </motion.div>
+          )
+        })}
+      </AppShell>
+    </MotionConfig>
   )
 }

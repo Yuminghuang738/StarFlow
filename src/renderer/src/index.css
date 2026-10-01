@@ -160,6 +160,30 @@
   .theme-switching * {
     transition: none !important;
   }
+
+  /*
+    用户在系统里开了「减少动态效果」时，压掉纯装饰性的 CSS 动画。
+
+    刻意**不**用 `* { animation-duration: .01ms }` 那套一刀切：加载转圈
+    （animate-spin）是「正在进行」的唯一视觉信号，把它停掉看起来像卡死；
+    而骨架屏的呼吸灯纯粹是装饰，关掉没有任何信息损失。所以只关 pulse，
+    并让所有 transition 立刻到位。
+
+    framer-motion 那部分 CSS 拦不住（它走 JS 驱动、不经过 CSS transition），
+    由 App.tsx 的 <MotionConfig reducedMotion="user"> 负责，两处都要管。
+  */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+    }
+
+    .animate-pulse,
+    .row-in {
+      animation: none !important;
+    }
+  }
 }
 
 @layer components {
@@ -174,5 +198,25 @@
 
   .app-region-no-drag {
     -webkit-app-region: no-drag;
+  }
+
+  /*
+    列表行的入场：**只做透明度，不做位移**。
+
+    这一行里挂着 RepoActions 的确认对话框（position: fixed），而任何祖先只要带
+    transform 就会成为 fixed 元素的包含块，对话框会跟着一起偏。透明度不产生
+    包含块，所以这里是安全的——想给它加 translateY 的话，先把对话框改成 portal。
+  */
+  @keyframes row-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .row-in {
+    animation: row-in 260ms ease-out both;
   }
 }

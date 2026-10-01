@@ -14,12 +14,28 @@ import { formatRelative, formatStars, languageColor } from './repoFormat'
  * 外层不套 Card：分隔线由 RepoList 的容器统一画（border-b + last:border-b-0），
  * 一行一条线才是列表；每条自带边框会变回一堆卡片。
  */
-export function RepoRow({ repo }: { repo: Repo }): React.JSX.Element {
+/**
+ * 逐行入场的节奏：每行 18ms、最多排到第 12 行（≈216ms 封顶）。
+ *
+ * 封顶不是省事，是必须的：收藏动辄几百个，不封顶的话最后一行要等好几秒才出现，
+ * 那不像动画，像卡住了。封顶之后整段入场总时长固定，行数再多也不会变慢。
+ */
+const ROW_STAGGER_MS = 18
+const ROW_STAGGER_CAP = 12
+
+export function RepoRow({ repo, index = 0 }: { repo: Repo; index?: number }): React.JSX.Element {
   const topics = repo.topics.slice(0, 4)
   const category = repo.ai_category
 
   return (
-    <div className="group flex flex-wrap items-start gap-x-4 gap-y-2 px-4 py-3.5 transition-colors hover:bg-surface-2/50">
+    <div
+      // row-in 只做透明度（原因见 index.css）：行里挂着 fixed 的确认对话框，
+      // 祖先带 transform 会让它错位。
+      // 动画在**挂载时**播一次；筛掉再筛回来时 React 会复用同一个节点（key 是 repo.id），
+      // 所以不是每次筛选都整列表重播——那会非常晃眼。
+      className="row-in group flex flex-wrap items-start gap-x-4 gap-y-2 px-4 py-3.5 transition-colors hover:bg-surface-2/50"
+      style={{ animationDelay: `${Math.min(index, ROW_STAGGER_CAP) * ROW_STAGGER_MS}ms` }}
+    >
       <div className="min-w-0 flex-1 basis-72">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           {/* 悬停只加下划线、不改颜色：暗色主题下没有「更亮」的语义 token，

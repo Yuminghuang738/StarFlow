@@ -32,13 +32,20 @@ const SIZE_CLASS: Record<Size, string> = {
  * 通用按钮。secondary 是默认 variant；primary 用主色 token（--c-primary，两套主题各一组）。
  * 加了 forwardRef（ConfirmDialog 要拿确认按钮做自动 focus），并新增 loading 态。
  * 其余样式与骨架保持一致。
+ *
+ * 用 `transition` 而不是 `transition-colors`：按下时的缩放也要跟着过渡，
+ * 只写 transition-colors 的话 scale 是瞬间跳变，反而比不做还生硬。
+ * `enabled:active:` 两道前缀缺一不可——disabled 的按钮按下去不该有反馈。
  */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { variant = 'secondary', size = 'md', loading = false, className = '', type = 'button', children, ...rest },
   ref
 ) {
   const classes = cn(
-    'inline-flex items-center justify-center rounded-md font-medium transition-colors',
+    'inline-flex items-center justify-center rounded-md font-medium transition',
+    'enabled:active:scale-[0.97]',
+    // 键盘可达性：只对键盘焦点画环（focus-visible），鼠标点击不画，否则每点一下都闪一圈
+    'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
     'disabled:cursor-not-allowed disabled:opacity-50',
     SIZE_CLASS[size],
     VARIANT_CLASS[variant],
