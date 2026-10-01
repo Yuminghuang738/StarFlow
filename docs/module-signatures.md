@@ -14,6 +14,8 @@ export function hasToken(): Promise<boolean>
 export function getRepos(): Promise<Repo[]>
 export function saveRepos(repos: Repo[]): Promise<void>
 export function updateLocalState(fullName: string, state: Partial<LocalState>): Promise<void>
+export function clearClonedPath(fullName: string): Promise<void>
+export function clearClonedPaths(fullNames: string[]): Promise<void>
 export function clearToken(): Promise<void>
 
 说明：
@@ -22,6 +24,14 @@ export function clearToken(): Promise<void>
 - saveToken 优先用 Electron safeStorage 加密后存本地（base64 密文），禁止以任何形式把明文写入磁盘
 - safeStorage.isEncryptionAvailable() 为 false（例如没装 keyring 的 Linux）时，token 只保存在主进程内存中、不写盘，重启后需在设置页重新填写
 - clearToken 先写盘、再清内存（与 saveToken 相反），保证拿不到「磁盘上还有、内存已清」的中间态；不清 reposCache
+- clearClonedPath / clearClonedPaths 只删 local.cloned_path，其余 local 字段（fork 标记等）原样保留。
+  必须是独立函数：updateLocalState 会显式过滤掉值为 undefined 的键，所以
+  「updateLocalState(f, { cloned_path: undefined })」清不掉任何东西，而 Electron IPC 的
+  结构化克隆和 JSON.stringify 也都会丢掉 undefined。clearClonedPaths 一次只写一遍盘，
+  且**不**用 saveRepos(整个新数组) 实现，否则会覆盖并发写入。
+- ⚠️ 语义边界：既然 cloned_path 是可以被静默清掉的，那**「读到一条不存在的路径」就等同于
+  「这条记录已经作废」**，两者不能同时成立。因此任何「写入假路径再断言能读回」的测试都会
+  与 local:pruneClones 冲突。对账发生在渲染进程 load() 那一层，getRepos() 本身不做对账。
 
 ## src/main/mock.ts —— 负责人 P7
 export function mockStarred(): Promise<Repo[]>
@@ -52,6 +62,8 @@ export function chooseDir(): Promise<string | null>
 export function clone(fullName: string, targetDir: string): Promise<string>
 export function openDir(path: string): Promise<void>
 export function getCloneProgress(fullName: string): CloneProgress | null
+export function removeClone(fullName: string, path: string): Promise<string | null>
+export function listMissingCloneRecords(repos: Repo[]): Promise<string[]>
 
 说明：MOCK_MODE=true 时 openDir 仍然走真实实现（shell.openPath），
 因为演示前会预先 clone 好仓库，"打开目录"必须真的能打开。
@@ -63,6 +75,21 @@ getCloneProgress 是**同步的内存查询**，给渲染进程在 clone 进行�
 还没吐出第一行；elapsedMs 在每次读取时现算，不在写进度时算死（git 在 counting /
 resolving 阶段可能十几秒不吭声，算死的话界面的秒数会冻住）。
 MOCK_MODE=true 时不产生任何记录（全项目只有 mock.ts 一个假数据源，这里不另造假进度）。
+
+removeClone 是本项目唯一会真正删除用户文件的地方，闸门顺序本身即正确性，不要重排：
+① 先用 lstat 判存在性，不存在就当"已删除"返回 null（必须最先，否则会先撞上"不是 git 工作树"）；
+② 只删目录、且顶层不能是符号链接；③ realpath 解析后，字符串路径与真实路径**各自**过一遍
+"不是文件系统根 / 不是 home / 不是 home 的祖先"——中间路径是 symlink 时只有 realpath 看得穿；
+④ basename(realpath) 必须等于仓库名（有 .git 只能证明"这是个 git 仓库"，
+   证明不了"这是 StarPilot 克隆的那份"，没有这条会把 ~/Documents 这类目录整个删掉）；
+⑤ 真实模式要求工作树里有 .git，**mock 模式不跳过校验**，改为要求路径位于
+   <downloads>/StarPilotDemo 之内（mock 的 clone 不建 .git）。
+返回值是**实际被删掉的路径**（没删成返回 null），供调用方拿去做提示。
+
+listMissingCloneRecords 做对账，返回"记录里有、磁盘上却没有"的 fullName 列表。
+父目录启发式：目标不存在但父目录还在 → 用户确实删了，清记录；父目录也不在 → 多半是
+外接盘/网络盘没挂载，跳过。内部是异步 stat：路径挂在已断开的 NFS 挂载点上时，
+同步 stat 会把主进程连同整个 UI 一起冻住几十秒，而那恰好是它要处理的场景。
 
 ## src/main/ai.ts —— 负责人 P2
 export function summarize(readme: string): Promise<string>
