@@ -1,5 +1,6 @@
 // 自检脚手架：把 electron 打桩，让 src/main/*.ts 能脱离 Electron 直接跑。
-// 覆盖主进程实际用到的 API：app.getPath / safeStorage / shell.openPath / BrowserWindow / dialog。
+// 覆盖主进程实际用到的 API：app.getPath / safeStorage / shell.openPath / shell.openExternal
+// / BrowserWindow / dialog。
 //
 // 可选环境变量（都不设也能跑，行为与最初 ai.ts 自检时的桩一致）：
 //   RUN_ID            数据目录标识。设了 → 落到 out/selfcheck/data/<RUN_ID>/（可复现、可重复跑，跑前自行清目录）；
@@ -52,6 +53,12 @@ export const shell = {
   // 所以桩也必须按返回值语义实现，否则测不出 openDir 是否核对了返回值。
   async openPath(target) {
     return existsSync(target) ? '' : 'Failed to open path'
+  },
+  // auth.ts 的设备流会用 shell.openExternal 拉起浏览器。真机失败时是 reject 语义，
+  // 这里只记录调用过的 URL，供自检断言"只拉起了一次、且用的是 verification_uri"。
+  openExternalCalls: [],
+  async openExternal(url) {
+    shell.openExternalCalls.push(url)
   }
 }
 
