@@ -11,10 +11,10 @@ import { starTrendLineOption } from './options'
  *
  * ⚠️ 口径：全程 UTC。Repo.starred_at 是 UTC 的 ISO 8601，主进程 report.ts 也用
  * utcDayKey 分桶。如果这里改成按本地时区分桶，东八区晚上 star 的记录会被算到
- * 前一天，图上数字就和周报、和「本周新增」那张卡都对不上。
+ * 前一天，图上数字就和周报、和总览那张「近 N 天新增」的卡都对不上。
  *
  * 分桶逻辑在 lib/collectionStats.ts 的 starTrendBuckets 里，不在组件里渲染时现写：
- * 它与「本周新增」卡片、列表的「只看最近 N 天新增」共用同一个 RECENT_WINDOW_DAYS，
+ * 它与总览的「近 N 天新增」卡片、列表的「只看最近 N 天新增」共用同一个 RECENT_WINDOW_DAYS，
  * 而"图上加起来 = 卡片上的数"这件事只能在纯函数上断言——渲染进程没有 DOM 测试环境。
  *
  * 数据直接从 repos 现算（不依赖 report.dailyStarCount 的 IPC 往返），

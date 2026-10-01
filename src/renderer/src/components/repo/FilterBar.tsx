@@ -152,7 +152,8 @@ export function FilterBar(): React.JSX.Element {
       </label>
 
       {/* 天数从 RECENT_WINDOW_DAYS 拼出来：窗口改了文案就该跟着改，
-          写死"7 天"的话改了阈值它就开始骗人。它对应总览的「本周新增」那张卡。 */}
+          写死"7 天"的话改了阈值它就开始骗人。它对应总览的「近 N 天新增」那张卡
+          （同一个 starredBucket，卡片写 5、勾上这个就必须是 5 条）。 */}
       <label className="flex select-none items-center gap-1.5 text-sm text-fg-muted">
         <input
           type="checkbox"

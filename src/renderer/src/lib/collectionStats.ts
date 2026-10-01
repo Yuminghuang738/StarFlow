@@ -6,7 +6,12 @@
  * 纯函数 + 显式传入 `now`，保证「同输入同输出」，自检里可以直接喂假数据。
  *
  * ⚠️ 时间口径必须与主进程 report.ts、后端 Repo.starred_at（UTC ISO 8601）一致：
- * 「本周」「上周」都按 **UTC 日历天**切，用本地时间会让东八区深夜的记录前后差一天。
+ * 「最近 N 天」「前 N 天」都按 **UTC 日历天**切，用本地时间会让东八区深夜的记录前后差一天。
+ *
+ * ⚠️ 这里的两扇窗**都不是日历周**。周报页那张「本周新增 Star」卡才是（report.ts 的
+ * weekStart，本周一 00:00 UTC 起），本模块的 recent7 是「含今天在内往回数 7 个日历日」，
+ * 周三时它会包含上周二到周日。两者只有恰好周日才相等，所以界面上必须用不同的词：
+ * 本模块一律叫「近 N 天」，绝不叫「本周」。
  */
 
 import type { Repo, AiCategory } from '@shared/types'
@@ -130,13 +135,17 @@ function recentStart(now: number): number {
 
 /**
  * 按收藏时间分档，与 activityBucket 同一个思路：**阈值只有一处**。
- * 总览的「本周新增 / 上周」与列表的「只看最近 7 天新增」都走它，
+ * 总览的「近 N 天新增 / 前 N 天」与列表的「只看最近 7 天新增」都走它，
  * 各写一遍 `>= todayStart - 6 * DAY` 迟早会漂，而漂了之后卡片写 5、点进去 3，
  * 两边都"看着对"。
  *
- * 'prevWeek' 只服务于趋势文案（比上周多/少），界面上没有对应的筛选——这与
+ * 'prevWeek' 只服务于趋势文案（比前 N 天多/少），界面上没有对应的筛选——这与
  * activityBucket 里 'middle' 的处境一样，它必须存在，但不必做成一个选项。
  * 'unknown' 是 starred_at 解析不出来的，不计入任何一档。
+ *
+ * ⚠️ 档名里的 'week' 是历史叫法，它指的是**近 N 天这扇滚动窗**，不是日历周
+ * （见文件头的说明）。改名的成本大于收益（调用点全是纯函数断言），
+ * 但**界面文案一律不许写成「本周」**。
  */
 export type StarredBucket = 'week' | 'prevWeek' | 'earlier' | 'unknown'
 
@@ -161,7 +170,7 @@ export interface TrendPoint {
 /**
  * 「最近 RECENT_WINDOW_DAYS 天新增」折线图的数据。
  *
- * 它与「本周新增」卡片、列表的「只看最近 N 天新增」是**同一扇窗**：
+ * 它与总览那张卡片、列表的「只看最近 N 天新增」是**同一扇窗**：
  * 三条路径都从 RECENT_WINDOW_DAYS 出发，所以卡片写 5，图上加起来就该是 5。
  * 从组件里抽出来（原来是 StarTrendChart 的 useMemo）就是为了能断言这件事——
  * 渲染进程没有 DOM 测试环境，图表渲染不出来，但这条数可以在纯函数上卡住。
@@ -170,7 +179,7 @@ export interface TrendPoint {
  * 所以空窗口也返回 RECENT_WINDOW_DAYS 个 0，而不是空数组。
  *
  * ⚠️ 与卡片的唯一差异：starred_at 落在**未来**的记录（时钟偏差）会被
- * 「本周新增」数进去，却落不进任何一个桶——最后一个桶是"今天"，图上没有"以后"。
+ * 「近 N 天新增」数进去，却落不进任何一个桶——最后一个桶是"今天"，图上没有"以后"。
  * 这是刻意保留的：为了迁就一条异常数据把坐标轴画到明天，代价更大。
  * 自检里有一条断言专门把这个差异钉住，免得哪天被当成 bug 顺手"修"掉。
  *
@@ -372,7 +381,12 @@ export function buildAiDigest(stats: CollectionStats, now: number): string {
     .join('、')
   lines.push(`主题标签：共 ${stats.topicCount} 个${topics ? `；高频的有 ${topics}` : ''}`)
 
-  lines.push(`本周新增 ${stats.recent7} 个，上周 ${stats.prev7} 个`)
+  // 措辞与总览卡片同源，且都必须说「近 N 天」而不是「本周」：模型拿到「本周新增 3」时
+  // 会按日历周去解读，而这扇窗在周三已经跨到上周去了（见文件头）。
+  // 天数从常量拼出来，窗口一改这句就跟着改。
+  lines.push(
+    `最近 ${RECENT_WINDOW_DAYS} 天新增 ${stats.recent7} 个，前 ${RECENT_WINDOW_DAYS} 天 ${stats.prev7} 个`
+  )
   lines.push(`星标总数 ${stats.totalStars}，平均每个 ${stats.avgStars}`)
   // 天数从常量拼出来，与总览卡片、筛选下拉的文案同源：
   // 摘要里写「90 天」而卡片按 60 天算，模型就会照着一个过期口径去解读。

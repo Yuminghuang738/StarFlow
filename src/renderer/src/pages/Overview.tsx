@@ -8,6 +8,7 @@ import { StarTrendChart } from '../components/charts/StarTrendChart'
 import { formatStars, languageColor } from '../components/repo/repoFormat'
 import {
   ACTIVE_WINDOW_DAYS,
+  RECENT_WINDOW_DAYS,
   STALE_WINDOW_DAYS,
   buildAiDigest,
   computeCollectionStats,
@@ -32,7 +33,10 @@ import type { Repo } from '@shared/types'
  * 可点的卡片/条形（下钻）跳到收藏管理页并带上对应筛选。**必须整份覆盖筛选器**，
  * 见 drill() 里的说明。
  *
- * ⚠️ 「本周新增」与图表、周报页共用同一套 UTC 口径，改这里之前先看 report.ts。
+ * ⚠️ 「近 N 天新增」与图表共用**同一扇窗**（RECENT_WINDOW_DAYS），与周报页那张
+ * 「本周新增 Star」共用的是**同一套 UTC 口径、但不是同一扇窗**：后者按日历周
+ * （周一 00:00 UTC 起）算，本页是含今天在内的滚动 N 天。所以本页的文案一律说
+ * 「近 N 天」，绝不写「本周」。改这里之前先看 report.ts 与 collectionStats.ts 的文件头。
  */
 export function Overview(): React.JSX.Element {
   const repos = useRepoStore((s) => s.repos)
@@ -150,10 +154,15 @@ export function Overview(): React.JSX.Element {
           hint={`总星标 ${formatStars(stats.totalStars)}`}
           onClick={() => drill({})}
         />
-        {/* 「本周新增」下钻走的是 onlyRecent（最近 RECENT_WINDOW_DAYS 个 UTC 日历日），
-            与这个数字共用 collectionStats 的 starredBucket——卡片写 5、点进去就必须是 5 条。 */}
+        {/* 这张卡**不能叫「本周新增」**：recent7 是"含今天在内往回数 7 个 UTC 日历日"，
+            周三时它已经跨到上周去了。周报页另有一张真的按日历周（周一 00:00 UTC 起）算的
+            「本周新增 Star」，两者只有恰好周日才相等——同一个词指两扇不同的窗，
+            用户对不上账只会以为哪里坏了。同页的折线图标题用的就是「近 N 天」，
+            这张卡现在跟它一致。
+            下钻走的是 onlyRecent，与这个数字共用 collectionStats 的 starredBucket，
+            且是同一扇窗——卡片写 5、点进去就必须是 5 条。 */}
         <StatCard
-          label="本周新增"
+          label={`近 ${RECENT_WINDOW_DAYS} 天新增`}
           value={stats.recent7}
           hint={trendHint(stats.recent7, stats.prev7)}
           tone={stats.recent7 > 0 ? 'up' : 'flat'}
@@ -543,13 +552,20 @@ function percent(part: number, whole: number): string {
   return `${Math.round((part / whole) * 100)}%`
 }
 
-/** 本周与上周的对比文案；上周为 0 时不显示「+∞%」那种废话 */
+/**
+ * 近 N 天与再往前 N 天的对比文案；前一个窗口为 0 时不显示「+∞%」那种废话。
+ *
+ * 措辞统一说「前 N 天」而不是「上周」：prev7 是"把这扇滚动窗整体往前挪 7 个日历日"，
+ * 它同样不是日历周（见 collectionStats 文件头）。写「上周」的话，周三看到的
+ * "上周"其实是从上周一到这周一，用户按日历去核对又是一笔对不上的账。
+ */
 function trendHint(current: number, previous: number): string {
-  if (previous === 0) return current > 0 ? '上周还没有新增' : '上周也没有新增'
+  const win = RECENT_WINDOW_DAYS
+  if (previous === 0) return current > 0 ? `前 ${win} 天还没有新增` : `前 ${win} 天也没有新增`
   const diff = current - previous
-  if (diff === 0) return '与上周持平'
+  if (diff === 0) return `与前 ${win} 天持平`
   const pct = Math.round((Math.abs(diff) / previous) * 100)
-  return diff > 0 ? `比上周多 ${pct}%` : `比上周少 ${pct}%`
+  return diff > 0 ? `比前 ${win} 天多 ${pct}%` : `比前 ${win} 天少 ${pct}%`
 }
 
 /**

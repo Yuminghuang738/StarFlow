@@ -2,7 +2,7 @@
 //
 // 跑法：node scripts/selfcheck/collection-stats.mjs
 //
-// 为什么值得单独测：Overview 页上「本周新增 / 近期活跃 / 可能已停更」这些数字
+// 为什么值得单独测：Overview 页上「近 7 天新增 / 近期活跃 / 可能已停更」这些数字
 // 全部由它算出来，而它们都建立在**时间窗口**上——差一天的边界错误在界面上
 // 完全看不出来（数字还是有，只是悄悄错了一个）。这里把 now 固定住逐条卡边界。
 //
@@ -79,21 +79,21 @@ console.log('\n=== 1) 空输入 ===')
 /* 2) 时间窗口边界                                                      */
 /* ------------------------------------------------------------------ */
 
-console.log('\n=== 2) 本周 / 上周的 UTC 日历天边界 ===')
+console.log('\n=== 2) 近 N 天 / 前 N 天的 UTC 日历天边界 ===')
 {
   const s = computeCollectionStats(
     [
       repo({ starred_at: iso(NOW) }), // 今天
       repo({ starred_at: iso(RECENT_START) }), // 最近窗口的第一毫秒
-      repo({ starred_at: iso(RECENT_START - 1) }), // 差 1ms，落到上周
-      repo({ starred_at: iso(PREV_START) }), // 上周窗口的第一毫秒
+      repo({ starred_at: iso(RECENT_START - 1) }), // 差 1ms，落到前一扇窗
+      repo({ starred_at: iso(PREV_START) }), // 前一扇窗的第一毫秒
       repo({ starred_at: iso(PREV_START - 1) }), // 再早 1ms，两个窗口都不算
       repo({ starred_at: '不是时间' }) // 脏数据，忽略
     ],
     NOW
   )
-  check('本周新增 = 2（含边界那一毫秒）', s.recent7 === 2, String(s.recent7))
-  check('上周新增 = 2', s.prev7 === 2, String(s.prev7))
+  check('近 7 天新增 = 2（含边界那一毫秒）', s.recent7 === 2, String(s.recent7))
+  check('前 7 天新增 = 2', s.prev7 === 2, String(s.prev7))
   check('解析不出来的 starred_at 不计数', s.total === 6, `total=${s.total}`)
 }
 
@@ -250,7 +250,16 @@ console.log('\n=== 7) buildAiDigest：喂给模型的摘要 ===')
   check('语言分布写进去了', digest.includes('TypeScript 2'))
   check('分类分布只列非空桶', digest.includes('前端 2') && digest.includes('后端 1'))
   check('空桶不进摘要（否则模型会对着 0 说事）', !digest.includes('DevOps'))
-  check('本周新增与上周一起给，模型才能比趋势', /本周新增 \d+ 个，上周 \d+ 个/.test(digest))
+  // ⚠️ 这条断言同时钉住**措辞**：必须说「最近 N 天」而不是「本周」。
+  // 这扇窗是含今天在内的滚动 N 天，周报页另有一张真按日历周算的「本周新增 Star」，
+  // 模型拿到「本周」会按日历周解读，而这扇窗在周三已经跨到上周去了。
+  // 天数从常量拼（与卡片、筛选下拉同源），所以不写死 7。
+  check(
+    '近 N 天与前 N 天一起给（且不许写成「本周」）',
+    new RegExp(`最近 ${RECENT_WINDOW_DAYS} 天新增 \\d+ 个，前 ${RECENT_WINDOW_DAYS} 天 \\d+ 个`).test(digest) &&
+      !digest.includes('本周'),
+    digest.split('\n').find((l) => l.includes('新增'))
+  )
   // 这条原来钉的是旧措辞「90 天内有过提交 / 超过一年没提交」。措辞这次是有意改的
   // （天数要跟常量走，且「一年」和 365 天到底等不等得让读的人自己换算），
   // 所以断言跟着改写——但**不是放松**：天数改成引用常量，摘要里再写死一个 90
@@ -362,7 +371,7 @@ console.log('\n=== 8) 趋势图分桶 ===')
     empty.length === RECENT_WINDOW_DAYS && empty.every((p) => p.count === 0)
   )
 
-  // ⚠️ 与「本周新增」卡片的关系：两条路径共用同一扇窗，所以必须相等。
+  // ⚠️ 与「近 N 天新增」卡片的关系：两条路径共用同一扇窗，所以必须相等。
   // 除了一种情况——见下一条。
   const windowRepos = [
     repo({ starred_at: iso(NOW) }),
@@ -373,7 +382,7 @@ console.log('\n=== 8) 趋势图分桶 ===')
   ]
   const chartSum = starTrendBuckets(windowRepos, NOW).reduce((n, p) => n + p.count, 0)
   check(
-    '图上加起来 == 「本周新增」卡片上的数',
+    '图上加起来 == 「近 N 天新增」卡片上的数',
     chartSum === computeCollectionStats(windowRepos, NOW).recent7 && chartSum === 3,
     `${chartSum} vs ${computeCollectionStats(windowRepos, NOW).recent7}`
   )
@@ -383,7 +392,7 @@ console.log('\n=== 8) 趋势图分桶 ===')
       windowRepos.filter((r) => starredBucket(r, NOW) === 'week').length
   )
 
-  // 时钟偏差：未来时间戳会被「本周新增」数进去，却落不进任何一个桶（最后一个桶是"今天"）。
+  // 时钟偏差：未来时间戳会被「近 N 天新增」数进去，却落不进任何一个桶（最后一个桶是"今天"）。
   // 这条差异是**刻意保留**的（不为一条异常数据把坐标轴画到明天），钉住免得被"顺手修掉"。
   const future = [repo({ starred_at: iso(NOW + 3 * DAY) })]
   check(

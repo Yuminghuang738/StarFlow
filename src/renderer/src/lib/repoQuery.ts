@@ -119,7 +119,7 @@ export interface RepoFilters {
   language: LanguageFilter
   category: CategoryFilter
   onlyCloned: boolean
-  /** 只看最近 RECENT_WINDOW_DAYS 天新增（收藏）的，对应总览的「本周新增」 */
+  /** 只看最近 RECENT_WINDOW_DAYS 天新增（收藏）的，对应总览的「近 N 天新增」 */
   onlyRecent: boolean
   health: HealthFilter
   sort: RepoSort
@@ -179,7 +179,7 @@ export function filterRepos(repos: Repo[], filters: RepoFilters, now: number): R
       return false
     }
     if (filters.onlyCloned && !r.local?.cloned_path) return false
-    // 与「本周新增」共用 starredBucket：那边数 `case 'week'`，这边筛同一个档
+    // 与「近 N 天新增」共用 starredBucket：那边数 `case 'week'`，这边筛同一个档
     if (filters.onlyRecent && starredBucket(r, now) !== 'week') return false
     if (filters.health !== 'all' && activityBucket(r, now) !== filters.health) return false
     return true
