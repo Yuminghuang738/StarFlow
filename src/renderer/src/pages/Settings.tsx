@@ -4,6 +4,7 @@ import { useRepoStore } from '../store/repoStore'
 import { Button } from '../components/common/Button'
 import { Card } from '../components/common/Card'
 import { Badge } from '../components/common/Badge'
+import { GithubLoginCard } from '../components/auth/GithubLoginCard'
 
 export function Settings(): React.JSX.Element {
   const [token, setToken] = useState('')
@@ -39,6 +40,11 @@ export function Settings(): React.JSX.Element {
     setHasToken(await useRepoStore.getState().hasToken())
   }
 
+  /** 登录 / 退出之后要让上面的 token 状态徽章跟着变 */
+  async function refreshTokenStatus(): Promise<void> {
+    setHasToken(await useRepoStore.getState().hasToken())
+  }
+
   async function test(): Promise<void> {
     setTesting(true)
     setTestResult(null)
@@ -55,6 +61,8 @@ export function Settings(): React.JSX.Element {
   return (
     <div className="mx-auto max-w-2xl">
       <h1 className="text-xl font-semibold">设置</h1>
+
+      <GithubLoginCard onAuthChange={() => void refreshTokenStatus()} />
 
       <Card className="mt-4">
         <h2 className="text-sm font-medium text-slate-200">GitHub Token</h2>
