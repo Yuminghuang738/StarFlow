@@ -325,6 +325,15 @@ export function Report(): React.JSX.Element {
             <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-fg-muted">
               {report.aiSummary}
             </p>
+            {/* ⚠️ 这段正文**不一定出自模型**：按 ai.generateReport 的约定，任何失败
+                （没配 Key、401、限频、断网）都要退回一段本地按数据拼的摘要，绝不抛错。
+                标题写着「AI 总结」而正文可能不是 AI 写的，不说清就会误导——刚配完 Key
+                的人来这儿看到一段通顺的话，会以为 Key 通了，其实一次模型调用都没发生。
+                说得含糊（"可能"）比说错强，也不值得为此给 WeeklyReport 加字段（契约）。 */}
+            <p className="mt-3 text-xs text-fg-subtle">
+              配好 AI Key 后这段由模型生成；没配或调用失败时，显示的是按本地数据拼成的摘要。
+              想确认 Key 是否生效，用「设置 → 测试 AI 连接」。
+            </p>
           </Card>
 
           {/* 本周项目动态：收藏里这周发了新版本的项目。
