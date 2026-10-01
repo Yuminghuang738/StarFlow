@@ -16,7 +16,7 @@
 | npm | 10+ | 随 Node 22 自带 |
 | git | **必须已安装且在 `PATH` 中** | clone / fork 功能走 `simple-git`，它调的是系统 git 命令。`git --version` 能输出版本号即可 |
 
-Linux 额外说明：如果系统没有提供 keyring，`safeStorage` 的加密能力不可用，GitHub Token 会**降级为明文保存并在控制台告警**（见 `src/main/store.ts`）。这是刻意为之，否则应用会直接打不开。
+Linux 额外说明：如果系统没有提供 keyring，`safeStorage` 的加密能力不可用，GitHub Token **只保存在主进程内存中、不写入磁盘**，重启应用后需要到设置页重新填写（见 `src/main/store.ts` 与 issue #9）。这是刻意为之：既不让明文落盘，也不让真实模式在没有 keyring 的机器上完全不可用。
 
 ---
 
