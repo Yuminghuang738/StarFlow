@@ -20,7 +20,10 @@ tasks:
 ## Phase 2 待办（autonomous 阶段，按提示词的优先级顺序）
 - [x] 全量自检摸底：15 个驱动器，14 绿；唯一红的 realclone 是 fixture 写死
       Windows 的 schannel 导致（非功能问题），已按平台分叉修掉（ea7b36e）→ 优先级 1 收口
-- [ ] 优先级 0：功能拓展
+- [x] 优先级 0：收藏列表排序（160ac5d，含把筛选/排序纯函数抽到 lib/repoQuery.ts）
+- [x] 优先级 1：e2e 自检隔离 userData（6d1bd61）——原来自检会覆盖开发者真实 token，
+      且 mock e2e 同一 profile 连跑第二次必红
+- [ ] 优先级 0（继续）：还有哪些高价值功能拓展
 - [ ] 优先级 2：类型 / lint（当前干净，需持续复查）
 - [ ] 优先级 3：性能热点（**必须有实测证据**；echarts 按需引入已排除——渲染进程无
       DOM 测试环境，漏注册组件只在运行时炸，不可验证）
@@ -33,6 +36,9 @@ tasks:
   纯外观问题，可顺手清
 - 本分支基于**未合并**的 feat/ai-endpoint-agnostic（PR #31），若开 PR 到 main 会带上
   PR #31 的改动，需在描述里显著标注
+- 自检的经验教训（新增脚本时照做）：跑真实 Electron 的脚本必须带
+  `--user-data-dir`（用 e2e-profile.mjs），且必须自己清干净目标目录再建，
+  否则要么污染开发者数据、要么第二次跑就红/假绿
 
 ## 约束备忘
 - 不跑 `npm run dev`（GUI 需用户终端），验证靠 tsc / eslint / build / selfcheck

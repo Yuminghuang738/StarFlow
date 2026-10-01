@@ -222,3 +222,62 @@ Windows 用 `sslBackend=schannel` + `schannelCheckRevoke=false`，其余平台�
 - `npx eslint scripts/selfcheck/` → 干净
 - `store-local-e2e-realclone.mjs` → **7 PASS / 0 FAIL**（修前 5 FAIL）
 - `store-local.mjs clone` → 6 PASS / 0 FAIL（同一份 fixture，一并受益）
+
+## R13 · Phase 2：收藏列表排序（优先级 0 功能拓展）
+done · commit 160ac5d
+
+收藏上百个之后只有「GitHub 返回顺序」一种排法。新增四档：最近收藏（默认）/
+星标最多 / 最近更新 / 名称 A→Z。默认档刻意选「最近收藏」，因为**它与改动前的
+实际显示顺序完全一致**（GET /user/starred 本就按 starred_at 倒序返回，新 Star 的
+又会 prepend），所以这次加排序不改默认观感——自检里有一条恒等变换断言专门守它。
+
+纯函数 filterRepos / sortRepos / selectRepos 从 repoStore.ts 抽到 lib/repoQuery.ts，
+理由与 collectionStats.ts / weekActivity.ts 一致：排序的边界（没有 pushed_at 的
+排哪里、同分谁在前）在界面上完全看不出来——列表还是那么长、也还是有内容，
+只是顺序悄悄错了位。抽出后只依赖 @shared/types，自检可直接打包进 node 跑。
+
+两条刻意决定，都有断言钉住：
+- **不原地 sort**：repos 数组直接来自 zustand store，原地排会改掉 store 里的顺序，
+  而那顺序同时被周报 / 总览 / 推荐当作「收藏先后」在用。
+- **拿不到时间一律当最旧**：pushed_at 为 null 时排最后，而不是被当成"最新"顶到最前。
+  另刻意不写 `time(b) - time(a)`：两边都拿不到时间时差值是 NaN，规范虽然把 NaN
+  当 0 处理，但那是隐式约定；写死比较方向更稳妥。
+
+顺带修掉一处重复定义：筛选器初始值原本 store 里叫 INITIAL_FILTERS、FilterBar 里
+又叫 EMPTY_FILTERS，两份手工同步。这次加 sort 字段正是活例子——只改一处的话
+「重置」会悄悄不重置排序，界面上完全看不出来。统一成 DEFAULT_FILTERS 了。
+
+新增自检 scripts/selfcheck/repo-query.mjs（39 条断言）。第一版有 1 条红，是**我的
+fixture 期望写错**（把非法日期串排在了真实最旧之前），实现是对的——改断言而不是
+改实现，因为那条规则另有断言在守，且实现符合注释里写明的口径。
+验证：tsc / eslint / build 全绿；repo-query 39/39；mock e2e 11/11。
+⚠️ 排序下拉的实际观感只能人工验收（渲染进程没有 DOM 测试环境）。
+
+## R14 · Phase 2：e2e 自检隔离 userData（优先级 1 不稳定用例）
+done · commit 6d1bd61
+
+由 R13 收尾时的一次 FAIL 牵出来：mock e2e 的「初始 hasToken 应为 false」变红。
+第一反应是自己的改动带坏了，查下来是**自检本身在污染开发者的真实数据**——
+两个 e2e 都是拿真实 Electron 跑完整应用，db 就写在 app.getPath('userData') 下。
+
+验证方式：同一 profile 连跑两次 mock e2e，第二次必红（第一次自己 saveToken 后
+不清理）。再换成 --user-data-dir 指向空目录，同一条命令两次全绿——证明是状态
+污染而非功能回归。
+
+比"不稳定"更严重的是第二层：saveToken 会把开发者**自己的 GitHub token 覆盖成
+测试串**，updateLocalState 往真实仓库记录里写 /tmp/e2e、me/e2e。跑一次自检就把
+登录态弄没了。新增 e2e-profile.mjs 统一发 --user-data-dir（每次先删干净），
+mock e2e 与 realclone 都接过去。
+
+store-local.mjs 的 runReal 刻意**没加**这个开关并留了注释：real-entry 自己就
+mkdtemp + app.setPath('userData')，而 setPath 在启动后跑、命令行开关压不过它。
+（这条是被自己的错误注释逼出来的——先写了"必须隔离"，查证后发现不成立。）
+
+同轮还修掉 realclone 的同类陷阱：它只 mkdir 目标目录、不清理，直接跑第二次时
+首次 clone 会撞上一轮的 Hello-World 返回「目标目录已存在」——「返回完整绝对路径」
+变红，而紧跟的「重复克隆应是这个错」因为**同样的原因**假绿。现在自己先 rm 再 mkdir。
+这正是"看日志像网络问题"的那类假象。
+
+验证：eslint 干净；mock e2e 连跑 2 次全绿，且 ~/.config/star-flow/starflow.mock.db.json
+的 mtime 前后完全一致（真实 userData 一个字节都没被写）；realclone 直接跑 3 次
+全绿（每次 7 PASS / 0 FAIL）。
