@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { useRepoStore, filterRepos } from '../store/repoStore'
+import { useRepoStore } from '../store/repoStore'
+import { selectRepos } from '../lib/repoQuery'
 import { Button } from '../components/common/Button'
 import { FilterBar } from '../components/repo/FilterBar'
 import { RepoList } from '../components/repo/RepoList'
@@ -21,7 +22,7 @@ export function Manage(): React.JSX.Element {
   // 注意不要写成 useRepoStore((s) => s.visibleRepos())：visibleRepos() 每次返回新数组，
   // zustand v5 的 useSyncExternalStore 用严格相等比较快照，会判定值一直在变而无限重渲染。
   // 正确做法是订阅它依赖的两个切片，再用同一个纯函数算（filters 因此是真实的依赖）。
-  const visible = useMemo(() => filterRepos(repos, filters), [repos, filters])
+  const visible = useMemo(() => selectRepos(repos, filters), [repos, filters])
 
   // 两个按钮各自维护忙碌态。
   // 不能直接用 store 的 loading 决定文案：loading 是全局的，点「同步」时

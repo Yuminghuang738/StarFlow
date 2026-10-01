@@ -1,14 +1,13 @@
 import { create } from 'zustand'
-import type { Repo, AiCategory, LocalState } from '@shared/types'
+import type { Repo, LocalState } from '@shared/types'
 import { unwrap, ipcErrorMessage } from '../lib/api'
 import { pushToast } from '../components/common/Toast'
+import { DEFAULT_FILTERS, selectRepos, type RepoFilters } from '../lib/repoQuery'
 
-export interface RepoFilters {
-  keyword: string
-  language: string | null
-  category: AiCategory | null
-  onlyCloned: boolean
-}
+// 筛选/排序的实现与类型都在 lib/repoQuery.ts（纯函数，自检可打包）。
+// 这里再导出一遍，只是为了让老的 `from '../store/repoStore'` 导入点不用改。
+export type { RepoFilters, RepoSort } from '../lib/repoQuery'
+export { DEFAULT_FILTERS, filterRepos, selectRepos, sortRepos } from '../lib/repoQuery'
 
 export interface RepoStore {
   repos: Repo[]
@@ -35,37 +34,6 @@ export interface RepoStore {
   // —— 新增 token 方法 ——
   hasToken(): Promise<boolean>
   saveToken(token: string): Promise<void>
-}
-
-const INITIAL_FILTERS: RepoFilters = {
-  keyword: '',
-  language: null,
-  category: null,
-  onlyCloned: false
-}
-
-/**
- * 纯函数版筛选，visibleRepos() 直接复用它。
- * 单独抽出来有两个原因：
- * 1. 组件里不能写 useRepoStore((s) => s.visibleRepos())：它每次返回新数组，
- *    zustand v5 的 useSyncExternalStore 用严格相等比较快照，会判定值一直在变
- *    从而无限重渲染。组件要订阅 repos / filters 两个切片，自己算。
- * 2. 这样 useMemo 的依赖数组是"真的被用到"的，不会触发
- *    react-hooks/exhaustive-deps 的误报，也不需要写 eslint-disable。
- */
-export function filterRepos(repos: Repo[], filters: RepoFilters): Repo[] {
-  const keyword = filters.keyword.trim().toLowerCase()
-
-  return repos.filter((r) => {
-    if (keyword) {
-      const haystack = `${r.full_name} ${r.description ?? ''} ${(r.topics ?? []).join(' ')}`.toLowerCase()
-      if (!haystack.includes(keyword)) return false
-    }
-    if (filters.language !== null && r.language !== filters.language) return false
-    if (filters.category !== null && r.ai_category !== filters.category) return false
-    if (filters.onlyCloned && !r.local?.cloned_path) return false
-    return true
-  })
 }
 
 /**
@@ -105,11 +73,11 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
   loading: false,
   enriching: false,
   error: null,
-  filters: { ...INITIAL_FILTERS },
+  filters: { ...DEFAULT_FILTERS },
 
   visibleRepos() {
     const { repos, filters } = get()
-    return filterRepos(repos, filters)
+    return selectRepos(repos, filters)
   },
 
   setFilters(patch) {

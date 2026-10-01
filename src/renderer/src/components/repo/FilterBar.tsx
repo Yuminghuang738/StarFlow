@@ -1,22 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AI_CATEGORIES, type AiCategory } from '@shared/types'
-import { useRepoStore, type RepoFilters } from '../../store/repoStore'
+import { useRepoStore } from '../../store/repoStore'
+import { DEFAULT_FILTERS, REPO_SORTS, type RepoSort } from '../../lib/repoQuery'
 import { Button } from '../common/Button'
 import { Input } from '../common/Input'
 import { Select } from '../common/Select'
-
-const EMPTY_FILTERS: Partial<RepoFilters> = {
-  keyword: '',
-  language: null,
-  category: null,
-  onlyCloned: false
-}
 
 /** 搜索防抖延迟：太短会让 store 频繁更新，太长会让输入感觉迟钝 */
 const KEYWORD_DEBOUNCE_MS = 200
 
 /**
- * 搜索框 + 语言筛选 + 分类筛选 + 只看已 clone + 重置。
+ * 搜索框 + 语言筛选 + 分类筛选 + 只看已 clone + 排序 + 重置。
  *
  * ⚠️ 搜索框不能直接把 value 绑到 filters.keyword：
  * store 每次更新都会让受控输入重渲染，光标会跳到末尾。
@@ -62,12 +56,19 @@ export function FilterBar(): React.JSX.Element {
   )
 
   const isDirty =
-    keyword !== '' || filters.language !== null || filters.category !== null || filters.onlyCloned
+    keyword !== '' ||
+    filters.language !== null ||
+    filters.category !== null ||
+    filters.onlyCloned ||
+    // 排序也必须算进来：只看排序变过就该能一键回到默认顺序
+    filters.sort !== DEFAULT_FILTERS.sort
 
   function reset(): void {
     lastPushedKeyword.current = ''
     setKeyword('')
-    setFilters(EMPTY_FILTERS)
+    // 拷一份再写进 store：DEFAULT_FILTERS 是常量，直接传引用会让后续的
+    // setFilters({...}) 合并写进同一个对象，把常量本身改掉
+    setFilters({ ...DEFAULT_FILTERS })
   }
 
   return (
@@ -116,6 +117,21 @@ export function FilterBar(): React.JSX.Element {
           className="h-3.5 w-3.5 accent-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         />
         只看已 clone
+      </label>
+
+      <label className="ml-auto flex items-center gap-1.5 text-sm text-fg-muted">
+        排序
+        <Select
+          value={filters.sort}
+          onChange={(e) => setFilters({ sort: e.target.value as RepoSort })}
+          aria-label="排序方式"
+        >
+          {REPO_SORTS.map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.label}
+            </option>
+          ))}
+        </Select>
       </label>
 
       <Button size="sm" variant="ghost" onClick={reset} disabled={!isDirty}>
