@@ -32,6 +32,8 @@ export function Settings(): React.JSX.Element {
 
   // —— AI 配置卡片 ——
   const [aiConfig, setAiConfig] = useState<AiConfigView | null>(null)
+  /** null + aiConfigChecked === false = 还没读完；null + true = 这一次没读到（不是"没配置"） */
+  const [aiConfigChecked, setAiConfigChecked] = useState(false)
   const [apiKey, setApiKey] = useState('')
   const [showApiKey, setShowApiKey] = useState(false)
   const [aiBaseUrl, setAiBaseUrl] = useState('')
@@ -85,7 +87,10 @@ export function Settings(): React.JSX.Element {
         setAiBaseUrl(cfg.baseUrl)
         setAiModel(cfg.model)
       } catch {
-        // unwrap 已经弹过 toast，这里不再重复
+        // unwrap 已经弹过 toast，这里不再重复；但要标记"读过了"，否则徽章会一直停在「未知」，
+        // 而「未知」和「读不到」对用户的含义不同（前者是还没读，后者是需要重试）。
+      } finally {
+        if (!cancelled) setAiConfigChecked(true)
       }
     })()
     return () => {
@@ -114,12 +119,28 @@ export function Settings(): React.JSX.Element {
     }
   }
 
-  /** 重新拉视图：保存 / 清除之后刷新来源与 hasKey 徽章 */
-  async function reloadAiConfig(): Promise<void> {
-    const cfg = await unwrap(window.api.store.getAiConfig())
-    setAiConfig(cfg)
-    setAiBaseUrl(cfg.baseUrl)
-    setAiModel(cfg.model)
+  /**
+   * 重新拉视图：保存 / 清除之后刷新来源与 hasKey 徽章，也供卡片上的「重试」用。
+   *
+   * **不抛错**，返回值表示"这一次读到了没有"。两个理由：
+   *   ① 保存/清除的成功与"随后读一次状态"的成败是两件事——保存明明成功了，
+   *      却因为这一次读失败而把整个操作显示成失败，是在说反话；
+   *   ② 卡片上的「重试」按钮是 onClick 直接调的，抛出去就是一个没人接的
+   *      unhandled rejection（unwrap 已经弹过 toast）。
+   */
+  async function reloadAiConfig(): Promise<boolean> {
+    try {
+      const cfg = await unwrap(window.api.store.getAiConfig())
+      setAiConfig(cfg)
+      setAiBaseUrl(cfg.baseUrl)
+      setAiModel(cfg.model)
+      setAiConfigChecked(true)
+      return true
+    } catch {
+      // 读不到：aiConfig 保持 null（徽章据此显示「读不到」+ 重试），只是把"读过了"标上
+      setAiConfigChecked(true)
+      return false
+    }
   }
 
   async function saveAi(): Promise<void> {
@@ -160,8 +181,9 @@ export function Settings(): React.JSX.Element {
       )
       autoTest = key !== '' || nextBase !== initialBase || nextModel !== initialModel
       setApiKey('')
-      await reloadAiConfig()
-      setAiNotice('AI 配置已保存')
+      // 「保存成功」与「随后把状态读回来」分开说：读失败不该把保存说成失败
+      const reread = await reloadAiConfig()
+      setAiNotice(reread ? 'AI 配置已保存' : 'AI 配置已保存，但状态这一次没读回来，点「重试」再读一次。')
       setAiJustSaved(true)
     } catch (e) {
       setAiNoticeError(true)
@@ -182,8 +204,12 @@ export function Settings(): React.JSX.Element {
     try {
       await unwrap(window.api.store.clearAiKey())
       setApiKey('')
-      await reloadAiConfig()
-      setAiNotice('已清除界面保存的密钥（若 .env 里有 key 会回退到它）')
+      const reread = await reloadAiConfig()
+      setAiNotice(
+        reread
+          ? '已清除界面保存的密钥（若 .env 里有 key 会回退到它）'
+          : '已清除界面保存的密钥，但状态这一次没读回来，点「重试」再读一次。'
+      )
     } catch (e) {
       setAiNoticeError(true)
       setAiNotice(ipcErrorMessage(e))
@@ -371,8 +397,13 @@ export function Settings(): React.JSX.Element {
 
         <div className="mt-3 flex items-center gap-2">
           <span className="text-sm text-fg-muted">状态：</span>
-          {aiConfig === null ? (
+          {/* 与上面 Token 徽章同一套三态：'未配置' 是一个结论，只有在**确实读到了空**
+              时才能下。读不到（库文件坏了 / 主进程没起来）显示「读不到」，否则用户会
+              去重填一遍其实已经存好的 Key，而真正的问题一直没被说出来。 */}
+          {!aiConfigChecked ? (
             <Badge tone="muted">未知</Badge>
+          ) : aiConfig === null ? (
+            <Badge tone="warning">读不到</Badge>
           ) : aiConfig.hasKey ? (
             <Badge tone="success">已配置</Badge>
           ) : isLocalEndpoint(aiConfig.baseUrl) ? (
@@ -387,6 +418,21 @@ export function Settings(): React.JSX.Element {
             </Badge>
           ) : null}
         </div>
+
+        {aiConfigChecked && aiConfig === null ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <p className="text-xs text-fg-subtle">
+              这一次没读到你的 AI 配置，<span className="text-fg">不代表你没配过</span>
+              ——Key 可能好好地存着。
+            </p>
+            {/* 设置页是保活的（切换页面不卸载），没有这个按钮徽章会一直停在「读不到」，
+                唯一出路是重启应用。与 Token 那个「重试」各管各的：两者的读取路径不同，
+                失败原因也可能只影响其中一个。 */}
+            <Button size="sm" variant="ghost" onClick={() => void reloadAiConfig()}>
+              重试
+            </Button>
+          </div>
+        ) : null}
 
         {/* 最容易让人困惑的一种状态：界面显示"已配置"，但 Key 其实来自 .env，
             在这里填会被界面值覆盖、且清除界面密钥后又会回落回去。 */}
