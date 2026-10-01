@@ -414,10 +414,24 @@ export function Settings(): React.JSX.Element {
           同步会保留已 Fork / 已 clone / 已分类的标记；AI 补全只填空缺的摘要与分类。
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <Button variant="primary" onClick={() => void refreshFromGitHub()} loading={loading}>
+          {/* ⚠️ 这两个必须互斥。enrich() 在**发请求那一刻**取 get().repos 当输入，
+              而同步会把它整份换掉；两边能同时跑的话，先完成的同步结果会被
+              后完成的补全用旧列表覆盖——用户看到「已同步 N 个」的提示，
+              列表里却少了刚同步回来的仓库，而且主进程也把这份旧列表落了盘。
+              Manage.tsx 的 headerBusy 早就这么做了，这里原来是漏的。 */}
+          <Button
+            variant="primary"
+            onClick={() => void refreshFromGitHub()}
+            loading={loading}
+            disabled={loading || enriching}
+          >
             从 GitHub 同步
           </Button>
-          <Button onClick={() => void enrich()} loading={enriching}>
+          <Button
+            onClick={() => void enrich()}
+            loading={enriching}
+            disabled={loading || enriching}
+          >
             AI 补全分类
           </Button>
           <Button onClick={() => void test()} loading={testing}>
