@@ -17,6 +17,7 @@ import type {
   AiConnectionResult
 } from '@shared/types'
 import type { CollectionAnalysis } from '@shared/ai-providers'
+import type { RecommendForYou } from '@shared/recommend'
 
 const api = {
   github: {
@@ -95,7 +96,10 @@ const api = {
       ipcRenderer.invoke(IPC.RECOMMEND_SIMILAR, fullName),
     // 一句话找仓库。AI 的搜索计划不跨进程，这里只传原句、只回结果
     forQuery: (query: string): Promise<IpcResult<Repo[]>> =>
-      ipcRenderer.invoke(IPC.RECOMMEND_FOR_QUERY, query)
+      ipcRenderer.invoke(IPC.RECOMMEND_FOR_QUERY, query),
+    // 为你推荐。不传种子仓库，主进程按整份收藏的画像去搜；offset 是「换一批」的位移
+    forYou: (offset: number): Promise<IpcResult<RecommendForYou>> =>
+      ipcRenderer.invoke(IPC.RECOMMEND_FOR_YOU, offset)
   },
   tracker: {
     start: (): Promise<IpcResult<void>> => ipcRenderer.invoke(IPC.TRACKER_START),

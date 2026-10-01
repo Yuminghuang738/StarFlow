@@ -157,6 +157,37 @@ export async function mockSimilar(fullName: string): Promise<Repo[]> {
 }
 
 /**
+ * 「为你推荐」的 Mock 分支。
+ *
+ * 复用 mockSearch 而不是像 mockSimilar 那样直接从语料里取：推荐结果里**不该出现
+ * 已经 Star 过的仓库**（真实分支会按 full_name 滤掉它们），而语料就是 mock 的
+ * 已 Star 列表——直接取会演示出一堆"推荐你收藏过的仓库"。mockSearch 换个 owner
+ * 正好模拟"别人的、你还没 Star 的仓库"。
+ *
+ * 关键词取自语料里最高频的 topic / 语言，等于把 buildProfile 压成一行查询。
+ * 这里**不 import recommend.ts**：那边 import 本文件，反过来引就成环了。
+ */
+export function mockRecommendForYou(corpus: Repo[]): Repo[] {
+  const words = new Map<string, number>()
+  const bump = (w: string): void => {
+    words.set(w, (words.get(w) ?? 0) + 1)
+  }
+  for (const r of corpus) {
+    for (const t of r.topics) bump(t)
+    if (r.language) bump(r.language)
+  }
+
+  const query = [...words.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 4)
+    .map(([w]) => w)
+    .join(' ')
+
+  // 一条关键词都没提炼出来时 mockSearch 会返回整份种子，仍然是可演示的内容
+  return mockSearch(query, 8)
+}
+
+/**
  * 搜索（推荐功能的 Mock 分支）：在 mock-data.json 的语料里做关键词包含匹配。
  *
  * ⚠️ 命中后**换一个 owner**（`community-labs/xxx`）再返回，不是原样返回语料。

@@ -56,7 +56,8 @@ function handle<T>(channel: string, fn: AnyFn<T>): void {
 }
 
 // ============================================================
-// 41 个通道，一个都不能少也不能多
+// 43 个通道，一个都不能少也不能多
+// （自检办法：src/shared/ipc.ts 里的通道数与本文件的 handle() 调用数必须相等）
 // ============================================================
 
 function registerHandlers(): void {
@@ -174,6 +175,8 @@ function registerHandlers(): void {
   // 推荐
   handle(IPC.RECOMMEND_SIMILAR, (fullName: string) => recommend.similar(fullName))
   handle(IPC.RECOMMEND_FOR_QUERY, (query: string) => recommend.forQuery(query))
+  // 为你推荐：种子不在入参里，主进程按整份收藏的画像拼查询；offset 是「换一批」的位移
+  handle(IPC.RECOMMEND_FOR_YOU, (offset: number) => recommend.forYou(offset))
 
   // 定时追踪。刻意不在启动时自动 start，由前端显式调用
   handle(IPC.TRACKER_START, () => tracker.start())

@@ -69,6 +69,10 @@ export const IPC = {
   // Star"三个动作，加一条没有消费者的通道纯粹是扩大表面积。AI 的搜索计划也只活在
   // 主进程内部，不跨进程传输。
   RECOMMEND_FOR_QUERY: 'recommend:forQuery',
+  // 为你推荐：不传种子仓库，主进程按**整份收藏**的画像拼查询。入参是「换一批」的
+  // 位移（错开画像里排后面的语言/主题），返回 { items, profile }——profile 要带回
+  // 渲染进程，页面靠它告诉用户这些推荐是凭什么推出来的。
+  RECOMMEND_FOR_YOU: 'recommend:forYou',
 
   // 定时追踪
   TRACKER_START: 'tracker:start',

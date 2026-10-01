@@ -15,6 +15,7 @@ import type {
   AiConnectionResult
 } from '@shared/types'
 import type { CollectionAnalysis } from '@shared/ai-providers'
+import type { RecommendForYou } from '@shared/recommend'
 
 export interface StarFlowApi {
   github: {
@@ -61,6 +62,8 @@ export interface StarFlowApi {
   recommend: {
     similar(fullName: string): Promise<IpcResult<Repo[]>>
     forQuery(query: string): Promise<IpcResult<Repo[]>>
+    /** 为你推荐。种子藏在主进程里（整份收藏的画像），这里只传「换一批」的位移 */
+    forYou(offset: number): Promise<IpcResult<RecommendForYou>>
   }
   tracker: {
     start(): Promise<IpcResult<void>>
