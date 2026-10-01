@@ -1186,3 +1186,26 @@ recommend-search（同样 import github.ts）全绿。
 
 验证：tsc 干净、eslint 干净、npm run build 通过。改动前先 grep 确认全仓库只有
 `Settings.tsx` 一个调用点，因此签名的破坏面是 1，不可能漏改（也是这次敢动签名的前提）。
+
+## R47 · Phase 2+6：src/main/index.ts 里两处「Phase 0 的注释」在说谎（优先级 6）
+
+`index.ts` 是全局唯一的 IPC 接线表，读代码的人从它出发去理解每个通道。它里面两条注释
+停在骨架期、实现落地后没跟着改，于是**注释与代码相反**：
+
+1. `LOCAL_CANCEL_CLONE` 上面写着「Phase 0 占位：local.cancelClone 现在恒返回 false
+   （"没有人在跑"），真正的实现在取消克隆那个 PR 里补」。实际上 cancelClone 现在拿着
+   AbortController 调 abort，simple-git 在 spawn.before 挂了监听、对 git 子进程发 SIGINT，
+   真的会中止；`false` 有精确含义（那一刻没人在跑）。
+2. `ai.refreshAiConfigCache()` 上面写着「Phase 0 里这是个空函数（见 ai.ts 的说明），
+   调用点先钉在这里」。实际上它已经会读 store、把 key / baseUrl / model 灌进 config.ts
+   的覆盖层——**「保存后立即生效、无需重启」这句话成不成立，全看它**。
+
+这类缺陷的危害与 R43 修掉的 `docs/module-signatures.md` 那三行完全同构，而且更近一层：
+文档里的错话读者还会存疑，源码注释里的错话通常被直接当作事实。具体后果是引导性的——
+① 以为取消是空操作，于是在 UI 上不给取消入口，或者自己另造一套中止逻辑；
+② 排查「配了 key 却没生效」时，第一个就把预热这条路径排除掉。
+
+两处都改成描述现状（含关键机制的一句话，读者不必再跳文件），并各留一句 ⚠️ 说明原来
+错在哪、错的是哪一类，免得下次实现变更时又把它落在这里。纯注释改动，不动任何行为。
+
+验证：tsc 干净、eslint 干净、npm run build 通过。
