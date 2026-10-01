@@ -93,7 +93,7 @@ done · commit 7dfdb62
 （buildProfile / buildForYouQueries / forYou 端到端，30+ 断言）全通过。
 
 ## R6 · T5 每周回顾：结合实际 star 变动做 AI 总结 + 本周项目动态
-done · commit 557721e
+done · commit e07d941
 
 原来周报的 AI 总结只拿到「本周新增了哪些仓库」，不知道这些仓库**这周干不干什么**，
 所以总结只能复述列表。现在多喂一份「本周内发过新版本的项目」清单，模型能说出
