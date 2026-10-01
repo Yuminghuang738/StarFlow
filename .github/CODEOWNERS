@@ -7,20 +7,20 @@
 # 先在这里占好位，目录一出现就自动生效。
 
 # ============ 集成工程师独占（P7）============
-/src/shared/            @xiaoyu8745
-/src/preload/           @xiaoyu8745
-/src/main/index.ts      @xiaoyu8745
-/src/main/config.ts     @xiaoyu8745
-/src/main/mock.ts       @xiaoyu8745
+/src/shared/            @Yuminghuang738
+/src/preload/           @Yuminghuang738
+/src/main/index.ts      @Yuminghuang738
+/src/main/config.ts     @Yuminghuang738
+/src/main/mock.ts       @Yuminghuang738
 
 # 渲染进程脚手架：不属于 P6 的 store/lib/components/pages，见 prompts/p6-renderer-core.md 第 2 节
-/src/renderer/index.html        @xiaoyu8745
-/src/renderer/src/main.tsx      @xiaoyu8745
-/src/renderer/src/index.css     @xiaoyu8745
-/src/renderer/src/env.d.ts      @xiaoyu8745
+/src/renderer/index.html        @Yuminghuang738
+/src/renderer/src/main.tsx      @Yuminghuang738
+/src/renderer/src/index.css     @Yuminghuang738
+/src/renderer/src/env.d.ts      @Yuminghuang738
 
 # ============ 主进程业务模块 ============
-/src/main/github.ts     @Yuminghuang738
+/src/main/github.ts     @xiaoyu8745
 /src/main/local.ts      @Chang-66
 /src/main/store.ts      @Chang-66
 /src/main/ai.ts         @xiaoran77-web

@@ -134,8 +134,8 @@ CI 的 `check` job 只跑 typecheck / lint / build，不需要这个二进制，
 
 | 模块 | 负责人 | GitHub 账号 |
 | --- | --- | --- |
-| `src/shared/`、`src/preload/`、`src/main/index.ts`、`config.ts`、`mock.ts`、`mock-data.json`、渲染进程脚手架（`renderer/index.html`、`src/main.tsx`、`index.css`、`env.d.ts`）、全部配置文件 | 集成工程师（P7） | [@xiaoyu8745](https://github.com/xiaoyu8745) |
-| `src/main/github.ts` | P1 | [@Yuminghuang738](https://github.com/Yuminghuang738) |
+| `src/shared/`、`src/preload/`、`src/main/index.ts`、`config.ts`、`mock.ts`、`mock-data.json`、渲染进程脚手架（`renderer/index.html`、`src/main.tsx`、`index.css`、`env.d.ts`）、全部配置文件 | 集成工程师（P7） | [@Yuminghuang738](https://github.com/Yuminghuang738) |
+| `src/main/github.ts` | P1 | [@xiaoyu8745](https://github.com/xiaoyu8745) |
 | `src/main/ai.ts` | P2 | [@xiaoran77-web](https://github.com/xiaoran77-web) |
 | `src/main/local.ts`、`src/main/store.ts` | P3 | [@Chang-66](https://github.com/Chang-66) |
 | `src/main/report.ts`、`recommend.ts`、`tracker.ts` | P4 | [@nothing6741](https://github.com/nothing6741) |
