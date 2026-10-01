@@ -369,3 +369,41 @@ category 那格退回 `string`。抽成 `byCategory(name: string)` —— 普通
 
 验证：tsc 干净、eslint 干净、npm run build 通过、repo-query 74/74（R15 是 67）、
 mock e2e 11/11。
+
+## R17 · Phase 2：分类筛选补上「未分类」态
+done · commit f2d008f
+
+总览页写着「还有 12 个未分类」，这是整页最可行动的数字，而此前**没有任何办法**
+把它筛出来：`category` 的类型是 `AiCategory | null`，而 null 早被约定成"全部分类"，
+第三个态无处安放——和 R15 里语言那个"补不了的洞"是同一个毛病，连修法都一样。
+
+改成 `'all' | 'uncategorized' | AiCategory` 三态。**这里刻意不加 `name:` 前缀**：
+AiCategory 是固定 7 个枚举、取值域封闭，'all' / 'uncategorized' 撞不上；语言那边
+必须加前缀，是因为它的取值域是"任意字符串"，真出现一个叫 "unknown" 的语言时
+裸字符串会把两者混为一谈。两处的差异是有理由的，不是不统一。
+
+**判据必须同源**：filterRepos 里未分类走 `if (r.ai_category) return false`，
+与 collectionStats 数 `categorized` 的 `if (r.ai_category)` 是同一个表达式的正反面。
+各写一遍的话，卡片写 12、点进去 10，两边都"看着对"——这正是 R15 用 activityBucket
+收掉阈值重复时的那条教训，这次落在分类上。
+
+`UNCATEGORIZED_LABEL` 从 collectionStats 导出：桶名叫 `'未分类'`、筛选态叫
+`'uncategorized'`，**是两个不同的值域**，页面得靠这个常量做一次映射。
+Overview 的 `byCategory` 就是把桶名映射过去的那一步；要是图省事把桶名直接当筛选值
+传下去，filterRepos 会拿它去和 `r.ai_category` 严格相等比较，筛出空列表——
+点一下「未分类 12」，列表直接空了。
+
+hero 区那句「还有 N 个未分类，可到「收藏管理」跑一次 AI 补全」本来是纯文字：
+它告诉了用户有个入口，却不把人送过去。现在它本身就是按钮。
+
+「AI 已分类」那张卡仍然**不可点**。诱人，但它数的是所有分类过的仓库，
+而 category 筛选一次只能选一个——点进去必然只剩一小撮，卡片写 N、点进去 M 就是
+撒谎。可行动的是它的补集，不是它本身。
+
+自检新增第 8 节（+13 条）。除了划分性与保留值那几条，落点断言是：
+`selectRepos(REPOS, filtersFor({category:'uncategorized'}), NOW).length`
+必须等于 `computeCollectionStats(REPOS, NOW).uncategorized`。另外两处随 API 变更
+改形的断言（`category: null` → `category: 'all'`）强度不变，不是为了让测试变绿。
+
+验证：repo-query 87/87（R16 是 74）、collection-stats、week-report、recommend-search
+全绿；tsc 干净、eslint 干净、npm run build 通过、mock e2e 11/11。
