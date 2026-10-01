@@ -110,6 +110,10 @@ function settle(f: PendingFlow, outcome: LoginOutcome): void {
 /**
  * form 编码的 POST。用 URLSearchParams 而不是 JSON body：GitHub 的 OAuth 端点
  * 文档写的就是 form 参数，Accept 头负责让**响应**是 JSON。
+ *
+ * ⚠️ 先读 body、再判状态码。设备流的错误通常是 HTTP 200 + { "error": ... }，
+ * 但也有 HTTP 400 的形态（例如 app 没启用 Device Flow）——如果在这里先按状态码抛，
+ * 最该给出人话的那条错误就会退化成「GitHub 返回 HTTP 400」。
  */
 async function postForm(url: string, params: Record<string, string>): Promise<Record<string, unknown>> {
   const res = await fetch(url, {
@@ -117,14 +121,27 @@ async function postForm(url: string, params: Record<string, string>): Promise<Re
     headers: { Accept: 'application/json', 'User-Agent': USER_AGENT },
     body: new URLSearchParams(params)
   })
+
+  let data: Record<string, unknown> | null = null
+  try {
+    const parsed: unknown = await res.json()
+    if (typeof parsed === 'object' && parsed !== null) {
+      data = parsed as Record<string, unknown>
+    }
+  } catch {
+    // 响应体不是 JSON：交给下面的状态码分支给出可读的错误
+  }
+
+  // 认得出 error 字段就交给调用方按错误码分支，不关心它是 200 还是 400 回来的
+  if (data && typeof data.error === 'string') return data
+
   if (!res.ok) {
     throw new Error(`GitHub 返回 HTTP ${res.status}`)
   }
-  const data: unknown = await res.json()
-  if (typeof data !== 'object' || data === null) {
+  if (!data) {
     throw new Error('GitHub 返回了非预期的响应格式')
   }
-  return data as Record<string, unknown>
+  return data
 }
 
 async function fetchUser(token: string): Promise<AuthUser> {

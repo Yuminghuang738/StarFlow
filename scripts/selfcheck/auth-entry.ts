@@ -70,6 +70,9 @@ let routes: { deviceCode: Handler; token: Handler; user: Handler } = {
   user: notSet('user')
 }
 
+/** 各个端点回什么 HTTP 状态码。默认 200——设备流的错误正常就是 200 + { error } 回来的。 */
+const statuses = { deviceCode: 200, token: 200, user: 200 }
+
 function json(body: Json, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -89,15 +92,15 @@ function installFakeFetch(): void {
 
     if (url === DEVICE_CODE_URL) {
       calls.deviceCode += 1
-      return json(routes.deviceCode(params, calls.deviceCode))
+      return json(routes.deviceCode(params, calls.deviceCode), statuses.deviceCode)
     }
     if (url === TOKEN_URL) {
       calls.token += 1
-      return json(routes.token(params, calls.token))
+      return json(routes.token(params, calls.token), statuses.token)
     }
     if (url === USER_URL) {
       calls.user += 1
-      return json(routes.user(params, calls.user))
+      return json(routes.user(params, calls.user), statuses.user)
     }
     // 不认识的 URL 直接炸：宁可让自检失败，也不要静默放过一个写错的端点常量
     throw new Error(`假 fetch 收到了未预期的 URL：${url}`)
@@ -129,6 +132,9 @@ function reset(): void {
   calls.token = 0
   calls.user = 0
   shell.openExternalCalls.length = 0
+  statuses.deviceCode = 200
+  statuses.token = 200
+  statuses.user = 200
   routes = { deviceCode: DEVICE_OK, token: PENDING, user: USER_OK }
 }
 
@@ -234,6 +240,55 @@ async function runMain(): Promise<void> {
   }
   check('device-code 端点的 device_flow_disabled 直接抛错', thrown.includes('Enable Device Flow'), thrown)
   check('发起阶段就失败时没有去轮询 token', calls.token === 0, String(calls.token))
+
+  // ---- 同一个错误也可能是 HTTP 400 回来的：不能退化成「GitHub 返回 HTTP 400」 ----
+  // （有资料说 app 没启用 Device Flow 时 /login/device/code 直接回 400，所以两种形态都得认）
+  reset()
+  statuses.deviceCode = 400
+  routes.deviceCode = () => ({ error: 'device_flow_disabled' })
+  thrown = ''
+  try {
+    await auth.startDeviceFlow()
+  } catch (err) {
+    thrown = err instanceof Error ? err.message : String(err)
+  }
+  check('HTTP 400 形态的 device_flow_disabled 给的是同一句人话', thrown.includes('Enable Device Flow'), thrown)
+
+  reset()
+  statuses.token = 400
+  routes.token = () => ({ error: 'device_flow_disabled' })
+  await auth.startDeviceFlow()
+  const status400 = await auth.waitForLogin()
+  check(
+    'token 端点 400 形态同样给同一句人话',
+    status400.status === 'error' && status400.message.includes('Enable Device Flow'),
+    JSON.stringify(status400)
+  )
+
+  // ---- 真·HTTP 故障（没有 error 字段）才该走重试，且重试到上限后收敛 ----
+  // 注意不能走 runFlow：它内部会 reset()，把这里设的 statuses 又抹回 200
+  reset()
+  statuses.token = 503
+  routes.token = () => ({ message: 'server error' })
+  await auth.startDeviceFlow()
+  const down = await auth.waitForLogin()
+  check(
+    '多次 5xx 后收敛为 error 并说明重试了多少次',
+    down.status === 'error' && down.message.includes('已重试 5 次'),
+    JSON.stringify(down)
+  )
+  check('5xx 确实重试了 5 次', calls.token === 5, String(calls.token))
+
+  // ---- 200 但不认识：既没有 access_token 也没有 error，不能静默当成功 ----
+  reset()
+  routes.token = () => ({ message: '什么奇怪的东西' })
+  await auth.startDeviceFlow()
+  const weird = await auth.waitForLogin()
+  check(
+    '200 但既无 token 也无 error → 报未知错误而不是静默成功',
+    weird.status === 'error' && weird.message.includes('unknown_error'),
+    JSON.stringify(weird)
+  )
 
   // ---- 取消 ----
   reset()
