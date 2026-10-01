@@ -1,11 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { WeeklyReport } from '@shared/types'
 import { unwrap, ipcErrorMessage, formatStars } from '../lib/api'
 import { Button } from '../components/common/Button'
 import { Card } from '../components/common/Card'
 import { Badge } from '../components/common/Badge'
-import { EmptyState } from '../components/common/EmptyState'
 import { useChartTheme } from '../components/charts/chartTheme'
 import { weeklyLanguageOption, weeklyTrendBarOption } from '../components/charts/options'
 
@@ -70,6 +69,39 @@ function downloadMarkdown(report: WeeklyReport): void {
   URL.revokeObjectURL(url)
 }
 
+/**
+ * 首屏骨架。周报一进来就自动生成，AI 那一段要等 1~3 秒，这份占位负责把这段时间填满，
+ * 免得用户先看到一个「还没有周报」的空白页、以为要自己点。
+ * 结构刻意对着下面的真实排版（三张统计卡 + 一段正文 + 两张图表），切换时不跳版。
+ */
+function ReportSkeleton(): React.JSX.Element {
+  return (
+    <div className="mt-4 animate-pulse">
+      <div className="flex gap-3">
+        {[0, 1, 2].map((i) => (
+          <Card key={i} className="flex-1">
+            <div className="h-8 w-16 rounded bg-surface-2" />
+            <div className="mt-3 h-3 w-20 rounded bg-surface-2" />
+          </Card>
+        ))}
+      </div>
+      <Card className="mt-4">
+        <div className="h-4 w-20 rounded bg-surface-2" />
+        <div className="mt-3 h-3 w-full rounded bg-surface-2" />
+        <div className="mt-2 h-3 w-4/5 rounded bg-surface-2" />
+      </Card>
+      <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {[0, 1].map((i) => (
+          <Card key={i}>
+            <div className="h-4 w-20 rounded bg-surface-2" />
+            <div className="mt-3 h-[236px] rounded bg-surface-2" />
+          </Card>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function Report(): React.JSX.Element {
   const [report, setReport] = useState<WeeklyReport | null>(null)
   const [loading, setLoading] = useState(false)
@@ -94,7 +126,9 @@ export function Report(): React.JSX.Element {
     )
   }, [report, palette])
 
-  async function generate(): Promise<void> {
+  // 用 useCallback 而不是普通函数：下面的自动生成 effect 依赖它，函数身份不稳的话
+  // effect 每次渲染都会重跑一遍。
+  const generate = useCallback(async (): Promise<void> => {
     setLoading(true)
     setError(null)
     try {
@@ -104,7 +138,25 @@ export function Report(): React.JSX.Element {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  /**
+   * 进板块即自动生成，不需要用户点按钮。
+   *
+   * 两个前提都成立才敢这么写：
+   * 1) 这个页面是 keep-alive 的（App.tsx 的 visited/mounted），**挂载后不再卸载**，
+   *    所以这里的 effect 等于「首次进入该板块时跑一次」。切走再切回不会重新生成——
+   *    重新生成要调一次 AI（要钱、要等），不该因为随手切个板块就发生。想刷新有右上角的
+   *    「重新生成」。
+   * 2) autoRan 这个守卫不是多余的：StrictMode 下 effect 会跑两次，不拦就是
+   *    两次 IPC + 两次 AI 调用。同 App.tsx 里挡初始 load() 的 loadedOnce。
+   */
+  const autoRan = useRef(false)
+  useEffect(() => {
+    if (autoRan.current) return
+    autoRan.current = true
+    void generate()
+  }, [generate])
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -124,11 +176,7 @@ export function Report(): React.JSX.Element {
             </Button>
             <Button onClick={() => downloadMarkdown(report)}>导出 Markdown</Button>
           </div>
-        ) : (
-          <Button variant="primary" onClick={() => void generate()} loading={loading}>
-            生成本周周报
-          </Button>
-        )}
+        ) : null}
       </header>
 
       {error ? (
@@ -220,10 +268,9 @@ export function Report(): React.JSX.Element {
             </ul>
           </Card>
         </>
-      ) : (
-        <div className="mt-4">
-          <EmptyState title="还没有周报" description="点击上方按钮生成本周周报" />
-        </div>
+      ) : error ? null : (
+        // 自动生成中（或刚挂载、effect 还没跑）时的占位
+        <ReportSkeleton />
       )}
     </div>
   )
