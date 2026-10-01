@@ -49,6 +49,32 @@ export const languageNameOf = (filter: LanguageFilter): string | null =>
   filter.startsWith('name:') ? filter.slice('name:'.length) : null
 
 /**
+ * 语言下拉的候选项：从这批收藏里去重，按名字排序。
+ *
+ * ⚠️ 当前选中的那个语言必须**无条件**留在候选里，哪怕这批收藏里已经没有它的仓库。
+ * 原生 <select> 的 value 找不到匹配的 option 时会变成"没有选中项"，界面上就是一片
+ * 空白，而 store 里仍在按那个语言过滤——用户看到一个空列表，却看不出是哪个条件
+ * 在起作用（连"重置"按钮都得靠 isDirty 才亮）。这正是本项目最忌讳的那类 bug：
+ * 页面在安静地说谎。
+ *
+ * 会凑出这种数据是因为**重同步**：先按 Rust 筛，然后在 GitHub 上取消收藏最后一个
+ * Rust 仓库，回来点一次同步——Rust 就从 repos 里消失了，而筛选器还指着它。
+ *
+ * 纯函数放在这里而不是组件里，是为了自检能直接喂数据把它卡住（渲染进程没有 DOM
+ * 测试环境，组件里的这个判断写错了没人看得见）。
+ */
+export function languageOptions(repos: Repo[], current: LanguageFilter): string[] {
+  const names = new Set<string>()
+  for (const r of repos) {
+    if (r.language !== null) names.add(r.language)
+  }
+  // 'all' / 'unknown' 是保留态，languageNameOf 对它们返回 null，不会混进候选
+  const selected = languageNameOf(current)
+  if (selected !== null) names.add(selected)
+  return [...names].sort((a, b) => a.localeCompare(b))
+}
+
+/**
  * 活跃度筛选。三档各自对应总览页上的一个数字，判定复用 collectionStats 的
  * `activityBucket`——**只有一处阈值**，否则卡片写 40、这里筛出 38，页面在安静地撒谎。
  *

@@ -6,6 +6,7 @@ import {
   HEALTH_OPTIONS,
   REPO_SORTS,
   languageOption,
+  languageOptions,
   type CategoryFilter,
   type HealthFilter,
   type LanguageFilter,
@@ -55,12 +56,12 @@ export function FilterBar(): React.JSX.Element {
     setKeyword(filters.keyword)
   }, [filters.keyword])
 
+  // 候选项交给 lib 的纯函数：当前选中的语言即使这批收藏里已经没有了也必须留在
+  // 候选里，否则 <select> 会变成"没有选中项"、界面一片空白，而筛选还在生效
+  // ——用户看到一个空列表却看不出原因。详见 languageOptions 的说明。
   const languages = useMemo(
-    () =>
-      [...new Set(repos.map((r) => r.language).filter((l): l is string => l !== null))].sort(
-        (a, b) => a.localeCompare(b)
-      ),
-    [repos]
+    () => languageOptions(repos, filters.language),
+    [repos, filters.language]
   )
 
   const isDirty =

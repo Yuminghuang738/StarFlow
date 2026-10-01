@@ -12,6 +12,7 @@ import {
   DEFAULT_FILTERS,
   filtersFor,
   languageOption,
+  languageOptions,
   languageNameOf,
   type RepoFilters,
   type RepoSort,
@@ -549,6 +550,64 @@ check(
       f.sort === DEFAULT_FILTERS.sort
     )
   })()
+)
+
+// ============================================================
+console.log('\n== 9. 语言下拉的候选项 ==')
+// ============================================================
+// 原生 <select> 的 value 在 option 里找不到匹配项时会变成"没有选中项"——
+// 界面一片空白，而 store 里那个筛选还在生效。用户看到一个空列表，看不出原因。
+// 所以候选项必须**无条件**包含当前选中的语言。
+const langRepos = [
+  makeRepo({ full_name: 'l/ts', language: 'TypeScript' }),
+  makeRepo({ full_name: 'l/go', language: 'Go' }),
+  makeRepo({ full_name: 'l/ts2', language: 'TypeScript' }),
+  makeRepo({ full_name: 'l/none', language: null })
+]
+
+check(
+  '语言候选去重且按名字排序',
+  languageOptions(langRepos, 'all').join(',') === 'Go,TypeScript',
+  languageOptions(langRepos, 'all').join(',')
+)
+check(
+  'language 为 null 的仓库不产生候选项',
+  !languageOptions(langRepos, 'all').includes('') &&
+    !languageOptions(langRepos, 'all').some((l) => l.trim() === '')
+)
+// —— 这一节的重点 ——
+const withoutGo = langRepos.filter((r) => r.language !== 'Go')
+check(
+  '选中的语言即使已经不在收藏里也留在候选里',
+  languageOptions(withoutGo, languageOption('Go')).includes('Go'),
+  languageOptions(withoutGo, languageOption('Go')).join(',')
+)
+check(
+  '空列表 + 具体语言，候选里仍然有它',
+  languageOptions([], languageOption('Rust')).join(',') === 'Rust'
+)
+check('空列表 + 全部语言，候选为空', languageOptions([], 'all').length === 0)
+check('空列表 + 未知语言，候选为空', languageOptions([], 'unknown').length === 0)
+
+// 保留态不能混进候选：languageNameOf 对 'all'/'unknown' 返回 null，
+// 否则下拉里会多出一个叫 "all" 的语言选项，和保留字撞成同一个 value。
+check(
+  '保留态不会变成候选项',
+  !languageOptions(langRepos, 'all').includes('all') &&
+    !languageOptions(langRepos, 'unknown').includes('unknown')
+)
+check(
+  '选中的语言大小写/内容原样保留，不做归一化',
+  languageOptions([], languageOption('C++')).join(',') === 'C++'
+)
+// 真有个语言叫 "unknown" 时，它是以 name:unknown 的形态出现的——与保留态
+// 'unknown'（未知语言）是两个不同的 option value，这一点在自检第 3 节已经验过；
+// 这里确认候选项本身不会把两者搞混。
+const withUnknownLang = [makeRepo({ full_name: 'l/u', language: 'unknown' })]
+check(
+  '语言名就叫 unknown 的仓库会作为候选出现',
+  languageOptions(withUnknownLang, 'all').join(',') === 'unknown' &&
+    languageOption(languageOptions(withUnknownLang, 'all')[0]!) === 'name:unknown'
 )
 
 console.log(`\n== 结果：${failures === 0 ? '全部通过' : `${failures} 项失败`} ==`)
