@@ -52,6 +52,17 @@ interface CloneProgressEntry {
  */
 const progressByRepo = new Map<string, CloneProgressEntry>()
 
+/**
+ * 正在进行的克隆的撤销控制器。key 与进度表一样用 full_name：渲染进程的取消
+ * 按钮只交得出仓库名，路径由主进程自己算。
+ *
+ * 生命周期与进度表**刻意不同**：这条记录在 clone 的 finally 里必须删掉（见下），
+ * 否则取消过的仓库会在 map 里留下一条永远为真的记录——之后再点 Clone，用户
+ * 随手点一下"取消"就会真的掐掉新克隆，或者 cancelClone 对一个早就结束的克隆
+ * 撒谎说 true。进度表反过来要留着，是为了避免渲染进程最后一次轮询读到 null。
+ */
+const cloneAborts = new Map<string, AbortController>()
+
 export async function chooseDir(): Promise<string | null> {
   if (isMockMode()) {
     // mock 下不弹系统对话框，直接给一个确定存在的演示目录
@@ -82,7 +93,7 @@ export async function chooseDir(): Promise<string | null> {
   }
 }
 
-export async function clone(fullName: string, targetDir: string): Promise<string> {
+export async function clone(fullName: string, targetDir: string): Promise<string | null> {
   if (isMockMode()) {
     // mock 下不真的 clone，只建目录 + 写一个 README，让"打开目录"有东西可看
     const dir = join(targetDir, repoNameOf(fullName))
@@ -103,6 +114,13 @@ export async function clone(fullName: string, targetDir: string): Promise<string
 
   const startedAt = Date.now()
   console.log(`[local] 开始克隆 ${fullName} -> ${target}`)
+
+  // 这次克隆的撤销信号。simple-git 4.0.2 的 abort 是**构造期**选项，只能传给
+  // simpleGit() 工厂，不能传给 .clone()；内部实现是 child.kill('SIGINT')，不是
+  // 树杀，所以信号只掐得到 git 主进程，磁盘残留要靠下面 catch 里的清理兜底。
+  // 必须在 try 之前建好并入 map：cancelClone 只有查到它才中止得了。
+  const controller = new AbortController()
+  cloneAborts.set(fullName, controller)
 
   // 先占一条记录再动手：渲染进程第一次轮询就能看到"已经跑起来了"，
   // 而不是拿到 null 以为自己问早了。
@@ -145,7 +163,10 @@ export async function clone(fullName: string, targetDir: string): Promise<string
           loggedPercent = e.progress
           console.log(`[local] ${fullName} ${e.stage} ${e.progress}% (${e.processed}/${e.total})`)
         }
-      }
+      },
+      // abort 是构造期选项：simpleGit 会据此在 spawn.before 时挂上监听，取消时
+      // 对 git 子进程发 SIGINT。传给 .clone() 的参数里是无效的，别搬错位置。
+      abort: controller.signal
     }).clone(repoUrlOf(fullName), target)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -154,10 +175,21 @@ export async function clone(fullName: string, targetDir: string): Promise<string
     // **成功返回后**才写进 db（见 repoStore.clone），于是这个目录既没人管、也逃过
     // prune 对账，用户下次点 Clone 只会撞上"目标目录已存在"——永久卡死。
     // 能走到这里就说明 target 是本次才建出来的（前面 existsSync(target) 已确认它原本不存在）。
+    //
+    // 取消走的也是这一条 catch：清理**必须发生在 clone 自己的 catch 里**，不能只指望
+    // listMissingCloneRecords 那套磁盘对账——取消永远到不了成功返回那一行，
+    // cloned_path 压根没写进 store，对账根本扫不到这个残留目录。
     await cleanupPartialClone(target)
+    // 用户主动取消 = 静默成功：返回 null，渲染进程安静收场，不按失败抛错。
+    // （界面以为在跑、主进程其实已结束是正常竞态，cancelClone 的 false 同属此类。）
+    if (controller.signal.aborted) return null
     throw new Error(
       `克隆失败：${message}（请确认本机已安装 git 并加入 PATH，且网络可访问 GitHub）`
     )
+  } finally {
+    // 成功、失败、取消都要清：漏掉的话 map 会为每个克隆过的仓库留下一条永不过期的
+    // 记录，之后的 cancelClone 就会对一个早就结束的克隆谎报 true。
+    cloneAborts.delete(fullName)
   }
 
   console.log(`[local] 克隆完成，耗时 ${Date.now() - startedAt}ms`)
@@ -187,15 +219,19 @@ export function getCloneProgress(fullName: string): CloneProgress | null {
 /**
  * 中止正在进行的克隆。
  *
- * ⚠️ **Phase 0 占位**：真正的实现（AbortController + simpleGit 的 abort 选项）在
- * 取消克隆那个 PR 里补。这里恒返回 false，含义是"本来就没有人在跑"——在当前
- * 代码状态下这句话是真的，不算撒谎，所以刻意不抛「尚未实现」：渲染进程拿到
- * false 会当作"没什么可取消的"安静收场，不会给用户弹一条看不懂的错。
- * 返回 true 才表示确实中止了一个在跑的克隆。
+ * true = 确实中止了一个在跑的克隆；false = 查不到记录，本来就没有人在跑。
+ * **false 不是错误**：界面以为在跑、主进程这边其实已经结束，属于正常竞态，
+ * 所以刻意不抛错——渲染进程拿到 false 安静收场，不会弹一条看不懂的错误。
+ *
+ * 真正的撤销动作是 controller.abort()：simple-git 在 spawn.before 挂了监听，
+ * 收到信号就对 git 子进程发 SIGINT。函数本身同步返回，不等克隆真的收摊；
+ * 磁盘残留在 clone 的 catch 里清（见上面的说明），map 条目在 finally 里删。
  */
 export function cancelClone(fullName: string): boolean {
-  void fullName
-  return false
+  const controller = cloneAborts.get(fullName)
+  if (controller === undefined) return false
+  controller.abort()
+  return true
 }
 
 export async function openDir(path: string): Promise<void> {

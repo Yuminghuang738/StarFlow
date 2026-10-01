@@ -33,7 +33,8 @@ const api = {
   },
   local: {
     chooseDir: (): Promise<IpcResult<string | null>> => ipcRenderer.invoke(IPC.LOCAL_CHOOSE_DIR),
-    clone: (fullName: string, targetDir: string): Promise<IpcResult<string>> =>
+    // data 为 null 表示克隆被用户取消（静默成功），不是失败
+    clone: (fullName: string, targetDir: string): Promise<IpcResult<string | null>> =>
       ipcRenderer.invoke(IPC.LOCAL_CLONE, fullName, targetDir),
     openDir: (path: string): Promise<IpcResult<void>> =>
       ipcRenderer.invoke(IPC.LOCAL_OPEN_DIR, path),
