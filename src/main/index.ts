@@ -155,9 +155,16 @@ function registerHandlers(): void {
     return names
   })
 
-  // Phase 0 占位：local.cancelClone 现在恒返回 false（"没有人在跑"），
-  // 真正的实现在取消克隆那个 PR 里补。与 LOCAL_REMOVE_CLONE 一样是幂等语义——
-  // 界面认为在跑、主进程这边已经结束的情况不算错，所以不抛。
+  // 取消克隆：真的会中止正在跑的 git 子进程（local.cancelClone 拿着 AbortController
+  // 调 abort，simple-git 在 spawn.before 挂了监听、对子进程发 SIGINT）。
+  // true = 确实中止了一个；**false 只表示"那一刻没有人在跑"**，界面以为在跑、主进程
+  // 这边刚好收摊，属于正常竞态，不是错误——与 LOCAL_REMOVE_CLONE 一样是幂等语义，
+  // 所以这里不抛错、也不加工返回值。
+  //
+  // ⚠️ 这条注释原来写的是「Phase 0 占位：cancelClone 现在恒返回 false，真正的实现
+  // 在取消克隆那个 PR 里补」——那个 PR 早就落地了，注释没跟着改。危害和 R43 修掉的
+  // docs/module-signatures.md 里那三行一模一样：照它读代码的人会以为取消是个空操作，
+  // 从而绕开它自己造一套（或在 UI 上干脆不给取消入口）。
   handle(IPC.LOCAL_CANCEL_CLONE, (fullName: string) => local.cancelClone(fullName))
 
   // AI
@@ -302,8 +309,14 @@ function bootstrap(): void {
   // Ctrl+Shift+I 开发者工具…），"没有菜单栏"必须是连快捷键一起没有，才叫真的去掉。
   Menu.setApplicationMenu(null)
 
-  // AI 配置预热：把 store 里存的 key 灌进 config.ts 的覆盖层，之后 ai.client() 仍是同步的。
-  // Phase 0 里这是个空函数（见 ai.ts 的说明），调用点先钉在这里，填实现的 PR 不用再动本文件。
+  // AI 配置预热：把 store 里存的 key / baseUrl / model 灌进 config.ts 的覆盖层，
+  // 之后 ai.client() 就能保持同步、且用户改完不用重启。
+  // 签名是同步 void（冻结），读盘却在函数内部异步进行，失败只打日志、绝不阻断启动
+  // ——启动路径上抛错等于应用打不开（细节见 ai.refreshAiConfigCache 的说明）。
+  //
+  // ⚠️ 这条注释原来写着「Phase 0 里这是个空函数、填实现的 PR 不用再动本文件」，
+  // 实现落地后没改。留着会让人以为这里什么也没做，于是「配置了 key 却没生效」
+  // 这类问题排查时第一个就把这条路径排除掉。
   ai.refreshAiConfigCache()
 
   registerHandlers()
