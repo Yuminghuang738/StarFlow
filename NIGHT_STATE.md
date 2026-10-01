@@ -49,11 +49,21 @@ tasks:
       文案里不再出现「一年」这类需要读者换算的说法
 - [x] 优先级 6（顺手）：趋势图分桶抽成 starTrendBuckets（1d99138）——桶数与标题
       跟 RECENT_WINDOW_DAYS 走，且「图上加起来 == 卡片上的数」现在能断言了
+- [x] 优先级 5 + 6：**只读排错 agent 的一批缺陷（R23–R25，81564e3 / d72df77 /
+      ce68307）**——起了一个只读 agent 专门找组件层「页面在安静地说谎」，报回 7 条，
+      采纳 5 条：Button 的 disabled 被 `{...rest}` 盖掉（loading 时按钮仍可点）、
+      设置页的同步与 AI 补全能同时跑（后者用旧列表覆盖刚同步的结果并落盘）、
+      周报「本周新版本」把查询失败显示成 0、周报两张卡/图共用了「本周」却不同窗、
+      ConfirmDialog 没有焦点管理与焦点陷阱（键盘够不着）、RepoExplain 的初始文本
+      只在挂载时取一次（补全完仍显示空）。未采纳 2 条已记入 OPTIMIZATION_LOG。
+      结构性结论：纯函数有 200+ 自检，**组件层一条都没有**（渲染进程无 DOM 测试
+      环境），所以残留 bug 会持续堆在这一半，且都是「看起来一切正常」的那一类
 - [ ] 优先级 4：重复代码 / 长函数拆分（候选：report.ts 的 dailyStarCount 与
       starTrendBuckets 是同一件东西的两种算法，但一在主进程一在渲染进程，
       要共用就得把天数常量提到 src/shared/）
-- [ ] 优先级 5：错误处理、日志、边界条件（继续）
-- [ ] 优先级 6：文档与注释（含 recommend.ts:271 那个粘在 export 上的 `*/`）
+- [ ] 优先级 5：错误处理、日志、边界条件（继续；组件层是主战场）
+- [x] 优先级 6：文档与注释（含 recommend.ts:271 那个粘在 export 上的 `*/`，已随
+      d72df77 清掉）
 
 ## 已知的收尾事项
 - **偶发（已解决）**：mock e2e 的「两个字段都在且 undefined 没抹掉值」在 R18
@@ -61,8 +71,8 @@ tasks:
   尤其是竞态——只差一个让其中一方变慢的条件（比如机器正被十几个自检进程压着）。
   当时那条注释把它猜成"IPC / 落盘时序"，方向对了一半，但真正的原因在 fixture 里。
   同类教训：写自检数据时，凡是要落进 store 的路径，就写一个真的存在的。
-- recommend.ts:271 有个 `*/export async function forQuery`（注释结束符粘在 export 上），
-  纯外观问题，可顺手清
+- recommend.ts:271 那个粘在 export 上的 `*/` 已清（d72df77）；同批还顺手把
+  weekActivity 里写死的 `'未分类'` 换成 collectionStats 的 UNCATEGORIZED_LABEL
 - 本分支基于**未合并**的 feat/ai-endpoint-agnostic（PR #31），若开 PR 到 main 会带上
   PR #31 的改动，需在描述里显著标注
 - 自检的经验教训（新增脚本时照做）：跑真实 Electron 的脚本必须带
