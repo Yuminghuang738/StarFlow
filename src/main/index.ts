@@ -269,7 +269,7 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
+function bootstrap(): void {
   console.log(`[main] MOCK_MODE = ${isMockMode()}`)
 
   // frame:false 之后菜单栏本来也看不见了，但它的快捷键还活着（Ctrl+W 关窗、Ctrl+R 刷新、
@@ -286,7 +286,34 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
-})
+}
+
+/**
+ * 单实例锁。**这是数据安全问题，不是体验问题**，所以宁可打断第二次启动也要拦。
+ *
+ * 整个应用的状态是「一份内存态 + 单文件全量落盘」：`store` 里既有 `db.data.repos`，
+ * 还有一份 `reposCache`，而写盘用的都是「调用方手里那份快照整体替换」。两个进程各持有
+ * 一份这样的状态、指向同一个 `starflow.db.json`，谁后写谁覆盖谁——A 进程刚同步回来的
+ * 收藏、刚记下的 clone 路径、刚跑完的 AI 结果，会被 B 进程的下一次写整份抹掉。
+ * `steno` 的 temp+rename 只保证**文件不会写坏**，保证不了**内容不丢**。
+ *
+ * 必须在 `whenReady` 之前拿：拿到锁才有资格把窗口和 handler 建起来。
+ * 拿不到的那个进程直接退出（它的窗口一个都不该出现），让已经开着的那个接管。
+ */
+if (app.requestSingleInstanceLock()) {
+  // 这个监听器在**持有锁的那个进程**里触发（不是第二次启动的进程），
+  // 所以这里能安全地引用 mainWindow。
+  app.on('second-instance', () => {
+    if (mainWindow === null) return
+    // 最小化 / 被挡住时用户双击图标得不到任何反馈，所以还原并抬到最前
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  })
+  app.whenReady().then(bootstrap)
+} else {
+  app.quit()
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
