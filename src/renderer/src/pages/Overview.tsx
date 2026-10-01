@@ -14,6 +14,7 @@ import {
 } from '../lib/collectionStats'
 import { unwrap, ipcErrorMessage } from '../lib/api'
 import { cn } from '../lib/cn'
+import { PageContainer, PageHeader } from '../components/layout/PageLayout'
 import type { Repo } from '@shared/types'
 
 /**
@@ -58,19 +59,19 @@ export function Overview(): React.JSX.Element {
 
   if (repos.length === 0) {
     return (
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
-        <PageHeader stats={stats} />
+      <PageContainer>
+        <HeroHeader stats={stats} />
         <EmptyState
           title="还没有同步过 Star"
           description="到「设置」页配好 GitHub Token，再到「收藏管理」点一次同步，这里就会长出图表"
         />
-      </div>
+      </PageContainer>
     )
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
-      <PageHeader stats={stats} />
+    <PageContainer>
+      <HeroHeader stats={stats} />
 
       {/* 统计卡片：8 项。信息量对比只有 4 项时翻了一倍，且每项都补了一句参照文案 */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -218,7 +219,7 @@ export function Overview(): React.JSX.Element {
           )}
         </Card>
       </section>
-    </div>
+    </PageContainer>
   )
 }
 
@@ -226,7 +227,7 @@ export function Overview(): React.JSX.Element {
 /* 局部组件                                                            */
 /* ------------------------------------------------------------------ */
 
-function PageHeader({ stats }: { stats: CollectionStats }): React.JSX.Element {
+function HeroHeader({ stats }: { stats: CollectionStats }): React.JSX.Element {
   return (
     <section className="relative overflow-hidden rounded-2xl border border-border bg-surface p-5">
       {/* 这一层渐变光斑是整页唯一的装饰性用色，压得很淡：太浓会和图表抢注意力 */}
@@ -234,23 +235,32 @@ function PageHeader({ stats }: { stats: CollectionStats }): React.JSX.Element {
         aria-hidden
         className="pointer-events-none absolute -right-20 -top-24 h-56 w-56 rounded-full bg-accent opacity-[0.14] blur-3xl"
       />
-      <div className="relative flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">收藏总览</h1>
-          <p className="mt-1 text-sm text-fg-muted">
-            你已经收藏了 <span className="font-medium text-primary">{stats.total}</span> 个仓库
-            {stats.totalStars > 0 ? (
-              <>
-                ，一共 <span className="font-medium text-fg">{formatStars(stats.totalStars)}</span> 颗星
-              </>
-            ) : null}
-          </p>
-        </div>
-        {stats.uncategorized > 0 ? (
-          <p className="text-xs text-fg-subtle">
-            还有 {stats.uncategorized} 个未分类，可到「收藏管理」跑一次 AI 补全
-          </p>
-        ) : null}
+      {/* 标题区复用全局的 PageHeader，只是套在这张 hero 卡里：
+          这样图标徽章、标题字号、副标题、右侧操作区的对齐方式与其它页面完全一致。
+          光斑那层是 absolute 的，所以这里要包一层 relative 把它压到底下。 */}
+      <div className="relative">
+        <PageHeader
+          tab="overview"
+          title="收藏总览"
+          subtitle={
+            <>
+              你已经收藏了 <span className="font-medium text-primary">{stats.total}</span> 个仓库
+              {stats.totalStars > 0 ? (
+                <>
+                  ，一共{' '}
+                  <span className="font-medium text-fg">{formatStars(stats.totalStars)}</span> 颗星
+                </>
+              ) : null}
+            </>
+          }
+          actions={
+            stats.uncategorized > 0 ? (
+              <p className="text-xs text-fg-subtle">
+                还有 {stats.uncategorized} 个未分类，可到「收藏管理」跑一次 AI 补全
+              </p>
+            ) : undefined
+          }
+        />
       </div>
     </section>
   )

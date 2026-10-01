@@ -16,6 +16,7 @@ import { Card } from '../components/common/Card'
 import { Badge } from '../components/common/Badge'
 import { useChartTheme } from '../components/charts/chartTheme'
 import { weeklyLanguageOption, weeklyTrendBarOption } from '../components/charts/options'
+import { PageContainer, PageHeader } from '../components/layout/PageLayout'
 
 /**
  * 'YYYY-MM-DD'（UTC 口径）→ 'M月D日'。
@@ -109,7 +110,7 @@ async function loadReleases(watch: Repo[]): Promise<RepoReleaseEntry[]> {
  */
 function ReportSkeleton(): React.JSX.Element {
   return (
-    <div className="mt-4 animate-pulse">
+    <div className="animate-pulse">
       <div className="flex gap-3">
         {[0, 1, 2].map((i) => (
           <Card key={i} className="flex-1">
@@ -224,28 +225,32 @@ export function Report(): React.JSX.Element {
   }, [report])
 
   return (
-    <div className="mx-auto max-w-4xl">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">每周回顾</h1>
-          {report ? (
-            <p className="mt-1 text-sm text-fg-muted">
-              {formatMonthDay(report.weekStart)} ~ {formatMonthDay(report.weekEnd)}
-            </p>
-          ) : null}
-        </div>
-        {report ? (
-          <div className="flex gap-2">
-            <Button variant="primary" onClick={() => void generate()} loading={loading}>
-              重新生成
-            </Button>
-            <Button onClick={() => downloadMarkdown(report)}>导出 Markdown</Button>
-          </div>
-        ) : null}
-      </header>
+    // gap-4 而不是默认的 gap-5：这一页正文里的区块自己也挂着 mt-4，两边都按 16px
+    // 走才整齐（否则标题到正文 20px、正文内部 16px，差 4px 肉眼看得出来）。长页里
+    // 的段落间距本来就该紧一点，这里不跟列表页比。
+    <PageContainer width="medium" className="gap-4">
+      <PageHeader
+        tab="report"
+        title="每周回顾"
+        subtitle={
+          report
+            ? `${formatMonthDay(report.weekStart)} ~ ${formatMonthDay(report.weekEnd)}`
+            : undefined
+        }
+        actions={
+          report ? (
+            <>
+              <Button variant="primary" onClick={() => void generate()} loading={loading}>
+                重新生成
+              </Button>
+              <Button onClick={() => downloadMarkdown(report)}>导出 Markdown</Button>
+            </>
+          ) : undefined
+        }
+      />
 
       {error ? (
-        <Card className="mt-4 border-danger/30 bg-danger/10 text-sm text-danger">
+        <Card className="border-danger/30 bg-danger/10 text-sm text-danger">
           <p className="mb-3">生成失败：{error}</p>
           <Button onClick={() => void generate()}>重试</Button>
         </Card>
@@ -391,6 +396,6 @@ export function Report(): React.JSX.Element {
         // 自动生成中（或刚挂载、effect 还没跑）时的占位
         <ReportSkeleton />
       )}
-    </div>
+    </PageContainer>
   )
 }
