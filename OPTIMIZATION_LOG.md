@@ -169,3 +169,56 @@ done · commit e974ce2
 与渐变光斑（外面补一层 relative 压住 abs 的光斑）。
 至此六页宽度与标题区走同一套，三档宽度不再有例外。
 验证：tsc / eslint / build 全绿。
+
+## R11 · T7 动效：板块切换 + 列表逐行 + 按钮按压 + reduced-motion 降级
+done · commit 40302fc
+
+1) 板块切换淡入上移。必须绕开一个坑：页面保活、切走不卸载，**没有 exit 就不能用
+   AnimatePresence**。改用同一个 motion.div 的两种 animate 目标值（非激活态挂在
+   opacity:0/y:6，被 display:none 挡着），成型观感一样而组件始终是同一个，页面
+   状态一个字不丢。非激活态 transition 给 duration:0，否则六页在后台各空转 0.24s。
+2) 列表逐行入场，18ms/行、最多第 12 行封顶（不封顶时几百行要等好几秒，像卡住）。
+   刻意**只做透明度**：行里挂着 fixed 的确认对话框，祖先带 transform 会让它错位。
+   只在挂载时播一次（key 是 repo.id，筛选来回不重播）。
+3) 按钮 enabled:active:scale-[0.97] + focus-visible 焦点环；transition-colors 换成
+   transition，否则 scale 瞬间跳变比不做还生硬。
+4) reduced-motion：framer 走 JS 驱动、CSS 拦不住，所以 MotionConfig reducedMotion=
+   "user" 与 CSS 媒体查询**两处都要管**。没采用 `* { animation-duration:.01ms }`
+   一刀切——加载转圈是"正在进行"的唯一信号，停掉像卡死。
+验证：tsc / eslint / build 全绿。
+
+---
+
+# Phase 2（autonomous）
+
+## R12 · Phase 2 第 1 轮：摸清全量自检的底 → 修掉唯一一处红
+done · commit ea7b36e
+
+确定性目标 T1–T7 全部完成，按提示词进入 autonomous 阶段。第一件事不是继续改代码，
+而是把自检脚本**全跑一遍**——本项目渲染进程没有 DOM 测试环境，自检是唯一
+能挡住回归的东西，得先知道它现在是绿是红。
+
+结果：15 个驱动器，14 绿，只有 `store-local-e2e-realclone.mjs` 红（5 项全失败）。
+
+**根因不是功能，是 fixture 把平台写死了。** 两个真实 clone 自检都把
+Windows 专有的 `http.sslBackend = schannel` 写进临时 HOME 的 `.gitconfig`，
+而 Schannel 是 Windows 的 TLS 实现，别的平台 git 直接报
+`fatal: Unsupported SSL backend 'schannel'`，于是任何非 Windows 机器上这两个
+自检都必然全红——看着像 clone 坏了，其实一行产品代码都没参与。
+
+这段配置的本意是好的是：simple-git 出于安全会剥掉子进程环境里**所有** `GIT_`
+前缀的变量，所以 `GIT_CONFIG_COUNT` / `GIT_SSL_NO_VERIFY` 那套注入在应用里必然
+无效（在 bash 里手跑 `git clone` 有效、在应用里无效，这个差异很坑），只能让它读
+文件；而拦截式网络（TLS 中间人代理）下确实需要放宽证书校验。所以修法是**保留
+意图、按平台分叉**，抽出 `scripts/selfcheck/fake-git-home.mjs` 统一这份配置：
+Windows 用 `sslBackend=schannel` + `schannelCheckRevoke=false`，其余平台用
+`http.sslVerify=false`。两者都只作用于这个临时 HOME，不碰用户真实的 `~/.gitconfig`。
+
+⚠️ 这是 fixture 修复，不是放宽断言——夜间规则禁的是"改断言让测试过"，而这里改的是
+本该正确却被写死的那份输入。断言一条没动。
+
+验证（本机 Linux）：
+- `npx tsc --noEmit` → 0
+- `npx eslint scripts/selfcheck/` → 干净
+- `store-local-e2e-realclone.mjs` → **7 PASS / 0 FAIL**（修前 5 FAIL）
+- `store-local.mjs clone` → 6 PASS / 0 FAIL（同一份 fixture，一并受益）

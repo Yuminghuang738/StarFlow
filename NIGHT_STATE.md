@@ -1,6 +1,6 @@
 # NIGHT_STATE
 
-phase: deterministic
+phase: autonomous
 start_epoch: 1790871552
 total_budget_seconds: 28800
 deadline_epoch: 1790899952
@@ -15,11 +15,30 @@ tasks:
 - T4: done      # 为你推荐：按整份收藏动态推送（7dfdb62）
 - T5: done      # 每周回顾：Release 变动进 AI 总结 + 本周项目动态（e07d941）
 - T6: done      # 整体布局与视觉现代化（1bd4817 / 51a53bb / 59d4c4e / e974ce2）
-- T7: doing     # 大幅增加动效与切换动画
+- T7: done      # 动效：板块切换 + 列表逐行 + 按钮按压 + reduced-motion（40302fc）
+
+## Phase 2 待办（autonomous 阶段，按提示词的优先级顺序）
+- [x] 全量自检摸底：15 个驱动器，14 绿；唯一红的 realclone 是 fixture 写死
+      Windows 的 schannel 导致（非功能问题），已按平台分叉修掉（ea7b36e）→ 优先级 1 收口
+- [ ] 优先级 0：功能拓展
+- [ ] 优先级 2：类型 / lint（当前干净，需持续复查）
+- [ ] 优先级 3：性能热点（**必须有实测证据**；echarts 按需引入已排除——渲染进程无
+      DOM 测试环境，漏注册组件只在运行时炸，不可验证）
+- [ ] 优先级 4：重复代码 / 长函数拆分
+- [ ] 优先级 5：错误处理、日志、边界条件
+- [ ] 优先级 6：文档与注释
+
+## 已知的收尾事项
+- recommend.ts:271 有个 `*/export async function forQuery`（注释结束符粘在 export 上），
+  纯外观问题，可顺手清
+- 本分支基于**未合并**的 feat/ai-endpoint-agnostic（PR #31），若开 PR 到 main 会带上
+  PR #31 的改动，需在描述里显著标注
 
 ## 约束备忘
 - 不跑 `npm run dev`（GUI 需用户终端），验证靠 tsc / eslint / build / selfcheck
 - 不跑 `npm run format`（prettier 会重排冻结契约）
 - 渲染进程不得 import src/main/** 或 Node API
 - 禁用 React `<Activity>`；keep-alive 靠 visited + hidden
+- **页面级禁用 AnimatePresence**（保活的不卸载就没有 exit）；列表内部可以
 - 禁止 any；AI 调用不得传 response_format；enrichRepos 并发严格 3
+- 祖先带 transform 会让 position:fixed 的 ConfirmDialog 错位 —— 该元素内不要再套位移动画
