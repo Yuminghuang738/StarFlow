@@ -71,9 +71,11 @@ StarFlow 的做法是把这份列表搬到本地，补上 GitHub 不提供的几
 | --- | --- | --- |
 | GitHub REST API | 读取 Star 列表、README、Release、提交记录；unstar；fork | 真实模式必需（Mock 模式不需要） |
 | GitHub OAuth Device Flow | 「用 GitHub 登录」，免去手填 PAT | 可选；需要自行注册一个 OAuth App |
-| OpenAI 兼容端点 | AI 摘要、分类、周报文案 | 可选；不配置时 AI 相关功能降级，其余功能照常 |
+| OpenAI 兼容端点 | AI 摘要、分类、周报文案、把一句话翻译成搜索条件 | 可选；不配置时 AI 相关功能降级，其余功能照常 |
 
 这些外部服务都由主进程发起，渲染进程不直接访问网络。Device Flow 被选中的原因是它**不需要 `client_secret`**，因此可以直接把 Client ID 编进公开仓库，而不必自建转发后端。
+
+**AI 端点不绑定 OpenAI。** 任何 OpenAI 格式的端点都能用，配置就是三项：Base URL、模型名、API Key。设置页里有一排预设（DeepSeek / Kimi / 智谱 GLM / 通义千问 / OpenRouter / 硅基流动 / Ollama / LM Studio），点一下会自动填好地址和模型；也可以直接填自己的中转。注意两点：**地址不一定以 `/v1` 结尾**（智谱是 `/api/paas/v4`），以服务商文档为准；**本地端点（Ollama、LM Studio）不需要 Key**。
 
 ---
 
@@ -99,9 +101,11 @@ npm run dev               # 启动 Electron + Vite 开发环境（热重载）
 | `MOCK_MODE` | 为 `true` 时全部数据来自 `mock-data.json`，不发起任何网络请求 | 可选，默认 `false` |
 | `GITHUB_TOKEN` | GitHub Personal Access Token，用于读取 Star 列表和写操作 | 真实模式必需（或改用应用内登录） |
 | `GITHUB_OAUTH_CLIENT_ID` | GitHub OAuth App 的 Client ID，用于 Device Flow 登录 | 可选 |
-| `OPENAI_API_KEY` | AI 摘要 / 分类 / 周报使用的密钥 | 可选；不填则 AI 功能降级 |
-| `OPENAI_BASE_URL` | 兼容 OpenAI 协议的自建网关地址；留空走官方端点 | 可选 |
-| `MODEL_NAME` | 模型名，如 `gpt-4o-mini` | 可选；留空时主进程默认用 `gpt-4o-mini` |
+| `OPENAI_API_KEY` | AI 摘要 / 分类 / 周报使用的密钥 | 可选；不填则 AI 功能降级。本地端点（Ollama / LM Studio）不需要 |
+| `OPENAI_BASE_URL` | 任意 OpenAI 格式端点的地址；留空走官方端点 | 可选 |
+| `MODEL_NAME` | 模型名，如 `deepseek-chat`、`glm-4-plus` | 填了 `OPENAI_BASE_URL` 就**必填**；两者都留空时回落 `gpt-4o-mini` |
+
+这三个键只是**默认值**：应用内「设置 → AI 配置」里填的优先级更高。日常改配置建议直接在界面里改，那边有预设按钮和连接测试。
 
 `MOCK_MODE` 是开发与演示开关：置为 `true` 后，Star 列表、README、Release、提交记录、AI 结果、周报全部返回 `mock-data.json`（31 条演示仓库）里的假数据，不读取任何真实 token、也不会碰你的 GitHub 账号。上面除 `MOCK_MODE` 外的其余 5 个键在 Mock 模式下都不需要填。
 

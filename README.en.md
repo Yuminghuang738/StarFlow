@@ -71,9 +71,11 @@ StarFlow's approach is to move that list onto your own machine and add the layer
 | --- | --- | --- |
 | GitHub REST API | Read the star list, READMEs, releases, and commits; unstar; fork | Required in real mode (not needed in mock mode) |
 | GitHub OAuth Device Flow | "Sign in with GitHub" instead of pasting a PAT | Optional; requires registering your own OAuth App |
-| OpenAI-compatible endpoint | AI summaries, classification, weekly-report copy | Optional; without it the AI features degrade, everything else works |
+| OpenAI-compatible endpoint | AI summaries, classification, weekly-report copy, turning a sentence into search filters | Optional; without it the AI features degrade, everything else works |
 
 All of these are called from the main process; the renderer never talks to the network directly. Device Flow was chosen because it **does not need a `client_secret`**, so the Client ID can live in a public repository instead of necessitating a forwarding backend of your own.
+
+**The AI endpoint is not tied to OpenAI.** Any endpoint that speaks the OpenAI format works; configuration is three fields — Base URL, model name, and API key. The settings page ships presets (DeepSeek / Kimi / Zhipu GLM / Qwen / OpenRouter / SiliconFlow / Ollama / LM Studio) that fill in the URL and model for you, and you can point it at your own relay instead. Two things to watch: the **URL does not always end in `/v1`** (Zhipu uses `/api/paas/v4`), so follow your provider's docs; and **local endpoints (Ollama, LM Studio) need no API key**.
 
 ---
 
@@ -99,9 +101,11 @@ npm run dev               # start the Electron + Vite dev environment (hot reloa
 | `MOCK_MODE` | When `true`, all data comes from `mock-data.json` and no network requests are made | Optional, defaults to `false` |
 | `GITHUB_TOKEN` | GitHub Personal Access Token, used to read the star list and perform write operations | Required in real mode (or sign in inside the app instead) |
 | `GITHUB_OAUTH_CLIENT_ID` | Client ID of a GitHub OAuth App, for Device Flow sign-in | Optional |
-| `OPENAI_API_KEY` | Key used for AI summaries / classification / the weekly report | Optional; AI features degrade if unset |
-| `OPENAI_BASE_URL` | Base URL of a gateway that speaks the OpenAI protocol; empty means the official endpoint | Optional |
-| `MODEL_NAME` | Model name, e.g. `gpt-4o-mini` | Optional; the main process defaults to `gpt-4o-mini` when empty |
+| `OPENAI_API_KEY` | Key used for AI summaries / classification / the weekly report | Optional; AI features degrade if unset. Not needed for local endpoints (Ollama / LM Studio) |
+| `OPENAI_BASE_URL` | Base URL of any endpoint that speaks the OpenAI protocol; empty means the official endpoint | Optional |
+| `MODEL_NAME` | Model name, e.g. `deepseek-chat`, `glm-4-plus` | **Required** when `OPENAI_BASE_URL` is set; falls back to `gpt-4o-mini` only when both are empty |
+
+These three are only **defaults**: whatever you enter under Settings → AI config takes precedence. For day-to-day changes prefer the settings page — it has presets and a connection test.
 
 `MOCK_MODE` is the development and demo switch: with it set to `true`, the star list, READMEs, releases, commits, AI results, and the weekly report all return fake data from `mock-data.json` (31 demo repositories). No real token is read and your GitHub account is never touched. The other 5 keys are all unnecessary in mock mode.
 

@@ -2,6 +2,10 @@
 // 真实实现：openai SDK（key 从 config.getEnv() 取），提示词内要求 JSON / 单词输出 + 本地清洗解析；
 // enrichRepos 内部用 p-limit 3 并发，结果写回 store.saveRepos() 后返回完整列表。
 //
+// 端点不绑定 OpenAI 官方：任何 OpenAI 格式的端点都能用（DeepSeek / 智谱 / 通义 / 中转 /
+// 本地 Ollama、LM Studio…），差异只在 Base URL、模型名、以及本地端点不需要 Key。
+// 预设表与端点判定见 shared/ai-providers.ts。
+//
 // 硬约束：
 //   1) 不使用 response_format（大量 OpenAI 兼容中转不支持，会直接 400）
 //   2) enrichRepos 并发严格为 3，用 p-limit，不裸跑 Promise.all
@@ -10,6 +14,7 @@ import OpenAI from 'openai'
 import pLimit from 'p-limit'
 import type { Repo, AiCategory, AiConnectionResult } from '@shared/types'
 import { AI_CATEGORIES } from '@shared/types'
+import { isLocalEndpoint } from '@shared/ai-providers'
 import { isMockMode, getEnv, setAiOverride } from './config'
 import { summarizePrompt, classifyPrompt, reportPrompt, searchPlanPrompt, parseSearchPlan } from './ai-prompts'
 import type { SearchPlan } from './ai-prompts'
@@ -26,27 +31,59 @@ const README_MIN_LENGTH = 30
 /** enrichRepos 的并发上限（PR 验收项：严格 ≤ 3） */
 const ENRICH_CONCURRENCY = 3
 /**
- * 缺少 API Key 的提示文案，既是给用户看的，也是降级策略里唯一允许 throw 的判据。
- * ⚠️ 它是个**哨兵常量**：isMissingKey() 拿它做 includes 比较，下面两处必须继续引用
- * 同一个常量，不要改成字面量（改文案时容易只改一处，降级判断会静默失效）。
+ * 官方端点的默认模型。**只在 Base URL 也留空**（即真·官方端点）时才用它兜底——
+ * 详见 resolveModel()，别的端点套用这个名字是纯粹的坑。
+ */
+const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini'
+/**
+ * 本地端点没有 Key 这个概念，但 openai SDK 要求 apiKey 非空。
+ * 给它一个占位串即可：Ollama / LM Studio 都不校验这个字段。
+ */
+const LOCAL_PLACEHOLDER_KEY = 'sk-no-key-required'
+/**
+ * 缺少 API Key 的提示文案，既是给用户看的，也是「必须冒泡而不是降级」的唯一判据来源。
+ * ⚠️ 它是个**哨兵常量**：isConfigError() 拿它做 includes 比较，不要改成字面量、
+ * 也不要在别处复制一份（改文案时容易只改一处，降级判断会静默失效）。
  */
 const MISSING_KEY_MESSAGE = '未配置 AI API Key，请在「设置 → AI 配置」中填写'
+/**
+ * 同上，是第二个哨兵常量：填了自定义 Base URL 却没给模型名。
+ * 必须和 MISSING_KEY_MESSAGE 一起被 isConfigError() 认出来、一起冒泡给用户——
+ * 否则它会被降级路径吞掉，表现成「AI 补全静默把什么都归到『其他』」，比报错难查得多。
+ */
+const MISSING_MODEL_MESSAGE =
+  '已设置自定义 Base URL，但未指定模型名。请在「设置 → AI 配置」中填写服务商支持的模型名（如 deepseek-chat、glm-4-plus）'
 
 /* ------------------------------------------------------------------ */
 /* 客户端（模块级懒加载，不在文件顶层 new）                              */
 /* ------------------------------------------------------------------ */
 
 let cached: OpenAI | null = null
+/**
+ * 缓存键。**必须带上 baseUrl**：只比 Key 的话，用户「只换地址、不动 Key」时
+ * 会继续命中旧 client，请求打到上一个端点——而换端点正是这套预设要支持的主场景。
+ * model 不进缓存键：它是每次调用现取的（resolveModel()），本来就即时生效。
+ */
 let cachedKey = ''
+
+function cacheKeyOf(key: string, baseUrl: string): string {
+  return `${key}\u0000${baseUrl}`
+}
 
 function client(): OpenAI {
   const env = getEnv()
-  if (!env.openaiKey) throw new Error(MISSING_KEY_MESSAGE)
-  if (!cached || cachedKey !== env.openaiKey) {
-    cachedKey = env.openaiKey
+  const baseUrl = env.openaiBaseUrl.trim()
+
+  // 本地端点允许没有 Key（Ollama / LM Studio），给 SDK 一个占位串；其余端点仍然必填。
+  const apiKey = env.openaiKey || (isLocalEndpoint(baseUrl) ? LOCAL_PLACEHOLDER_KEY : '')
+  if (!apiKey) throw new Error(MISSING_KEY_MESSAGE)
+
+  const cacheKey = cacheKeyOf(apiKey, baseUrl)
+  if (!cached || cachedKey !== cacheKey) {
+    cachedKey = cacheKey
     cached = new OpenAI({
-      apiKey: env.openaiKey,
-      baseURL: env.openaiBaseUrl || undefined,
+      apiKey,
+      baseURL: baseUrl || undefined,
       timeout: 30000,
       maxRetries: 2
     })
@@ -54,8 +91,22 @@ function client(): OpenAI {
   return cached
 }
 
-function modelName(): string {
-  return getEnv().modelName || 'gpt-4o-mini'
+/**
+ * 这次该用哪个模型。
+ *
+ * 三档，顺序即优先级：
+ *   1. 用户填了模型名（界面 > .env）→ 用它
+ *   2. 没填，但 Base URL 是自定义的 → **明确报错**。绝不能拿 gpt-4o-mini 去凑：
+ *      那会换回一个「model not found」，而用户从没输入过这个名字，根本无从改起。
+ *   3. 没填，Base URL 也留空 = 真·官方端点 → 官方默认。这条只是为了不破坏
+ *      「只填了 Key 就能用」的既有配置。
+ */
+function resolveModel(): string {
+  const env = getEnv()
+  const model = env.modelName.trim()
+  if (model) return model
+  if (env.openaiBaseUrl.trim()) throw new Error(MISSING_MODEL_MESSAGE)
+  return DEFAULT_OPENAI_MODEL
 }
 
 /* ------------------------------------------------------------------ */
@@ -70,9 +121,13 @@ function errorMessage(err: unknown): string {
   return String(err)
 }
 
-/** 缺 Key 是配置问题，必须冒泡给用户；其余 AI 失败一律降级 */
-function isMissingKey(err: unknown): boolean {
-  return errorMessage(err).includes(MISSING_KEY_MESSAGE)
+/**
+ * 配置类错误（缺 Key / 缺模型名）是用户必须去设置页处理的，必须冒泡；其余 AI 失败一律降级。
+ * 判据是上面两个哨兵常量——所以它们必须被引用而不是复制成字面量。
+ */
+function isConfigError(err: unknown): boolean {
+  const message = errorMessage(err)
+  return message.includes(MISSING_KEY_MESSAGE) || message.includes(MISSING_MODEL_MESSAGE)
 }
 
 /**
@@ -144,7 +199,7 @@ export async function summarize(readme: string): Promise<string> {
   const started = Date.now()
   try {
     const res = await client().chat.completions.create({
-      model: modelName(),
+      model: resolveModel(),
       temperature: 0.2,
       max_tokens: 200,
       messages: [
@@ -156,8 +211,8 @@ export async function summarize(readme: string): Promise<string> {
     console.log(`[ai] summarize 完成，耗时 ${Date.now() - started}ms`)
     return text
   } catch (err) {
-    // 缺 Key 必须让用户看见，其余一律降级为空串（首页不能因为 AI 挂了就崩）
-    if (isMissingKey(err)) throw err
+    // 配置类错误必须让用户看见，其余一律降级为空串（首页不能因为 AI 挂了就崩）
+    if (isConfigError(err)) throw err
     console.error('[ai] summarize 失败，已降级返回空摘要:', errorMessage(err))
     return ''
   }
@@ -172,7 +227,7 @@ export async function classify(repo: Repo): Promise<AiCategory> {
 
   try {
     const res = await client().chat.completions.create({
-      model: modelName(),
+      model: resolveModel(),
       temperature: 0,
       max_tokens: 20,
       messages: [{ role: 'user', content: classifyPrompt(repo) }]
@@ -182,7 +237,7 @@ export async function classify(repo: Repo): Promise<AiCategory> {
     console.log(`[ai] classify ${repo.full_name} -> ${category}`)
     return category
   } catch (err) {
-    if (isMissingKey(err)) throw err
+    if (isConfigError(err)) throw err
     console.error(`[ai] classify 失败，已降级为"其他"：${repo.full_name}`, errorMessage(err))
     return '其他'
   }
@@ -234,8 +289,10 @@ export async function enrichRepos(repos: Repo[]): Promise<Repo[]> {
     await store.saveRepos(enriched)
     return enriched
   } catch (err) {
-    // 只有缺 Key 会从 classify 冒泡上来；此时不该把半截结果写库，直接提示用户
-    if (isMissingKey(err)) throw err
+    // 只有配置类错误（缺 Key / 缺模型名）会从 classify 冒泡上来，此时把原文透给用户，
+    // 让他知道该去设置页改哪个字段；其余失败才套一层「AI 补全失败」。
+    // 两种情况都不该把半截结果写库。
+    if (isConfigError(err)) throw err
     console.error('[ai] enrichRepos 失败:', errorMessage(err))
     throw new Error(`AI 补全失败: ${errorMessage(err)}`)
   }
@@ -253,7 +310,7 @@ export async function generateReport(repos: Repo[]): Promise<string> {
 
   try {
     const res = await client().chat.completions.create({
-      model: modelName(),
+      model: resolveModel(),
       temperature: 0.6,
       max_tokens: 500,
       messages: [{ role: 'user', content: reportPrompt(repos) }]
@@ -262,7 +319,7 @@ export async function generateReport(repos: Repo[]): Promise<string> {
     // 模型返回空白时同样走本地兜底，report.generate() 的调用方永远能拿到一段文案
     return text || fallback
   } catch (err) {
-    // 这个函数被 report.ts 调用，必须稳定不抛错（缺 Key 也降级，首页/周报页不能崩）
+    // 这个函数被 report.ts 调用，必须稳定不抛错（配置错误也降级，首页/周报页不能崩）
     console.error('[ai] generateReport 失败，已降级为本地文案:', errorMessage(err))
     return fallback
   }
@@ -288,7 +345,7 @@ export async function planSearch(query: string): Promise<SearchPlan | null> {
 
   try {
     const res = await client().chat.completions.create({
-      model: modelName(),
+      model: resolveModel(),
       temperature: 0,
       max_tokens: 200,
       messages: [{ role: 'user', content: searchPlanPrompt(q) }]
@@ -342,14 +399,14 @@ export function refreshAiConfigCache(): void {
  * 用户看了也不知道下一步该改哪个字段。
  */
 function classifyConnectionError(err: unknown): string {
-  const where = getEnv().openaiBaseUrl || '默认 OpenAI 端点'
+  const where = getEnv().openaiBaseUrl || '默认端点'
 
   // 连接类错误没有 HTTP status，必须先于 status 判断（超时是连接错误的子类）
   if (err instanceof OpenAI.APIConnectionTimeoutError) {
     return `连接 ${where} 超时，请检查网络或 Base URL 是否可达`
   }
   if (err instanceof OpenAI.APIConnectionError) {
-    return `连不上 ${where}，请检查 Base URL 与网络（用中转时确认地址拼写、以及是否需要 /v1 后缀）`
+    return `连不上 ${where}，请检查 Base URL 与网络（本地端点要确认服务已经启动）`
   }
 
   const status = (err as { status?: number }).status
@@ -360,7 +417,7 @@ function classifyConnectionError(err: unknown): string {
     return '没有访问权限（403），该 Key 可能未被允许调用此模型'
   }
   if (status === 404 || err instanceof OpenAI.NotFoundError) {
-    return `Base URL 或模型名不对（404）：确认 ${where} 是否以 /v1 结尾、模型名是否存在`
+    return `Base URL 或模型名不对（404）：确认 ${where} 是服务商文档上的完整地址，以及模型名在该服务商处确实存在`
   }
   if (status === 400 || err instanceof OpenAI.BadRequestError) {
     return '请求被拒绝（400），通常是模型名或 Base URL 与该中转端点不匹配'
@@ -383,15 +440,29 @@ function classifyConnectionError(err: unknown): string {
  * 而不是把原始异常文本丢给用户，也**不抛错**——设置页直接把 message 渲染成一行提示。
  */
 export async function testConnection(): Promise<AiConnectionResult> {
-  const model = modelName()
-
-  // MOCK_MODE 下不允许发起任何真实网络请求（项目铁律），直接返回说明
+  // MOCK_MODE 下不允许发起任何真实网络请求（项目铁律），直接返回说明。
+  // 放在最前面：mock 下没理由因为「模型名没配」而报配置错误。
   if (isMockMode()) {
-    return { ok: true, message: 'Mock 模式不发起真实请求', model }
+    const env = getEnv()
+    return {
+      ok: true,
+      message: 'Mock 模式不发起真实请求',
+      model: env.modelName.trim() || DEFAULT_OPENAI_MODEL
+    }
   }
 
-  // 先自查 key：比让 client() 抛错更早、也更明确
-  if (!getEnv().openaiKey) {
+  // 这个函数对外承诺「不抛错」，所以配置错误也要兜住，转成 ok:false + 人话文案
+  let model: string
+  try {
+    model = resolveModel()
+  } catch (err) {
+    return { ok: false, message: errorMessage(err), model: '' }
+  }
+
+  const env = getEnv()
+  // 先自查 key：比让 client() 抛错更早、也更明确。
+  // 本地端点（Ollama / LM Studio）本来就没有 Key，不能按缺配置处理。
+  if (!env.openaiKey && !isLocalEndpoint(env.openaiBaseUrl)) {
     return { ok: false, message: '未配置 API Key，请在设置页填写或写入 .env', model }
   }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { unwrap, ipcErrorMessage } from '../lib/api'
 import { cn } from '../lib/cn'
 import { useRepoStore } from '../store/repoStore'
@@ -9,6 +9,8 @@ import { Input } from '../components/common/Input'
 import { GithubLoginCard } from '../components/auth/GithubLoginCard'
 import { ThemeCard } from '../components/settings/ThemeCard'
 import { AiKeyGuide } from '../components/settings/AiKeyGuide'
+import { AiProviderPicker } from '../components/settings/AiProviderPicker'
+import { checkBaseUrl, isLocalEndpoint, matchPreset } from '@shared/ai-providers'
 import type { AiConfigView } from '@shared/types'
 
 /** 来源徽章的文案与配色：界面存的 / .env 兜底的 / 没配 */
@@ -37,6 +39,8 @@ export function Settings(): React.JSX.Element {
   const [aiNotice, setAiNotice] = useState<string | null>(null)
   /** 刚保存成功：在提示行后面挂一个「立即测试连接」的 CTA */
   const [aiJustSaved, setAiJustSaved] = useState(false)
+  /** 提示行是不是一条「拦下来了」的报错（决定用红色还是灰色渲染） */
+  const [aiNoticeError, setAiNoticeError] = useState(false)
 
   const loading = useRepoStore((s) => s.loading)
   const enriching = useRepoStore((s) => s.enriching)
@@ -112,20 +116,34 @@ export function Settings(): React.JSX.Element {
   }
 
   async function saveAi(): Promise<void> {
+    const key = apiKey.trim()
+    const nextBase = aiBaseUrl.trim()
+    const nextModel = aiModel.trim()
+    const initialBase = aiConfig?.baseUrl ?? ''
+    const initialModel = aiConfig?.model ?? ''
+
+    // 界面先拦一道：自定义端点必须给模型名。主进程的 resolveModel() 也会拒（那里是权威），
+    // 这里拦是为了不用白等一次 IPC，而且文案能就近显示在按钮旁边。
+    if (nextBase !== '' && nextModel === '') {
+      setAiJustSaved(false)
+      setAiNoticeError(true)
+      setAiNotice(
+        '已填自定义 Base URL 但模型名留空：请填写该服务商支持的模型名（如 deepseek-chat、glm-4-plus）。'
+      )
+      return
+    }
+
     setAiSaving(true)
     setAiNotice(null)
+    setAiNoticeError(false)
     setAiJustSaved(false)
-    // 只有「从无到有」这一次自动跑探针。判据放在 unwrap 成功之后，避免保存失败也去连一次。
+    // 只有「确实改动了连接信息」这一次自动跑探针。判据放在 unwrap 成功之后，
+    // 避免保存失败也去连一次。
     let autoTest = false
     try {
       // apiKey 留空表示「不修改现有 key」——契约里缺省即不动，清除走单独的按钮。
-      // baseUrl / model 只在**用户改过**时才提交：否则会把从 .env 回落来的值固化进
-      // store，之后改 .env 就不生效了（界面存的优先级更高）。传空串则表示清空要退回 .env。
-      const key = apiKey.trim()
-      const nextBase = aiBaseUrl.trim()
-      const nextModel = aiModel.trim()
-      const initialBase = aiConfig?.baseUrl ?? ''
-      const initialModel = aiConfig?.model ?? ''
+      // baseUrl / model 同理只在**用户改过**时才提交：否则会把从 .env 回落来的值固化进
+      // store，之后改 .env 就不生效了（界面存的优先级更高）。传空串则表示清空、退回 .env。
       await unwrap(
         window.api.store.saveAiConfig({
           apiKey: key ? key : undefined,
@@ -133,25 +151,26 @@ export function Settings(): React.JSX.Element {
           model: nextModel === initialModel ? undefined : nextModel
         })
       )
-      autoTest = key !== '' && !(aiConfig?.hasKey ?? false)
+      autoTest = key !== '' || nextBase !== initialBase || nextModel !== initialModel
       setApiKey('')
       await reloadAiConfig()
       setAiNotice('AI 配置已保存')
       setAiJustSaved(true)
     } catch (e) {
+      setAiNoticeError(true)
       setAiNotice(ipcErrorMessage(e))
     } finally {
       setAiSaving(false)
     }
-    // 首次填 Key 时顺手验一次是有价值的（用户此刻就在等结果）；每次都跑则等于给用户
-    // 一张意料外的网络账单，而且失败信息紧跟在"已保存"后面，会让人以为保存失败了。
-    // 其余情况改成 aiNotice 旁边那个「立即测试连接」，由用户自己决定。
+    // 改动连接信息的那一刻验一次是有价值的（用户此刻就在等结果）；没改动时本来也没东西可测。
+    // 仍然不做「每次点保存都测」——那会在用户只是想改个模型名时也多发一次请求。
     if (autoTest) await testAi()
   }
 
   async function clearAiKey(): Promise<void> {
     setAiSaving(true)
     setAiNotice(null)
+    setAiNoticeError(false)
     setAiJustSaved(false)
     try {
       await unwrap(window.api.store.clearAiKey())
@@ -159,6 +178,7 @@ export function Settings(): React.JSX.Element {
       await reloadAiConfig()
       setAiNotice('已清除界面保存的密钥（若 .env 里有 key 会回退到它）')
     } catch (e) {
+      setAiNoticeError(true)
       setAiNotice(ipcErrorMessage(e))
     } finally {
       setAiSaving(false)
@@ -179,14 +199,18 @@ export function Settings(): React.JSX.Element {
     }
   }
 
-  // —— baseUrl 软校验：只提示不拦截（国内中转地址五花八门）——
-  const baseUrlTrimmed = aiBaseUrl.trim()
-  const baseUrlMissingScheme =
-    baseUrlTrimmed !== '' && !/^https?:\/\//i.test(baseUrlTrimmed)
-  const baseUrlInsecure = /^http:\/\//i.test(baseUrlTrimmed)
-  // 最常见的 404 成因：中转地址忘了 /v1 后缀
-  const baseUrlMissingV1 =
-    baseUrlTrimmed !== '' && !baseUrlMissingScheme && !/\/v1\/?$/i.test(baseUrlTrimmed)
+  // —— Base URL 软校验：只提示不拦截（国内中转地址五花八门）——
+  // 规则都在 shared/ai-providers.ts 里，是纯函数，可被自检脚本断言；
+  // 这里只负责渲染。用 useMemo 是因为它在 render 里要遍历一遍问题列表。
+  const baseUrlIssues = useMemo(() => checkBaseUrl(aiBaseUrl), [aiBaseUrl])
+  const activePreset = matchPreset(aiBaseUrl)
+  /** 正在编辑的地址是不是本地端点（决定 Key 要不要必填、以及选中的预设说明） */
+  const editingLocalEndpoint = isLocalEndpoint(aiBaseUrl)
+  const modelPlaceholder = activePreset?.model
+    ? `模型名（例：${activePreset.model}）`
+    : aiBaseUrl.trim() === ''
+      ? '模型名（留空则用 gpt-4o-mini）'
+      : '模型名（自定义端点必填）'
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -234,15 +258,28 @@ export function Settings(): React.JSX.Element {
       </Card>
 
       <Card className="mt-4">
-        <h2 className="text-sm font-medium text-fg">AI 配置（OpenAI 兼容端点）</h2>
+        <h2 className="text-sm font-medium text-fg">AI 配置</h2>
         <p className="mt-1 text-xs text-fg-subtle">
-          在这里填一次就行，不用去改项目根目录的{' '}
+          支持任何 OpenAI 格式的端点（DeepSeek、智谱、通义、Kimi、中转，以及本地
+          Ollama / LM Studio），只要 <span className="text-fg">Base URL + 模型名 + Key</span>{' '}
+          三项对上即可。在这里填一次就行，不用去改项目根目录的{' '}
           <code className="rounded bg-surface-2 px-1">.env</code>
           。保存后立即生效、无需重启；API Key 经 safeStorage 加密后存在 userData 目录，
           永不回显，留空保存表示不修改已有 Key。
         </p>
 
-        <AiKeyGuide />
+        <div className="mt-3">
+          <div className="mb-1.5 text-xs text-fg-muted">选一个服务商快速填好地址和模型：</div>
+          <AiProviderPicker
+            baseUrl={aiBaseUrl}
+            onPick={(preset) => {
+              setAiBaseUrl(preset.baseUrl)
+              setAiModel(preset.model)
+            }}
+          />
+        </div>
+
+        <AiKeyGuide baseUrl={aiBaseUrl} />
 
         <div className="mt-3 space-y-2">
           <div className="flex gap-2">
@@ -251,7 +288,13 @@ export function Settings(): React.JSX.Element {
               type={showApiKey ? 'text' : 'password'}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder={aiConfig?.hasKey ? '已保存（留空则不修改）' : 'sk-...'}
+              placeholder={
+                aiConfig?.hasKey
+                  ? '已保存（留空则不修改）'
+                  : editingLocalEndpoint
+                    ? '本地端点通常不需要 Key'
+                    : 'sk-...'
+              }
               className="min-w-0 flex-1"
             />
             <Button variant="ghost" onClick={() => setShowApiKey((v) => !v)}>
@@ -264,38 +307,39 @@ export function Settings(): React.JSX.Element {
               size="md"
               value={aiBaseUrl}
               onChange={(e) => setAiBaseUrl(e.target.value)}
-              placeholder="Base URL（留空使用 .env / 官方默认）"
+              placeholder="Base URL（留空使用官方端点）"
               className="w-full"
             />
-            {baseUrlMissingScheme ? (
-              <p className="mt-1 text-xs text-danger">
-                Base URL 缺少 http(s):// 前缀，例如 https://api.openai.com/v1
-              </p>
-            ) : null}
-            {baseUrlInsecure ? (
-              <p className="mt-1 text-xs text-warning">
-                这是 http:// 地址，API Key 会以明文传输，建议改用 https。
-              </p>
-            ) : null}
-            {baseUrlMissingV1 ? (
-              <p className="mt-1 flex items-center gap-2 text-xs text-warning">
-                <span>地址不以 /v1 结尾，这是 404 最常见的原因。</span>
-                <button
-                  type="button"
-                  onClick={() => setAiBaseUrl(`${baseUrlTrimmed.replace(/\/+$/, '')}/v1`)}
-                  className="rounded border border-warning/40 px-1.5 py-0.5 text-warning hover:bg-warning/15"
+            {baseUrlIssues.map((issue) => {
+              const fix = issue.suggestV1
+              return (
+                <p
+                  key={issue.message}
+                  className={cn(
+                    'mt-1 flex flex-wrap items-center gap-2 text-xs',
+                    issue.level === 'danger' ? 'text-danger' : 'text-warning'
+                  )}
                 >
-                  补 /v1
-                </button>
-              </p>
-            ) : null}
+                  <span>{issue.message}</span>
+                  {fix ? (
+                    <button
+                      type="button"
+                      onClick={() => setAiBaseUrl(fix)}
+                      className="shrink-0 rounded border border-warning/40 px-1.5 py-0.5 text-warning hover:bg-warning/15"
+                    >
+                      补 /v1
+                    </button>
+                  ) : null}
+                </p>
+              )
+            })}
           </div>
 
           <Input
             size="md"
             value={aiModel}
             onChange={(e) => setAiModel(e.target.value)}
-            placeholder="模型名（留空使用 .env / 官方默认 gpt-4o-mini）"
+            placeholder={modelPlaceholder}
             className="w-full"
           />
         </div>
@@ -306,6 +350,9 @@ export function Settings(): React.JSX.Element {
             <Badge tone="muted">未知</Badge>
           ) : aiConfig.hasKey ? (
             <Badge tone="success">已配置</Badge>
+          ) : isLocalEndpoint(aiConfig.baseUrl) ? (
+            // 本地端点没有 Key 这个概念，显示「未配置」会让人以为还得去填一个
+            <Badge tone="success">本地端点（无需 Key）</Badge>
           ) : (
             <Badge tone="muted">未配置</Badge>
           )}
@@ -337,7 +384,12 @@ export function Settings(): React.JSX.Element {
           </Button>
         </div>
         {aiNotice ? (
-          <p className="mt-3 flex flex-wrap items-center gap-2 text-sm text-fg-muted">
+          <p
+            className={cn(
+              'mt-3 flex flex-wrap items-center gap-2 text-sm',
+              aiNoticeError ? 'text-danger' : 'text-fg-muted'
+            )}
+          >
             <span>{aiNotice}</span>
             {/* 保存成功但没自动测（已有 Key 的情况）时给一个就近的入口，
                 省得用户再去下面那排按钮里找 */}
