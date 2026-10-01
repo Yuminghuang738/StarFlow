@@ -37,6 +37,12 @@ export function clearAiKey(): Promise<void>
 - getRepos() 在读到的列表为空且 MOCK_MODE=true 时，用 mockStarred() 的结果做种子并落盘
 - saveToken 优先用 Electron safeStorage 加密后存本地（base64 密文），禁止以任何形式把明文写入磁盘
 - safeStorage.isEncryptionAvailable() 为 false（例如没装 keyring 的 Linux）时，token 只保存在主进程内存中、不写盘，重启后需在设置页重新填写
+- getToken() 在密文解不开时（换机器 / keyring 变更）降级返回 null，**那是它那一侧的取舍**：
+  它的调用方 github.client() 只关心"发不发得出请求"，两种情况没有区别
+- hasToken() 问的却是另一个问题——「用户到底配过没有」——所以它在「文件里有密文、这一次
+  却解不开」时**抛出可读错误**而不是返回 false。签名没变（它本来就为读盘失败抛错），
+  渲染进程那套三态徽章直接接住：IPC 回 { ok: false } → 设置页显示「读不到」+ 原因 + 重试。
+  返回 false 仍然只表示一件事：**确实没配过**（文件里没有 token、内存里也没有）
 - clearToken 先写盘、再清内存（与 saveToken 相反），保证拿不到「磁盘上还有、内存已清」的中间态；不清 reposCache
 - clearClonedPath / clearClonedPaths 只删 local.cloned_path，其余 local 字段（fork 标记等）原样保留。
   必须是独立函数：updateLocalState 会显式过滤掉值为 undefined 的键，所以

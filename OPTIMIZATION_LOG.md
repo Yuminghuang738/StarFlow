@@ -1209,3 +1209,38 @@ recommend-search（同样 import github.ts）全绿。
 错在哪、错的是哪一类，免得下次实现变更时又把它落在这里。纯注释改动，不动任何行为。
 
 验证：tsc 干净、eslint 干净、npm run build 通过。
+
+## R48 · Phase 2+5：Token 解密失败被说成「未配置」（优先级 5）
+
+`store.getToken()` 在 safeStorage 解不开密文时（换机器 / 系统密钥环变更）降级返回 null，
+这是**它那一侧**的取舍：它唯一的调用方 `github.client()` 只关心"发不发得出请求"，
+①「本来就没配过」和 ②「配过但读不出来」对它没有区别（注释里那段降级说明也是这么写的）。
+
+但 `hasToken()` 是**另一个问题**：「用户到底配过没有」。它当时写的是
+`return memoryToken !== null || (await getToken()) !== null` ——于是 ② 也被算成 false，
+而 false 在设置页的含义是「未配置」。这就是 R33 修掉的那个 Token 徽章谎话的**另一条路径**：
+R33 只覆盖了"读盘失败"（hasToken 抛错 → 渲染进程 null → 「读不到」），
+解密失败走的是"静默返回 false"，一模一样地装成了「未配置」。用户会以为自己从没配过，
+真正的原因（密钥环变了）从头到尾没被说出来。
+
+修法刻意**不动任何签名**：`hasToken()` 本来就有抛错路径（读盘失败走 fail()），
+渲染进程那套三态徽章也早就接住了 —— IPC 包装器把抛错变成 `{ ok: false }`，
+渲染进程的 hasToken() 返回 null，设置页显示「读不到」+ 写明原因的红 toast + 重试按钮。
+所以只需要：getToken() 给 null 之后再确认一次磁盘上到底有没有那条记录，
+有就抛一条能指导下一步的错误（消息刻意在 try 外面抛，不被 fail() 再包一层，
+与 saveToken 拒绝空 token 同一个手法）。
+
+`getToken()` 保持原样返回 null——**改它会连带改掉"应用能不能启动"这条推理链**，
+而且 selfcheck A4 明确钉着它（"解密失败必须降级，不能把应用搞崩"）。这条断言一字未动。
+
+顺带把 `github.client()` 那句「未配置 GitHub Token，请到设置页填入后重试」改成
+「没有读到 GitHub Token（未配置，或本地那条记录解不开）」——两种含义都覆盖，
+不让"发不出请求"这一步把用户指错方向。错的是措辞，不是行为。
+
+selfcheck **新增**两条断言（已有的 A4 一字未改）：key-B 场景下 hasToken 抛错且消息含
+「解不开」；换回 key-A 之后 hasToken 恢复 true。**反向探针实测**：把 `if (stored)`
+短路成 `if (stored && false)` 后，新断言如期变红（"没有抛错"），确认它钉住的正是这次改的
+东西；恢复后全绿。
+
+验证：tsc 干净、eslint 干净、npm run build 通过；store-local 两个场景（keyring none/available）
+全绿。docs/module-signatures.md 的 store 说明补上这条取舍（签名未变，只是把行为和理由写清）。

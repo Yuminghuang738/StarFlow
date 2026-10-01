@@ -67,7 +67,16 @@ async function main(): Promise<void> {
     // 换机器 / keyring 变更：解密失败必须降级，不能把应用搞崩
     process.env.SAFESTORAGE_KEY = 'key-B'
     check('A4 解密失败时 getToken 返回 null 且不抛', (await store.getToken()) === null)
+    // 但 hasToken 问的是另一个问题——「用户到底配过没有」。它不能跟着一起降级成
+    // false：false 在设置页的含义是「未配置」，那会把"读不出来"说成"没配过"。
+    // 这里断言它抛出可读错误（渲染进程据此显示「读不到」+ 原因 + 重试）。
+    await expectThrow(
+      'A4 解密失败时 hasToken 抛错而不是谎报「未配置」',
+      () => store.hasToken(),
+      '解不开'
+    )
     process.env.SAFESTORAGE_KEY = 'key-A'
+    check('A4 换回原 keyring 后 hasToken 恢复为 true', (await store.hasToken()) === true)
   }
 
   await expectThrow('A4 空 token 被拒绝', () => store.saveToken(''), 'Token 不能为空')

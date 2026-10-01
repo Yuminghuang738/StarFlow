@@ -42,7 +42,12 @@ let cachedOctokit: Octokit | null = null
 
 async function client(): Promise<Octokit> {
   const token = await store.getToken()
-  if (!token) throw new Error('未配置 GitHub Token，请到设置页填入后重试')
+  // 说「没有读到」而不是「未配置」：getToken() 在密文解不开时（换机器 / 密钥环变更）
+  // 同样返回 null，那一条不能被说成"你从没配过"——设置页会用 hasToken() 把这种
+  // 情况单独显示成「读不到」并说明原因，这里只要别把用户指错方向就行。
+  if (!token) {
+    throw new Error('没有读到 GitHub Token（未配置，或本地那条记录解不开），请到设置页确认后重试')
+  }
   if (!cachedOctokit || cachedToken !== token) {
     cachedToken = token
     cachedOctokit = new Octokit({ auth: token })

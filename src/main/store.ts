@@ -230,12 +230,36 @@ export async function getToken(): Promise<string | null> {
 
 /** 渲染进程只需要判断"要不要让用户填 token"，返回布尔值即可，不要把 token 本身送过去 */
 export async function hasToken(): Promise<boolean> {
+  let stored: string | null = null
   try {
     // 内存里有就直接返回，省掉一次读盘（getToken() 内部也是内存优先，这里只是短路）
-    return memoryToken !== null || (await getToken()) !== null
+    if (memoryToken !== null) return true
+    if ((await getToken()) !== null) return true
+    // 走到这里说明 getToken() 给的是 null，而 null 有两种含义，**只有一种能说成"未配置"**：
+    //   ① 文件里本来就没有 token（无 keyring 的机器重启后就是这样）→ 确实没配过；
+    //   ② 文件里有密文、只是这一次解不开（换机器 / 系统密钥环变更）→ 配过，读不出来。
+    // getToken() 把 ② 降级成 null 是**它那一侧**的取舍：它的调用方是 github.client()，
+    // 对"发不发得出请求"来说 ① ② 没有区别。可设置页问的是另一个问题——「用户到底配过
+    // 没有」——把 ② 说成「未配置」，就是本项目最忌讳的那类谎：用户以为自己从没配过，
+    // 会去重填一遍（倒是能自愈），但真正的原因（密钥环变了）从头到尾没被说出来。
+    //
+    // 所以这里把 ② 抛出去。抛错是这个函数**本来就有**的行为（读盘失败也走 fail()），
+    // 渲染进程那套三态徽章早就接住了：IPC 包装器把它变成 { ok: false }，渲染进程的
+    // hasToken() 返回 null → 显示「读不到」+ 一条写明原因的红 toast + 重试按钮。
+    stored = (await getDb()).data.token ?? null
   } catch (err) {
     return fail('检查 Token', err)
   }
+
+  if (stored) {
+    // 刻意在 try 外面抛：让这条消息原样透给用户，不被 fail() 再包一层
+    //（与 saveToken 拒绝空 token 时同一个理由）。
+    throw new Error(
+      '本地存着一条 GitHub Token，但这一次解不开它（换机器、或系统密钥环变更之后就会这样）。' +
+        '先点一次「重试」再读一遍；还是不行就重新填一次 Token，覆盖掉这条读不出来的记录。'
+    )
+  }
+  return false
 }
 
 /**
