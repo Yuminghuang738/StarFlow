@@ -384,9 +384,20 @@ export async function star(fullName: string): Promise<Repo> {
 
   const { owner, repo } = splitFullName(fullName)
   const octokit = await client()
+
   try {
     // PUT 是幂等的：已经 Star 过也返回 204，不会报错
     await octokit.rest.activity.starRepoForAuthenticatedUser({ owner, repo })
+  } catch (err) {
+    throw toReadableError(err, `Star ${fullName}`)
+  }
+
+  // ⚠️ 从这一行往下，**Star 这件事已经真的成立了**（204 就是成功）。
+  // 下面的回读纯粹是为了拿到仓库数据，它失败绝不能报成"Star 失败"——
+  // 那是把一次成功说成失败：用户会以为自己没 Star 上（去重试、去翻 GitHub），
+  // 而真相是这个操作早就生效了。所以两段 try 必须分开，报错文案也要说清
+  // "已经 Star 了，只是详情没读回来"，并给出正确的下一步（同步一次即可）。
+  try {
     // Star 接口本身只有 204、没有响应体，要拿仓库数据必须再读一次
     const res = await octokit.rest.repos.get({ owner, repo })
     const d = res.data
@@ -409,6 +420,10 @@ export async function star(fullName: string): Promise<Repo> {
     console.log(`[github] 已 Star: ${fullName}`)
     return starred
   } catch (err) {
-    throw toReadableError(err, `Star ${fullName}`)
+    const reason = toReadableError(err, `读取 ${fullName} 的信息`).message
+    throw new Error(
+      `已经在 GitHub 上 Star 了 ${fullName}，但没能读回它的详细信息（${reason}）。` +
+        ' 到「收藏管理」点一次「从 GitHub 同步」就能把它拉进列表。'
+    )
   }
 }
