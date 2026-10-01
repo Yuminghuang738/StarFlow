@@ -28,7 +28,7 @@ done · commit 235965d
 验证：tsc / eslint / build 全绿；自检全通过。
 
 ## R3 · T2b 收藏总览：AI 收藏画像
-done · 见下条 commit
+done · commit 48a93bb
 
 新增第 42 条 IPC `AI_ANALYZE_COLLECTION`。**这是新增通道，动了 src/shared/ipc.ts
 （文件头写着「冻结契约」）——但只增不删、不改 schema、不改生产配置**，属于夜间任务

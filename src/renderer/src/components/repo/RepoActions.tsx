@@ -7,7 +7,7 @@ import { CloneProgressBar } from './CloneProgressBar'
 import { formatRelative } from './repoFormat'
 
 /**
- * 卡片底部的四个操作按钮（Unstar / Fork / Clone / 打开目录）。
+ * 仓库行右侧的操作按钮（Unstar / Fork / Clone / 打开目录）。
  *
  * ⚠️ Toast 归属：成功与失败的提示全部由 repoStore 内部弹出，这里一个都不弹。
  * 本组件只负责两件事：
@@ -111,7 +111,7 @@ export function RepoActions({ repo }: { repo: Repo }): React.JSX.Element {
 
         {/* Clone 与「打开目录」互斥：已 clone 就只给「打开目录」，不再渲染 Clone。
             没有"副本缺失"的中间态——目录一旦在磁盘上消失，主进程的对账会在下次
-            load() 时把 cloned_path 清掉，卡片自然回到 [Clone]。 */}
+            load() 时把 cloned_path 清掉，这一行自然回到 [Clone]。 */}
         {clonedPath ? (
           <>
             <Button

@@ -1,21 +1,21 @@
 import type { Repo } from '@shared/types'
 
 /**
- * components/repo/ 下各卡片组件共用的展示用纯函数。
+ * components/repo/ 下各仓库展示组件共用的展示用纯函数。
  *
- * 单独成文件的理由：RepoCard 与 RepoActions 都要用到相对时间，
- * 如果一边定义一边 import 会形成 RepoCard ⇄ RepoActions 的循环依赖，
- * 而且一旦两边各写一份，同一张卡片上的时间口径就会不一致。
+ * 单独成文件的理由：RepoRow 与 RepoActions 都要用到相对时间，
+ * 如果一边定义一边 import 会形成 RepoRow ⇄ RepoActions 的循环依赖，
+ * 而且一旦两边各写一份，同一行上的时间口径就会不一致。
  *
  * ⚠️ lib/api.ts 目前没有导出 formatRelative（不该自己往里加），
- * 所以这里先放一份私有实现；等 lib/api.ts 补上同名导出，把 RepoCard/RepoActions 的 import
+ * 所以这里先放一份私有实现；等 lib/api.ts 补上同名导出，把 RepoRow/RepoActions 的 import
  * 换成 lib/api.ts 即可，逻辑不用动。
  */
 
 /** 未知 / 无语言时统一用的灰（Tailwind slate-500） */
 const SLATE_500 = '#64748b'
 
-/** 常见语言的官方色，保证同一语言在任何一张卡片上颜色都稳定 */
+/** 常见语言的官方色，保证同一语言在任何一行里颜色都稳定 */
 const LANGUAGE_COLORS: Record<string, string> = {
   TypeScript: '#3178c6',
   JavaScript: '#f1e05a',

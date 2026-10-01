@@ -8,7 +8,7 @@ import { formatStars, languageColor } from './repoFormat'
 /**
  * 推荐结果卡片。
  *
- * **刻意不复用 RepoCard**：那张卡永远渲染 Unstar / Fork / Clone，对"还没 Star 过
+ * **刻意不复用 RepoRow**：那一行永远渲染 Unstar / Fork / Clone，对"还没 Star 过
  * 的仓库"是错的——点 Unstar 会去取消一个根本不存在的 Star。这里只放一个动作。
  *
  * ⚠️ 不渲染相对时间：搜索结果的 starred_at 是拿 pushed_at 占位的（见 github.searchRepos），
