@@ -99,7 +99,7 @@ npm run dev               # start the Electron + Vite dev environment (hot reloa
 | Variable | Description | Required? |
 | --- | --- | --- |
 | `MOCK_MODE` | When `true`, all data comes from `mock-data.json` and no network requests are made | Optional, defaults to `false` |
-| `GITHUB_TOKEN` | GitHub Personal Access Token, used to read the star list and perform write operations | Required in real mode (or sign in inside the app instead) |
+| `GITHUB_TOKEN` | GitHub Personal Access Token. **Not read by the current version** — the token actually in effect comes from signing in inside the app or from the settings page, and lives in the local data file | Not needed (setting it has no effect) |
 | `GITHUB_OAUTH_CLIENT_ID` | Client ID of a GitHub OAuth App, for Device Flow sign-in | Optional |
 | `OPENAI_API_KEY` | Key used for AI summaries / classification / the weekly report | Optional; AI features degrade if unset. Not needed for local endpoints (Ollama / LM Studio) |
 | `OPENAI_BASE_URL` | Base URL of any endpoint that speaks the OpenAI protocol; empty means the official endpoint | Optional |

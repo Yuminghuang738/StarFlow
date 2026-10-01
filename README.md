@@ -99,7 +99,7 @@ npm run dev               # 启动 Electron + Vite 开发环境（热重载）
 | 变量 | 说明 | 是否必填 |
 | --- | --- | --- |
 | `MOCK_MODE` | 为 `true` 时全部数据来自 `mock-data.json`，不发起任何网络请求 | 可选，默认 `false` |
-| `GITHUB_TOKEN` | GitHub Personal Access Token，用于读取 Star 列表和写操作 | 真实模式必需（或改用应用内登录） |
+| `GITHUB_TOKEN` | GitHub Personal Access Token。**当前版本不读这个键**——真实生效的 token 来自应用内「用 GitHub 登录」或设置页手填，存在本地数据文件里 | 不用填（填了也不生效） |
 | `GITHUB_OAUTH_CLIENT_ID` | GitHub OAuth App 的 Client ID，用于 Device Flow 登录 | 可选 |
 | `OPENAI_API_KEY` | AI 摘要 / 分类 / 周报使用的密钥 | 可选；不填则 AI 功能降级。本地端点（Ollama / LM Studio）不需要 |
 | `OPENAI_BASE_URL` | 任意 OpenAI 格式端点的地址；留空走官方端点 | 可选 |

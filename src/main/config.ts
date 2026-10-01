@@ -35,6 +35,11 @@ export function getEnv(): {
     openaiKey: aiOverride.apiKey || (process.env.OPENAI_API_KEY ?? ''),
     openaiBaseUrl: aiOverride.baseUrl || (process.env.OPENAI_BASE_URL ?? ''),
     modelName: aiOverride.model || (process.env.MODEL_NAME ?? ''),
+    // ⚠️ 这个字段**目前没有任何调用方**（全仓库对该键的引用只有这里一处赋值）：
+    // 真实 token 走 store.getToken()（应用内登录或设置页手填 → 本地数据文件）。
+    // 之所以还留着，是因为 getEnv() 的返回形状被 docs/module-signatures.md 冻结，
+    // 删字段等于改契约。别把它读成「token 也支持 .env 配置」——README 与 .env.example
+    // 之前就是这么写的，结果是用户照做却毫无效果。
     githubToken: process.env.GITHUB_TOKEN ?? '',
     githubOauthClientId: process.env.GITHUB_OAUTH_CLIENT_ID ?? ''
   }
