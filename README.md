@@ -16,7 +16,7 @@
 | npm | 10+ | 随 Node 22 自带 |
 | git | **必须已安装且在 `PATH` 中** | clone / fork 功能走 `simple-git`，它调的是系统 git 命令。`git --version` 能输出版本号即可 |
 
-Linux 额外说明：如果系统没有提供 keyring，`safeStorage` 的加密能力不可用，GitHub Token 会**降级为明文保存并在控制台告警**（见 `src/main/store.ts`）。这是刻意为之，否则应用会直接打不开。
+Linux 额外说明：如果系统没有提供 keyring，`safeStorage` 的加密能力不可用，GitHub Token **只保存在主进程内存中、不写入磁盘**，重启应用后需要到设置页重新填写（见 `src/main/store.ts` 与 issue #9）。这是刻意为之：既不让明文落盘，也不让真实模式在没有 keyring 的机器上完全不可用。
 
 ---
 
@@ -134,8 +134,8 @@ CI 的 `check` job 只跑 typecheck / lint / build，不需要这个二进制，
 
 | 模块 | 负责人 | GitHub 账号 |
 | --- | --- | --- |
-| `src/shared/`、`src/preload/`、`src/main/index.ts`、`config.ts`、`mock.ts`、`mock-data.json`、渲染进程脚手架（`renderer/index.html`、`src/main.tsx`、`index.css`、`env.d.ts`）、全部配置文件 | 集成工程师（P7） | [@xiaoyu8745](https://github.com/xiaoyu8745) |
-| `src/main/github.ts` | P1 | [@Yuminghuang738](https://github.com/Yuminghuang738) |
+| `src/shared/`、`src/preload/`、`src/main/index.ts`、`config.ts`、`mock.ts`、`mock-data.json`、渲染进程脚手架（`renderer/index.html`、`src/main.tsx`、`index.css`、`env.d.ts`）、全部配置文件 | 集成工程师（P7） | [@Yuminghuang738](https://github.com/Yuminghuang738) |
+| `src/main/github.ts` | P1 | [@xiaoyu8745](https://github.com/xiaoyu8745) |
 | `src/main/ai.ts` | P2 | [@xiaoran77-web](https://github.com/xiaoran77-web) |
 | `src/main/local.ts`、`src/main/store.ts` | P3 | [@Chang-66](https://github.com/Chang-66) |
 | `src/main/report.ts`、`recommend.ts`、`tracker.ts` | P4 | [@nothing6741](https://github.com/nothing6741) |
