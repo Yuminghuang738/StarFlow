@@ -7,6 +7,7 @@ import { Input } from '../components/common/Input'
 import { EmptyState } from '../components/common/EmptyState'
 import { SkeletonCard, SKELETON_COUNT } from '../components/common/SkeletonCard'
 import { RecommendRepoCard } from '../components/repo/RecommendRepoCard'
+import { PageContainer, PageHeader } from '../components/layout/PageLayout'
 
 /** 空态给的几个例句：比让用户对着空输入框想词有效得多 */
 const EXAMPLES = [
@@ -42,13 +43,12 @@ export function Discover(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
-      <header>
-        <h1 className="text-xl font-semibold">发现仓库</h1>
-        <p className="mt-1 text-sm text-fg-muted">
-          用一句话描述你要找什么，AI 把它翻成 GitHub 搜索条件，结果可以直接 Star
-        </p>
-      </header>
+    <PageContainer>
+      <PageHeader
+        tab="recommend"
+        title="发现仓库"
+        subtitle="用一句话描述你要找什么，AI 把它翻成 GitHub 搜索条件，结果可以直接 Star"
+      />
 
       <form
         className="flex flex-wrap gap-2"
@@ -131,6 +131,6 @@ export function Discover(): React.JSX.Element {
           </div>
         </>
       )}
-    </div>
+    </PageContainer>
   )
 }

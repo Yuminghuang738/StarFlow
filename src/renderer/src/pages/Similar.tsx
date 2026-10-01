@@ -8,6 +8,7 @@ import { EmptyState } from '../components/common/EmptyState'
 import { SkeletonCard, SKELETON_COUNT } from '../components/common/SkeletonCard'
 import { RecommendRepoCard } from '../components/repo/RecommendRepoCard'
 import { languageColor } from '../components/repo/repoFormat'
+import { PageContainer, PageHeader } from '../components/layout/PageLayout'
 import type { RecommendProfile } from '@shared/recommend'
 
 /**
@@ -50,18 +51,18 @@ export function Similar(): React.JSX.Element {
 
   if (repos.length === 0) {
     return (
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+      <PageContainer>
         <Header />
         <EmptyState
           title="还没有可以参照的收藏"
           description="先到「设置」页配好 GitHub Token，再到「收藏管理」同步一次你的 Star 列表，这里就会按你的口味推"
         />
-      </div>
+      </PageContainer>
     )
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+    <PageContainer>
       <Header profile={profile} />
 
       <div className="flex flex-wrap items-center gap-2">
@@ -122,7 +123,7 @@ export function Similar(): React.JSX.Element {
           </div>
         </>
       )}
-    </div>
+    </PageContainer>
   )
 }
 
@@ -132,15 +133,16 @@ export function Similar(): React.JSX.Element {
 
 function Header({ profile }: { profile?: RecommendProfile | null }): React.JSX.Element {
   return (
-    <header>
-      <h1 className="text-xl font-semibold">为你推荐</h1>
-      <p className="mt-1 text-sm text-fg-muted">
-        根据你收藏的全部仓库推荐——不用挑参照，进来看就行
-      </p>
+    <div className="flex flex-col gap-3">
+      <PageHeader
+        tab="similar"
+        title="为你推荐"
+        subtitle="根据你收藏的全部仓库推荐——不用挑参照，进来看就行"
+      />
       {profile === undefined || profile === null || profile.total === 0 ? null : (
         <ProfileBar profile={profile} />
       )}
-    </header>
+    </div>
   )
 }
 
@@ -153,7 +155,7 @@ function Header({ profile }: { profile?: RecommendProfile | null }): React.JSX.E
  */
 function ProfileBar({ profile }: { profile: RecommendProfile }): React.JSX.Element {
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-border bg-surface px-3.5 py-2.5 text-xs">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-border bg-surface px-3.5 py-2.5 text-xs">
       <span className="text-fg-subtle">
         基于你的 <span className="font-medium tabular-nums text-fg">{profile.total}</span> 个收藏
       </span>

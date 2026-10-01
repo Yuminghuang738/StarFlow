@@ -3,6 +3,7 @@ import { useRepoStore, filterRepos } from '../store/repoStore'
 import { Button } from '../components/common/Button'
 import { FilterBar } from '../components/repo/FilterBar'
 import { RepoList } from '../components/repo/RepoList'
+import { PageContainer, PageHeader } from '../components/layout/PageLayout'
 
 /**
  * 收藏管理：筛选 + 列表 + 批量操作（同步 / AI 补全）。
@@ -49,28 +50,30 @@ export function Manage(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <h1 className="text-xl font-semibold">收藏管理</h1>
+    <PageContainer>
+      <PageHeader
+        tab="manage"
+        title="收藏管理"
+        suffix={
           <span className="rounded-full border border-border-strong bg-surface-2 px-2 py-0.5 text-xs tabular-nums text-fg-muted">
             {visible.length} / {repos.length}
           </span>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="primary" onClick={() => void onRefresh()} disabled={headerBusy}>
-            {syncBusy ? '同步中…' : '从 GitHub 同步'}
-          </Button>
-          <Button onClick={() => void onEnrich()} disabled={headerBusy}>
-            {enrichBusy ? '补全中…' : 'AI 补全分类'}
-          </Button>
-        </div>
-      </header>
+        }
+        actions={
+          <>
+            <Button variant="primary" onClick={() => void onRefresh()} disabled={headerBusy}>
+              {syncBusy ? '同步中…' : '从 GitHub 同步'}
+            </Button>
+            <Button onClick={() => void onEnrich()} disabled={headerBusy}>
+              {enrichBusy ? '补全中…' : 'AI 补全分类'}
+            </Button>
+          </>
+        }
+      />
 
       <FilterBar />
 
       <RepoList visible={visible} />
-    </div>
+    </PageContainer>
   )
 }
