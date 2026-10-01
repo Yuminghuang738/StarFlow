@@ -10,6 +10,7 @@ import { GithubLoginCard } from '../components/auth/GithubLoginCard'
 import { ThemeCard } from '../components/settings/ThemeCard'
 import { AiKeyGuide } from '../components/settings/AiKeyGuide'
 import { AiProviderPicker } from '../components/settings/AiProviderPicker'
+import { PageContainer, PageHeader } from '../components/layout/PageLayout'
 import { checkBaseUrl, isLocalEndpoint, matchPreset } from '@shared/ai-providers'
 import type { AiConfigView } from '@shared/types'
 
@@ -213,14 +214,14 @@ export function Settings(): React.JSX.Element {
       : '模型名（自定义端点必填）'
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <h1 className="text-xl font-semibold">设置</h1>
+    <PageContainer width="narrow">
+      <PageHeader tab="settings" title="设置" />
 
       <GithubLoginCard onAuthChange={() => void refreshTokenStatus()} />
 
       <ThemeCard />
 
-      <Card className="mt-4">
+      <Card>
         <h2 className="text-sm font-medium text-fg">GitHub Token</h2>
         <p className="mt-1 text-xs text-fg-subtle">
           Token 需要 <code className="rounded bg-surface-2 px-1">public_repo</code> scope；
@@ -257,7 +258,7 @@ export function Settings(): React.JSX.Element {
         </div>
       </Card>
 
-      <Card className="mt-4">
+      <Card>
         <h2 className="text-sm font-medium text-fg">AI 配置</h2>
         <p className="mt-1 text-xs text-fg-subtle">
           支持任何 OpenAI 格式的端点（DeepSeek、智谱、通义、Kimi、中转，以及本地
@@ -407,7 +408,7 @@ export function Settings(): React.JSX.Element {
         ) : null}
       </Card>
 
-      <Card className="mt-4">
+      <Card>
         <h2 className="text-sm font-medium text-fg">数据与 AI</h2>
         <p className="mt-1 text-xs text-fg-subtle">
           同步会保留已 Fork / 已 clone / 已分类的标记；AI 补全只填空缺的摘要与分类。
@@ -430,10 +431,10 @@ export function Settings(): React.JSX.Element {
         ) : null}
       </Card>
 
-      <p className="mt-4 text-xs text-fg-subtle">
+      <p className="text-xs text-fg-subtle">
         当前运行模式由项目根目录{' '}
         <code className="rounded bg-surface-2 px-1">.env</code> 的 MOCK_MODE 控制。
       </p>
-    </div>
+    </PageContainer>
   )
 }

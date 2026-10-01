@@ -31,11 +31,12 @@ const SWATCH: Record<ThemeChoice, string> = {
 
 const RESOLVED_LABEL = { light: '亮色', dark: '暗色' } as const
 
+/** 根 Card 不带 mt：与上方区块的间距由设置页的 PageContainer 统一给（见 PageLayout.tsx） */
 export function ThemeCard(): React.JSX.Element {
   const { choice, resolved } = useTheme()
 
   return (
-    <Card className="mt-4">
+    <Card>
       <h2 className="text-sm font-medium text-fg">外观</h2>
       <p className="mt-1 text-xs text-fg-subtle">
         选择立即生效，并记住你的选择——下次启动会在界面出现之前就应用好，不会先闪一下另一个主题。

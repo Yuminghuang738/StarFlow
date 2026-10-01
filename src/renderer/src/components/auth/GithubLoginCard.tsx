@@ -26,6 +26,9 @@ type View = 'loading' | 'unavailable' | 'idle' | 'waiting' | 'loggedIn'
  *   2. 渲染进程 reload 会丢掉挂起的 waitForLogin，但主进程的流程还活着
  *      （用户正在浏览器里操作）。所以挂载时要用 getState().pending 把等待重新接上。
  *   3. 打包后是 file:// 协议，navigator.clipboard 可能是 undefined。
+ *
+ * 五个分支返回的根 Card **都不带 mt**：与上方区块的间距由所在页面的 PageContainer
+ * 统一给（gap-5）。卡片自己带外边距，换个页面就会和容器的间距叠成两层。
  */
 export function GithubLoginCard({ onAuthChange }: GithubLoginCardProps): React.JSX.Element {
   const [view, setView] = useState<View>('loading')
@@ -208,7 +211,7 @@ export function GithubLoginCard({ onAuthChange }: GithubLoginCardProps): React.J
 
   if (view === 'loading') {
     return (
-      <Card className="mt-4">
+      <Card>
         <h2 className="text-sm font-medium text-fg">用 GitHub 登录</h2>
         <p className="mt-1 text-xs text-fg-subtle">正在检查登录状态…</p>
       </Card>
@@ -217,7 +220,7 @@ export function GithubLoginCard({ onAuthChange }: GithubLoginCardProps): React.J
 
   if (view === 'unavailable') {
     return (
-      <Card className="mt-4">
+      <Card>
         <h2 className="text-sm font-medium text-fg">用 GitHub 登录</h2>
         <p className="mt-1 text-xs text-fg-subtle">{reason ?? '当前不可用'}</p>
       </Card>
@@ -227,7 +230,7 @@ export function GithubLoginCard({ onAuthChange }: GithubLoginCardProps): React.J
   if (view === 'waiting') {
     const remaining = deadline === null ? 0 : Math.max(0, Math.ceil((deadline - now) / 1000))
     return (
-      <Card className="mt-4">
+      <Card>
         <h2 className="text-sm font-medium text-fg">等待授权</h2>
         <p className="mt-1 text-xs text-fg-subtle">
           已自动打开浏览器。在 GitHub 页面里输入下面这串验证码并点 Authorize，
@@ -263,7 +266,7 @@ export function GithubLoginCard({ onAuthChange }: GithubLoginCardProps): React.J
 
   if (view === 'loggedIn') {
     return (
-      <Card className="mt-4">
+      <Card>
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-success" />
@@ -292,7 +295,7 @@ export function GithubLoginCard({ onAuthChange }: GithubLoginCardProps): React.J
   }
 
   return (
-    <Card className="mt-4">
+    <Card>
       <h2 className="text-sm font-medium text-fg">用 GitHub 登录</h2>
       <p className="mt-1 text-xs text-fg-subtle">
         点一下按钮，浏览器会自动打开 GitHub 的授权页；把页面里显示的 8 位验证码粘进去、点
