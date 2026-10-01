@@ -10,7 +10,8 @@ import OpenAI from 'openai'
 import pLimit from 'p-limit'
 import type { Repo, AiCategory, AiConnectionResult } from '@shared/types'
 import { AI_CATEGORIES } from '@shared/types'
-import { isMockMode, getEnv } from './config'
+import { isMockMode, getEnv, setAiOverride } from './config'
+import { summarizePrompt, classifyPrompt, reportPrompt } from './ai-prompts'
 import * as store from './store'
 import * as github from './github'
 import { mockSummary, mockClassify, mockEnrich, mockReportSummary } from './mock'
@@ -19,12 +20,8 @@ import { mockSummary, mockClassify, mockEnrich, mockReportSummary } from './mock
 /* 常量                                                                */
 /* ------------------------------------------------------------------ */
 
-/** 送模型前 README 的最大字符数，避免无谓的额度消耗 */
-const README_LIMIT = 6000
 /** README 少于这个长度就没必要调模型（大概率是空文件或占位） */
 const README_MIN_LENGTH = 30
-/** 周报提示词里最多列多少个仓库 */
-const REPORT_REPO_LIMIT = 50
 /** enrichRepos 的并发上限（PR 验收项：严格 ≤ 3） */
 const ENRICH_CONCURRENCY = 3
 /** 缺少 API Key 的提示文案，既是给用户看的，也是降级策略里唯一允许 throw 的判据 */
@@ -146,16 +143,7 @@ export async function summarize(readme: string): Promise<string> {
       max_tokens: 200,
       messages: [
         { role: 'system', content: '你是技术文档摘要助手，只输出摘要本身。' },
-        {
-          role: 'user',
-          content: `请用一句中文总结下面这个开源项目的用途和亮点。要求：
-1) 不超过 50 字
-2) 不要以"这个项目"开头
-3) 不要 markdown、不要换行、不要引号
-4) 直接输出摘要，不要任何前缀
----
-${readme.slice(0, README_LIMIT)}`
-        }
+        { role: 'user', content: summarizePrompt(readme) }
       ]
     })
     const text = readContent(res.choices[0]?.message)
@@ -181,20 +169,9 @@ export async function classify(repo: Repo): Promise<AiCategory> {
       model: modelName(),
       temperature: 0,
       max_tokens: 20,
-      messages: [
-        {
-          role: 'user',
-          content: `请判断下面这个 GitHub 仓库属于哪个分类。只能从以下 7 个词中选择**一个**，不要输出任何其它内容：
-AI/ML、前端、后端、DevOps、工具、学习资源、其他
-
-仓库全名：${repo.full_name}
-描述：${repo.description ?? '（无）'}
-主要语言：${repo.language ?? '（未知）'}
-主题标签：${repo.topics.join(', ') || '（无）'}
-只回复那一个词。`
-        }
-      ]
+      messages: [{ role: 'user', content: classifyPrompt(repo) }]
     })
+    // 模型可能回裸词，也可能回 JSON / 围栏，extractContent 两种都兼容（见 ai-prompts.ts 顶部契约）
     const category = normalizeCategory(extractContent(res.choices[0]?.message?.content))
     console.log(`[ai] classify ${repo.full_name} -> ${category}`)
     return category
@@ -268,30 +245,12 @@ export async function generateReport(repos: Repo[]): Promise<string> {
     `本周新增 ${repos.length} 个 Star，主力语言是 ${topLang}，` +
     `其中 ${topRepo?.full_name ?? '—'} 最值得一看。`
 
-  const list = repos
-    .slice(0, REPORT_REPO_LIMIT)
-    .map((r) => `${r.full_name} (${r.language ?? '未知'}, ${r.ai_category ?? '未分类'}, ${r.stargazers_count} stars)`)
-    .join('\n')
-
   try {
     const res = await client().chat.completions.create({
       model: modelName(),
       temperature: 0.6,
       max_tokens: 500,
-      messages: [
-        {
-          role: 'user',
-          content: `请根据下面的本周新增 Star 列表，写一段中文周报总结。
-要求：
-1) 100~200 字
-2) 语气自然口语，像人在群里汇报工作，不要"综上所述""总而言之"这种套话
-3) 提到本周新增数量、主力语言、以及最值得关注的 1~2 个项目
-4) 不要 markdown、不要分点、不要换行
-5) 直接输出这段话
----
-${list}`
-        }
-      ]
+      messages: [{ role: 'user', content: reportPrompt(repos) }]
     })
     const text = readContent(res.choices[0]?.message)
     // 模型返回空白时同样走本地兜底，report.generate() 的调用方永远能拿到一段文案
@@ -304,22 +263,79 @@ ${list}`
 }
 
 /* ------------------------------------------------------------------ */
-/* 配置热更新与连接探针 —— Phase 0 只落调用点，函数体在 AI 配置那个 PR 里补 */
+/* 配置热更新与连接探针                                                 */
 /* ------------------------------------------------------------------ */
 
 /**
  * 把 store 里存的 AI 配置刷进 config.ts 的覆盖层。
  *
- * Phase 0 先落地**调用点**（index.ts 启动时一次、保存/清除 AI 配置各一次），
- * 函数体是空的。这样拆的理由：index.ts 是唯一集成点，两个并行分支不能同时
- * 改它——先把调用点钉死在 Phase 0，填实现的那个 PR 就一行都不用碰 index.ts。
+ * 调用点有三处：app.whenReady() 启动时一次、store:saveAiConfig 与 store:clearAiKey
+ * 两条 handler 各一次。挂在 handler 里而不是只挂启动路径，是为了不依赖
+ * 「先启动、再配置」这个顺序——否则用户填完 key 必须重启才生效。
  *
- * 为什么用"覆盖层 + 预热"而不是把 client() 改成 async：client() 现在被四个
- * 导出函数同步调用（`client().chat.completions.create(...)`），改成 async 会
- * 把 async 传染到整条链路，而它唯一的异步点只是"读一次配置"。
+ * ⚠️ 本函数签名是**同步** `void`（调用方不 await），但 store 的读取是异步的，
+ * 所以内部起一个 fire-and-forget 的 async IIFE 去读 store，读完再 setAiOverride。
+ * 启动路径上抛错就等于应用打不开，因此整段 try/catch 吞掉、只打日志。
+ * 幂等：重复调用只是把同一份覆盖层再写一遍。
+ *
+ * 为什么不返回 Promise 让调用方 await：签名已冻结为 `void`，且调用点在 index.ts
+ * 里是同步形式；改成 Promise 会强迫 index.ts 跟着改，而 index.ts 不归本 PR 动。
  */
 export function refreshAiConfigCache(): void {
-  // 空实现：config.setAiOverride 在这个相位还不存在。
+  void (async () => {
+    try {
+      // key 走 getAiKey（只给主进程内部用），baseUrl / model 走 getAiConfig。
+      // 两者都不会把明文 key 带出主进程。
+      const [key, cfg] = await Promise.all([store.getAiKey(), store.getAiConfig()])
+      setAiOverride({
+        // 没有界面 key 时置空串，让 getEnv() 的 || 退回 .env
+        apiKey: key ?? '',
+        baseUrl: cfg.baseUrl,
+        model: cfg.model
+      })
+    } catch (err) {
+      // 幂等、不抛错：它挂在启动路径与保存/清除 handler 上
+      console.error('[ai] 刷新 AI 配置缓存失败（已忽略）:', errorMessage(err))
+    }
+  })()
+}
+
+/**
+ * 把探针的错误**分类成人话**。绝不能直接把原始异常文本丢给用户——
+ * 第三方中转的报错五花八门（有的返回 HTML、有的是 OpenAPI 的错误 JSON），
+ * 用户看了也不知道下一步该改哪个字段。
+ */
+function classifyConnectionError(err: unknown): string {
+  const where = getEnv().openaiBaseUrl || '默认 OpenAI 端点'
+
+  // 连接类错误没有 HTTP status，必须先于 status 判断（超时是连接错误的子类）
+  if (err instanceof OpenAI.APIConnectionTimeoutError) {
+    return `连接 ${where} 超时，请检查网络或 Base URL 是否可达`
+  }
+  if (err instanceof OpenAI.APIConnectionError) {
+    return `连不上 ${where}，请检查 Base URL 与网络（用中转时确认地址拼写、以及是否需要 /v1 后缀）`
+  }
+
+  const status = (err as { status?: number }).status
+  if (status === 401 || err instanceof OpenAI.AuthenticationError) {
+    return 'API Key 无效（401），请检查 Key 是否正确、是否已被撤销或过期'
+  }
+  if (status === 403) {
+    return '没有访问权限（403），该 Key 可能未被允许调用此模型'
+  }
+  if (status === 404 || err instanceof OpenAI.NotFoundError) {
+    return `Base URL 或模型名不对（404）：确认 ${where} 是否以 /v1 结尾、模型名是否存在`
+  }
+  if (status === 400 || err instanceof OpenAI.BadRequestError) {
+    return '请求被拒绝（400），通常是模型名或 Base URL 与该中转端点不匹配'
+  }
+  if (status === 429) {
+    return '请求过于频繁或额度不足（429），请稍后重试或检查账户余额'
+  }
+  if (typeof status === 'number' && status >= 500) {
+    return `对方服务端错误（${status}），请稍后重试`
+  }
+  return `连接失败：${errorMessage(err)}`
 }
 
 /**
@@ -328,8 +344,32 @@ export function refreshAiConfigCache(): void {
  * ⚠️ 为什么不能拿 summarize 当探针：它在失败时会静默降级成空串（见上面的
  * catch），探针永远"成功"。这条必须真的发一次极简请求，并把错误**分类**成
  * 人话返回（未配置 key / 连不上 baseUrl / key 无效 / baseUrl 或 model 不对），
- * 而不是把原始异常文本丢给用户。
+ * 而不是把原始异常文本丢给用户，也**不抛错**——设置页直接把 message 渲染成一行提示。
  */
 export async function testConnection(): Promise<AiConnectionResult> {
-  throw new Error('尚未实现')
+  const model = modelName()
+
+  // MOCK_MODE 下不允许发起任何真实网络请求（项目铁律），直接返回说明
+  if (isMockMode()) {
+    return { ok: true, message: 'Mock 模式不发起真实请求', model }
+  }
+
+  // 先自查 key：比让 client() 抛错更早、也更明确
+  if (!getEnv().openaiKey) {
+    return { ok: false, message: '未配置 API Key，请在设置页填写或写入 .env', model }
+  }
+
+  try {
+    // 极简探针：max_tokens 1，只要对方能正常回一个响应就说明链路通
+    await client().chat.completions.create({
+      model,
+      temperature: 0,
+      max_tokens: 1,
+      messages: [{ role: 'user', content: 'ping' }]
+    })
+    return { ok: true, message: `连接正常（模型 ${model}）`, model }
+  } catch (err) {
+    console.error('[ai] 连接探针失败:', errorMessage(err))
+    return { ok: false, message: classifyConnectionError(err), model }
+  }
 }
