@@ -44,7 +44,7 @@ function handle<T>(channel: string, fn: AnyFn<T>): void {
 }
 
 // ============================================================
-// 28 个通道，一个都不能少也不能多
+// 30 个通道，一个都不能少也不能多
 // ============================================================
 
 function registerHandlers(): void {
@@ -69,6 +69,39 @@ function registerHandlers(): void {
   handle(IPC.LOCAL_OPEN_DIR, (path: string) => local.openDir(path))
   // 纯内存查询，不会失败也不会阻塞：渲染进程在 clone 进行中按固定间隔调它
   handle(IPC.LOCAL_CLONE_PROGRESS, (fullName: string) => local.getCloneProgress(fullName))
+
+  // 删除本地副本。路径由主进程从 store 里查，渲染进程只交 fullName——所以渲染进程
+  // 没有机会把任意路径送进 rm。"这四道闸"之类的路径安全策略全在 local.ts 里，这里只编排。
+  handle(IPC.LOCAL_REMOVE_CLONE, async (fullName: string) => {
+    const repos = await store.getRepos()
+    const repo = repos.find((r) => r.full_name === fullName)
+    const path = repo?.local?.cloned_path
+
+    // 没有记录 = 已经清过了（可能刚被对账清掉）。幂等成功，不报错：
+    // 用户点按钮时界面认为有，主进程这边可能已经不是了。
+    if (!path) return null
+
+    // 脏数据下两个仓库可能记着同一个路径，删 A 会把 B 的目录一并删掉，B 要等到下次
+    // 对账才发现。这里直接拒绝——代价是这种情况必须手工处理，比静默删错强。
+    if (repos.some((r) => r.full_name !== fullName && r.local?.cloned_path === path)) {
+      throw new Error(`该路径同时被另一个仓库的记录占用，拒绝删除：${path}`)
+    }
+
+    const removed = await local.removeClone(fullName, path)
+    // 即使目录本就不在（removed 为 null）也要清记录：清记录本身就符合用户意图，
+    // 留着它卡片会一直显示"打开目录"，点了必然报错。
+    await store.clearClonedPath(fullName)
+    return removed
+  })
+
+  // 对账：记录里有、磁盘上已经没有的，静默清掉记录。
+  // 只在渲染进程 load() 时调一次，是"读"触发的后台副作用，不弹任何提示。
+  handle(IPC.LOCAL_PRUNE_CLONES, async () => {
+    const repos = await store.getRepos()
+    const names = await local.listMissingCloneRecords(repos)
+    await store.clearClonedPaths(names)
+    return names
+  })
 
   // AI —— P2
   handle(IPC.AI_SUMMARIZE, (readme: string) => ai.summarize(readme))

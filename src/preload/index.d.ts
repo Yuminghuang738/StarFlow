@@ -26,6 +26,8 @@ export interface StarPilotApi {
     clone(fullName: string, targetDir: string): Promise<IpcResult<string>>
     openDir(path: string): Promise<IpcResult<void>>
     getCloneProgress(fullName: string): Promise<IpcResult<CloneProgress | null>>
+    removeClone(fullName: string): Promise<IpcResult<string | null>>
+    pruneClones(): Promise<IpcResult<string[]>>
   }
   ai: {
     summarize(readme: string): Promise<IpcResult<string>>
