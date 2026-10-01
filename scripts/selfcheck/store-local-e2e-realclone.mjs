@@ -4,8 +4,9 @@
 // 前置：先跑 npm run build；且本机能访问 github.com。
 import { spawn } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { writeFakeGitHome } from './fake-git-home.mjs'
 
 const PORT = 9335
 const BASE = join(process.cwd(), 'out', 'selfcheck', 'e2e-realclone')
@@ -20,12 +21,8 @@ mkdirSync(BASE, { recursive: true })
 // simple-git 出于安全会剥掉子进程环境里**所有** GIT_ 前缀的变量，所以没法用
 // GIT_CONFIG_* 给 clone 注入配置（在 bash 里手跑 git clone 有效、在应用里必然无效）。
 // 只能让 git 去读一份临时 global config —— 不动用户真实的 ~/.gitconfig。
-const FAKE_HOME = join(process.cwd(), 'out', 'selfcheck', 'fakehome')
-mkdirSync(FAKE_HOME, { recursive: true })
-writeFileSync(
-  join(FAKE_HOME, '.gitconfig'),
-  ['# 自检专用：拦截式网络下关掉 git 的证书吊销检查', '[http]', '\tsslBackend = schannel', '\tschannelCheckRevoke = false', ''].join('\n')
-)
+// 平台相关的键写在 fake-git-home.mjs 里（写死 schannel 会让非 Windows 机器全红）。
+const FAKE_HOME = writeFakeGitHome(join(process.cwd(), 'out', 'selfcheck', 'fakehome'))
 
 const env = {
   ...process.env,
