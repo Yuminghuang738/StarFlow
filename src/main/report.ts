@@ -39,8 +39,8 @@ export async function generate(): Promise<WeeklyReport> {
     languageStats[key] = (languageStats[key] ?? 0) + 1
   }
 
-  // 最近 7 天必须补齐 7 个连续日期、缺的补 0，
-  // 否则 ECharts 折线会断点（见骨架文档已知坑 #10）
+  // 最近 7 天必须补齐 7 个连续日期、缺的补 0，否则 ECharts 折线会断点。
+  // 注意口径：全程 UTC，与 starred_at 一致；不要改成按本地时间格式化日期 key。
   const dailyStarCount: Record<string, number> = {}
   const todayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
   for (let i = 6; i >= 0; i--) {
