@@ -1,0 +1,11 @@
+appId: com.starpilot.app
+productName: StarPilot
+directories:
+  output: dist
+files:
+  - out/**
+  - package.json
+win:
+  target: nsis
+linux:
+  target: AppImage
