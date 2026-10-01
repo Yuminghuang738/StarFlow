@@ -34,6 +34,18 @@ npm run dev
 MOCK_MODE=true npm run dev
 ```
 
+### ⚠️ 首次 `npm run dev` 报 "Electron failed to install correctly"
+
+**这是必然的，不是网络问题。** `electron@44.5.1` 的 `package.json` 里**没有 `scripts` 字段**，因此它没有 `postinstall` 钩子 —— `npm install` / `npm ci` 都不会去下载 Electron 二进制（对照 `esbuild` 就带 `postinstall`）。补一步即可：
+
+```bash
+npx install-electron --no
+```
+
+（等价于 `node node_modules/electron/install.js`；`install-electron` 是 electron 包自带的 bin。）
+
+CI 的 `check` job 只跑 typecheck / lint / build，不需要这个二进制，所以不受影响；`npm run dev` 需要。
+
 ---
 
 ## 环境变量
