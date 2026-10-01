@@ -44,7 +44,14 @@ tasks:
 - [x] 优先级 0（候选）：把「本周新增」也接上下钻（fd2f412）——collectionStats 新增
       starredBucket（与 activityBucket 同构，阈值只在一处），repoQuery 加 onlyRecent
       一维，FilterBar 多一个开关，天数从 RECENT_WINDOW_DAYS 拼出来
-- [ ] 优先级 4：重复代码 / 长函数拆分
+- [x] 优先级 6（顺手）：活跃度的天数只有一处（f5a7313）——ACTIVE_WINDOW_DAYS /
+      STALE_WINDOW_DAYS 导出，总览卡片提示、筛选下拉文案、AI 摘要三处从常量拼；
+      文案里不再出现「一年」这类需要读者换算的说法
+- [x] 优先级 6（顺手）：趋势图分桶抽成 starTrendBuckets（1d99138）——桶数与标题
+      跟 RECENT_WINDOW_DAYS 走，且「图上加起来 == 卡片上的数」现在能断言了
+- [ ] 优先级 4：重复代码 / 长函数拆分（候选：report.ts 的 dailyStarCount 与
+      starTrendBuckets 是同一件东西的两种算法，但一在主进程一在渲染进程，
+      要共用就得把天数常量提到 src/shared/）
 - [ ] 优先级 5：错误处理、日志、边界条件（继续）
 - [ ] 优先级 6：文档与注释（含 recommend.ts:271 那个粘在 export 上的 `*/`）
 
