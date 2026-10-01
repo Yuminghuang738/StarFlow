@@ -8,7 +8,7 @@ import { mkdirSync } from 'node:fs'
 import { app, safeStorage } from 'electron'
 import type { Low } from 'lowdb'
 import { JSONFilePreset } from 'lowdb/node'
-import type { Repo, LocalState } from '@shared/types'
+import type { Repo, LocalState, AiConfigView, AiConfigPatch } from '@shared/types'
 import { isMockMode } from './config'
 import { mockStarred } from './mock'
 
@@ -303,4 +303,33 @@ export async function clearClonedPaths(fullNames: string[]): Promise<void> {
   } catch (err) {
     fail('清除克隆路径', err)
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* AI 配置 —— Phase 0 占位，实现在 AI 配置那个 PR 里补                   */
+/* ------------------------------------------------------------------ */
+/*
+ * 为什么这三条归 store 而不是 ai：加密与落盘全都复用本文件上面那套 token 范式
+ * （safeStorage 可用就存密文、不可用就一个字节都不写盘），放在一起照抄才不会串。
+ *
+ * 契约上最要紧的一条：**密钥只进不出**。getAiConfig 返回的 AiConfigView 里
+ * 压根没有 apiKey 字段，所以"界面上不回显明文"不是靠调用方自觉，是类型层面
+ * 就做不到。baseUrl / model 不是秘密，明文存、可以回传。
+ *
+ * 这里刻意抛「尚未实现」而不是返回假数据：设置页一旦被接到这些桩上，会立刻
+ * 看见一条明确的错误，而不是显示"未配置"让人以为 key 丢了。
+ */
+
+export async function getAiConfig(): Promise<AiConfigView> {
+  throw new Error('尚未实现')
+}
+
+export async function saveAiConfig(patch: AiConfigPatch): Promise<void> {
+  void patch
+  throw new Error('尚未实现')
+}
+
+/** 只清密钥，baseUrl / model 保留（与 clearToken 只清 token 同一个粒度） */
+export async function clearAiKey(): Promise<void> {
+  throw new Error('尚未实现')
 }

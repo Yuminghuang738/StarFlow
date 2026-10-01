@@ -9,7 +9,10 @@ import type {
   AuthState,
   DeviceFlowInfo,
   LoginOutcome,
-  CloneProgress
+  CloneProgress,
+  AiConfigView,
+  AiConfigPatch,
+  AiConnectionResult
 } from '@shared/types'
 
 export interface StarPilotApi {
@@ -28,12 +31,14 @@ export interface StarPilotApi {
     getCloneProgress(fullName: string): Promise<IpcResult<CloneProgress | null>>
     removeClone(fullName: string): Promise<IpcResult<string | null>>
     pruneClones(): Promise<IpcResult<string[]>>
+    cancelClone(fullName: string): Promise<IpcResult<boolean>>
   }
   ai: {
     summarize(readme: string): Promise<IpcResult<string>>
     classify(repo: Repo): Promise<IpcResult<AiCategory>>
     enrichRepos(repos: Repo[]): Promise<IpcResult<Repo[]>>
     generateReport(repos: Repo[]): Promise<IpcResult<string>>
+    testConnection(): Promise<IpcResult<AiConnectionResult>>
   }
   store: {
     getRepos(): Promise<IpcResult<Repo[]>>
@@ -42,6 +47,9 @@ export interface StarPilotApi {
     hasToken(): Promise<IpcResult<boolean>>
     updateLocalState(fullName: string, state: Partial<LocalState>): Promise<IpcResult<void>>
     clearToken(): Promise<IpcResult<void>>
+    getAiConfig(): Promise<IpcResult<AiConfigView>>
+    saveAiConfig(patch: AiConfigPatch): Promise<IpcResult<void>>
+    clearAiKey(): Promise<IpcResult<void>>
   }
   report: {
     generate(): Promise<IpcResult<WeeklyReport>>
@@ -58,6 +66,12 @@ export interface StarPilotApi {
     startDeviceFlow(): Promise<IpcResult<DeviceFlowInfo>>
     waitForLogin(): Promise<IpcResult<LoginOutcome>>
     cancelDeviceFlow(): Promise<IpcResult<void>>
+  }
+  window: {
+    minimize(): Promise<IpcResult<void>>
+    toggleMaximize(): Promise<IpcResult<boolean>>
+    close(): Promise<IpcResult<void>>
+    isMaximized(): Promise<IpcResult<boolean>>
   }
 }
 

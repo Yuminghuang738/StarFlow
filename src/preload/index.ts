@@ -11,7 +11,10 @@ import type {
   AuthState,
   DeviceFlowInfo,
   LoginOutcome,
-  CloneProgress
+  CloneProgress,
+  AiConfigView,
+  AiConfigPatch,
+  AiConnectionResult
 } from '@shared/types'
 
 const api = {
@@ -41,7 +44,10 @@ const api = {
     removeClone: (fullName: string): Promise<IpcResult<string | null>> =>
       ipcRenderer.invoke(IPC.LOCAL_REMOVE_CLONE, fullName),
     // 返回被清理的 fullName 列表；渲染进程据此把自己内存里的 cloned_path 也抹掉
-    pruneClones: (): Promise<IpcResult<string[]>> => ipcRenderer.invoke(IPC.LOCAL_PRUNE_CLONES)
+    pruneClones: (): Promise<IpcResult<string[]>> => ipcRenderer.invoke(IPC.LOCAL_PRUNE_CLONES),
+    // true = 确实中止了一个在跑的克隆；false = 本来就没有人在跑（不算错）
+    cancelClone: (fullName: string): Promise<IpcResult<boolean>> =>
+      ipcRenderer.invoke(IPC.LOCAL_CANCEL_CLONE, fullName)
   },
   ai: {
     summarize: (readme: string): Promise<IpcResult<string>> =>
@@ -51,7 +57,10 @@ const api = {
     enrichRepos: (repos: Repo[]): Promise<IpcResult<Repo[]>> =>
       ipcRenderer.invoke(IPC.AI_ENRICH_REPOS, repos),
     generateReport: (repos: Repo[]): Promise<IpcResult<string>> =>
-      ipcRenderer.invoke(IPC.AI_GENERATE_REPORT, repos)
+      ipcRenderer.invoke(IPC.AI_GENERATE_REPORT, repos),
+    // 探针：不抛错，失败也以 { ok: false, message } 正常返回
+    testConnection: (): Promise<IpcResult<AiConnectionResult>> =>
+      ipcRenderer.invoke(IPC.AI_TEST_CONNECTION)
   },
   store: {
     getRepos: (): Promise<IpcResult<Repo[]>> => ipcRenderer.invoke(IPC.STORE_GET_REPOS),
@@ -62,7 +71,13 @@ const api = {
     hasToken: (): Promise<IpcResult<boolean>> => ipcRenderer.invoke(IPC.STORE_HAS_TOKEN),
     updateLocalState: (fullName: string, state: Partial<LocalState>): Promise<IpcResult<void>> =>
       ipcRenderer.invoke(IPC.STORE_UPDATE_LOCAL_STATE, fullName, state),
-    clearToken: (): Promise<IpcResult<void>> => ipcRenderer.invoke(IPC.STORE_CLEAR_TOKEN)
+    clearToken: (): Promise<IpcResult<void>> => ipcRenderer.invoke(IPC.STORE_CLEAR_TOKEN),
+    // 只回视图，**不回密钥**：AiConfigView 里没有 apiKey 字段
+    getAiConfig: (): Promise<IpcResult<AiConfigView>> =>
+      ipcRenderer.invoke(IPC.STORE_GET_AI_CONFIG),
+    saveAiConfig: (patch: AiConfigPatch): Promise<IpcResult<void>> =>
+      ipcRenderer.invoke(IPC.STORE_SAVE_AI_CONFIG, patch),
+    clearAiKey: (): Promise<IpcResult<void>> => ipcRenderer.invoke(IPC.STORE_CLEAR_AI_KEY)
   },
   report: {
     generate: (): Promise<IpcResult<WeeklyReport>> => ipcRenderer.invoke(IPC.REPORT_GENERATE)
@@ -84,6 +99,16 @@ const api = {
       ipcRenderer.invoke(IPC.AUTH_WAIT_FOR_LOGIN),
     cancelDeviceFlow: (): Promise<IpcResult<void>> =>
       ipcRenderer.invoke(IPC.AUTH_CANCEL_DEVICE_FLOW)
+  },
+  // 无边框窗口。frame:false 之后原生按钮没了，关闭/最小化/最大化只能走这里
+  window: {
+    minimize: (): Promise<IpcResult<void>> => ipcRenderer.invoke(IPC.WINDOW_MINIMIZE),
+    // 返回切换之后的状态，渲染进程用它权威更新图标（没有 main→renderer 推送）
+    toggleMaximize: (): Promise<IpcResult<boolean>> =>
+      ipcRenderer.invoke(IPC.WINDOW_TOGGLE_MAXIMIZE),
+    close: (): Promise<IpcResult<void>> => ipcRenderer.invoke(IPC.WINDOW_CLOSE),
+    // 兜底查询：窗口被 WM 的快捷键或拖拽吸附改变时，只有 resize 事件能察觉到
+    isMaximized: (): Promise<IpcResult<boolean>> => ipcRenderer.invoke(IPC.WINDOW_IS_MAXIMIZED)
   }
 }
 

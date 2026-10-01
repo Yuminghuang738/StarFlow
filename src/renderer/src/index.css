@@ -20,3 +20,18 @@
       sans-serif;
   }
 }
+
+@layer components {
+  /* 无边框窗口的拖拽区。
+     必须写成类而不是内联样式：React 的 CSSProperties 里没有 WebkitAppRegion，
+     内联写 TS 不认（用 as any 又过不了 lint）。
+     ⚠️ 拖拽区会吞掉鼠标事件，所以区里的每一个按钮 / 输入框都必须显式加
+     .app-region-no-drag，否则点不动——窗口控制按钮最容易踩这个。 */
+  .app-region-drag {
+    -webkit-app-region: drag;
+  }
+
+  .app-region-no-drag {
+    -webkit-app-region: no-drag;
+  }
+}
