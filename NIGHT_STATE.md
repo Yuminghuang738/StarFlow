@@ -14,8 +14,8 @@ tasks:
 - T3: done      # 收藏管理：GitHub 式横条 + AI 一句话解释（1450403）
 - T4: done      # 为你推荐：按整份收藏动态推送（7dfdb62）
 - T5: done      # 每周回顾：Release 变动进 AI 总结 + 本周项目动态（e07d941）
-- T6: doing     # 整体布局与视觉现代化
-- T7: pending   # 大幅增加动效与切换动画
+- T6: done      # 整体布局与视觉现代化（1bd4817 / 51a53bb / 59d4c4e / e974ce2）
+- T7: doing     # 大幅增加动效与切换动画
 
 ## 约束备忘
 - 不跑 `npm run dev`（GUI 需用户终端），验证靠 tsc / eslint / build / selfcheck

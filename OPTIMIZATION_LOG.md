@@ -131,3 +131,41 @@ lib/api 的 call()**——它失败会弹 toast，没配 Token 时 10 个仓库�
 
 验证：tsc / eslint / build 全绿；week-report / recommend-search / collection-stats
 自检全通过；重打包 ai-bundle 后 ai / ai-concurrency 也全通过（并发峰值 3）。
+
+---
+
+## R7 · T6a 外壳：侧边栏加图标与分组标题，内容区固定滚动条槽位
+done · commit 1bd4817
+
+侧边栏原来六行纯文字平铺，看不出是一组导航。六个入口各配一个内联 SVG 图标
+（刻意不引图标库）+ 一行「导航」分组标题 + 版本号改成小卡片。
+内容区加 `[scrollbar-gutter:stable]`：各页长短差得多，不留位的话切板块时
+滚动条突然出现/消失，内容会横向抖十几像素——典型的廉价感来源。
+验证：tsc / eslint / build 全绿。
+
+## R8 · T6b 抽出 PageContainer/PageHeader，三个页面先换过去
+done · commit 51a53bb
+
+宽度此前有 6xl/4xl/2xl 三种且说不清理由；标题、副标题、右侧按钮对齐各写各的。
+新增 `components/layout/PageLayout.tsx`：Container 收成三档宽度并写明理由，
+Header 统一图标徽章 + text-2xl 标题 + 副标题 + 操作区 + suffix 槽。
+图标为此从 Sidebar 搬进 `navIcons.tsx`（两处必须同一套）。
+本轮换 Discover / Similar / Manage。
+验证：tsc / eslint / build 全绿。
+
+## R9 · T6c 设置页改用 PageContainer，卡片不再自带外边距
+done · commit 59d4c4e
+
+「谁负责间距」原来有两套答案：容器管一档、卡片自己又挂 mt-4。统一归容器，
+去掉 Settings 三个 Card + 末尾说明、以及 ThemeCard / GithubLoginCard（五个状态
+分支）根 Card 的 mt-4，并留注释说明间距归外层管。
+验证：tsc / eslint / build 全绿。
+
+## R10 · T6d 周报与总览也换到 PageContainer/PageHeader
+done · commit e974ce2
+
+周报 `max-w-4xl` → width="medium"（容器用 gap-4 与页内 mt-4 的 16px 节奏对齐）。
+总览的本地 PageHeader 改名 HeroHeader 并**复用**全局 PageHeader，自己只留 hero 卡
+与渐变光斑（外面补一层 relative 压住 abs 的光斑）。
+至此六页宽度与标题区走同一套，三档宽度不再有例外。
+验证：tsc / eslint / build 全绿。
