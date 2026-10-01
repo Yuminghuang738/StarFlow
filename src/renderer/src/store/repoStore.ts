@@ -29,6 +29,8 @@ export interface RepoStore {
   // —— 本地副本管理（非契约成员；新增不算修改契约，但必须同步进 renderer-contracts.md）——
   removeLocal(fullName: string): Promise<void>
   pruneLocalClones(): Promise<void>
+  // —— 取消克隆（取消克隆 PR 落地）：裸调 window.api，失败才提示，false 不是错误 ——
+  cancelClone(fullName: string): Promise<void>
   // —— P6 新增 token 方法 ——
   hasToken(): Promise<boolean>
   saveToken(token: string): Promise<void>
@@ -201,7 +203,18 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
       const dir = await unwrap(window.api.local.chooseDir())
       if (dir === null) return // 用户取消选目录，静默返回，不当成错误
 
-      const path = await unwrap(window.api.local.clone(fullName, dir))
+      // 刻意裸调、不用 unwrap()：主进程的 clone 现在用 data === null 表示"已被用户
+      // 取消"——那是一次成功但无结果的调用，不能按失败处理。而 unwrap 在 { ok: false }
+      // 时会先弹一条红 toast 再抛错，只有真失败才该弹，取消必须静默。
+      const res = await window.api.local.clone(fullName, dir)
+      if (!res.ok) {
+        set({ error: res.error })
+        pushToast({ type: 'error', message: res.error })
+        return
+      }
+      if (res.data === null) return // 已取消：静默成功，不弹提示、不写 store
+
+      const path = res.data
       // 主进程的 local.clone 只建目录，不写 db；cloned_path 必须由这里落盘，
       // 否则 onlyCloned 筛选永远命中不到任何仓库
       await unwrap(window.api.store.updateLocalState(fullName, { cloned_path: path }))
@@ -213,6 +226,22 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
       pushToast({ type: 'success', message: `已克隆到 ${path}` })
     } catch (err) {
       set({ error: ipcErrorMessage(err) })
+    }
+  },
+
+  async cancelClone(fullName) {
+    try {
+      // 同样裸调：取消的成败由主进程用布尔值表达，data === false 是"本来没人在跑"
+      // 的正常竞态，不是错误，走 unwrap 反而会把 false 当成要处理的结果。
+      const res = await window.api.local.cancelClone(fullName)
+      if (!res.ok) {
+        console.error('[repoStore] 取消克隆失败：', res.error)
+        pushToast({ type: 'error', message: res.error })
+      }
+      // 成功静默：无论确实中止了（true）还是本来就没人在跑（false）
+    } catch (err) {
+      console.error('[repoStore] 取消克隆失败：', err)
+      pushToast({ type: 'error', message: ipcErrorMessage(err) })
     }
   },
 
