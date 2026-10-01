@@ -37,7 +37,9 @@ export interface RepoStore {
   // —— 取消克隆（取消克隆 PR 落地）：必须裸调 window.api，不能走 unwrap() ——
   cancelClone(fullName: string): Promise<void>;
   // —— token：hasToken/saveToken 供设置页使用 ——
-  hasToken(): Promise<boolean>;
+  // hasToken 返回 null 表示「这一次没读到」，与 false（确实没配置）是两回事，
+  // 页面必须分开显示，否则一次读取失败会装成「未配置」
+  hasToken(): Promise<boolean | null>;
   saveToken(token: string): Promise<void>;
 }
 

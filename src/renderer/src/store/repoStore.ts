@@ -32,7 +32,11 @@ export interface RepoStore {
   // —— 取消克隆（取消克隆 PR 落地）：裸调 window.api，失败才提示，false 不是错误 ——
   cancelClone(fullName: string): Promise<void>
   // —— 新增 token 方法 ——
-  hasToken(): Promise<boolean>
+  /**
+   * 读「有没有 token」。**null 表示这一次没读到，不是"没有"**——见实现里的说明。
+   * 页面必须把两者分开显示，否则一次读取失败会装成"未配置"。
+   */
+  hasToken(): Promise<boolean | null>
   saveToken(token: string): Promise<void>
 }
 
@@ -298,12 +302,18 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
     }
   },
 
-  async hasToken() {
+  async hasToken(): Promise<boolean | null> {
     try {
       return await unwrap(window.api.store.hasToken())
     } catch (err) {
+      // ⚠️ 这里**绝不返回 false**。false 在设置页的含义是"未配置"，会显示
+      // 「未配置」徽章并把用户引向重新填一遍 token——而真实情况往往只是这一次
+      // 没读到（库文件坏了 / 主进程没起来），token 其实好好地存着。
+      // 返回 null 表示"不知道"，页面据此显示「读不到」而不是「未配置」；
+      // 这与本项目一贯的取舍一致：可以吞掉报错，但不能把"不知道"降级成"确实没有"。
+      // （unwrap 已经弹过 toast，这里只记下来给页面用。）
       set({ error: ipcErrorMessage(err) })
-      return false
+      return null
     }
   },
 

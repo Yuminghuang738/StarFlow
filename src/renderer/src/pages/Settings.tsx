@@ -24,7 +24,9 @@ const SOURCE_LABEL: Record<AiConfigView['source'], string> = {
 export function Settings(): React.JSX.Element {
   const [token, setToken] = useState('')
   const [showToken, setShowToken] = useState(false)
+  /** null + tokenChecked === false = 还没读完；null + true = 这一次没读到（不是"没配置"） */
   const [hasToken, setHasToken] = useState<boolean | null>(null)
+  const [tokenChecked, setTokenChecked] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
 
@@ -49,13 +51,22 @@ export function Settings(): React.JSX.Element {
   const enrich = useRepoStore((s) => s.enrich)
   const saveToken = useRepoStore((s) => s.saveToken)
 
+  // 状态徽章的取值只有一处：它**不会抛错**（hasToken 内部把失败收成 null），
+  // 所以这里不需要 try/catch，只需要记得把"读完了"也标上。
+  async function refreshTokenStatus(): Promise<void> {
+    setHasToken(await useRepoStore.getState().hasToken())
+    setTokenChecked(true)
+  }
+
   useEffect(() => {
     let cancelled = false
-    useRepoStore
+    void useRepoStore
       .getState()
       .hasToken()
       .then((v) => {
-        if (!cancelled) setHasToken(v)
+        if (cancelled) return
+        setHasToken(v)
+        setTokenChecked(true)
       })
     return () => {
       cancelled = true
@@ -87,12 +98,7 @@ export function Settings(): React.JSX.Element {
     if (!trimmed) return
     await saveToken(trimmed)
     setToken('')
-    setHasToken(await useRepoStore.getState().hasToken())
-  }
-
-  /** 登录 / 退出之后要让上面的 token 状态徽章跟着变 */
-  async function refreshTokenStatus(): Promise<void> {
-    setHasToken(await useRepoStore.getState().hasToken())
+    await refreshTokenStatus()
   }
 
   async function test(): Promise<void> {
@@ -248,14 +254,32 @@ export function Settings(): React.JSX.Element {
         </div>
         <div className="mt-3 flex items-center gap-2">
           <span className="text-sm text-fg-muted">状态：</span>
-          {hasToken === null ? (
+          {/* 三态而不是两态：'未配置' 是一个结论，只有在**确实读到了空**时才能下。
+              读取失败（库文件坏了 / 主进程没起来）走中间的「读不到」，否则用户会去
+              重填一遍其实已经存好的 token，而真正的问题一直没被说出来。 */}
+          {!tokenChecked ? (
             <Badge tone="muted">未知</Badge>
+          ) : hasToken === null ? (
+            <Badge tone="warning">读不到</Badge>
           ) : hasToken ? (
             <Badge tone="success">已配置</Badge>
           ) : (
             <Badge tone="muted">未配置</Badge>
           )}
         </div>
+        {tokenChecked && hasToken === null ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <p className="text-xs text-fg-subtle">
+              本地数据这一次没读到，<span className="text-fg">不代表你没配过</span>
+              ——Token 可能好好地存着。
+            </p>
+            {/* 得给一个重试入口：设置页是保活的（切换页面不卸载），不给的话
+                这个徽章会一直停在「读不到」，唯一出路是重启应用。 */}
+            <Button size="sm" variant="ghost" onClick={() => void refreshTokenStatus()}>
+              重试
+            </Button>
+          </div>
+        ) : null}
       </Card>
 
       <Card>
