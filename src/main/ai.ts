@@ -24,7 +24,7 @@ import {
   searchPlanPrompt,
   parseSearchPlan
 } from './ai-prompts'
-import type { SearchPlan } from './ai-prompts'
+import type { SearchPlan, RepoRelease } from './ai-prompts'
 import * as store from './store'
 import * as github from './github'
 import {
@@ -311,22 +311,39 @@ export async function enrichRepos(repos: Repo[]): Promise<Repo[]> {
   }
 }
 
-export async function generateReport(repos: Repo[]): Promise<string> {
+/**
+ * 周报总结。
+ *
+ * releases 是「本周有新版本的那几个收藏」（由 report.ts 查好传进来，默认空）。
+ * 它让总结从「你收藏了什么」变成「你关注的东西这周发生了什么」——一个收藏了半年、
+ * 这周发了 v2.0 的项目，比本周新 Star 的陌生仓库更值得写进周报。
+ *
+ * releases 的处理与整体一致：模型不可用时，本地兜底文案也要把新版本说出来，
+ * 否则「AI 没配」就等于这个功能不存在。
+ */
+export async function generateReport(
+  repos: Repo[],
+  releases: RepoRelease[] = []
+): Promise<string> {
   if (isMockMode()) return mockReportSummary(repos)
   if (repos.length === 0) return '本周没有新增 Star。'
 
   const topLang = topLanguage(repos)
   const topRepo = pickTopRepo(repos)
+  const releaseLine =
+    releases.length === 0
+      ? ''
+      : `另外收藏里的 ${releases[0].fullName} 等 ${releases.length} 个项目这周发了新版本，值得回去看看。`
   const fallback =
     `本周新增 ${repos.length} 个 Star，主力语言是 ${topLang}，` +
-    `其中 ${topRepo?.full_name ?? '—'} 最值得一看。`
+    `其中 ${topRepo?.full_name ?? '—'} 最值得一看。${releaseLine}`
 
   try {
     const res = await client().chat.completions.create({
       model: resolveModel(),
       temperature: 0.6,
       max_tokens: 500,
-      messages: [{ role: 'user', content: reportPrompt(repos) }]
+      messages: [{ role: 'user', content: reportPrompt(repos, releases) }]
     })
     const text = readContent(res.choices[0]?.message)
     // 模型返回空白时同样走本地兜底，report.generate() 的调用方永远能拿到一段文案

@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
-import type { WeeklyReport } from '@shared/types'
+import type { Repo, WeeklyReport } from '@shared/types'
 import { unwrap, ipcErrorMessage, formatStars } from '../lib/api'
+import { useRepoStore } from '../store/repoStore'
+import {
+  RELEASE_CONCURRENCY,
+  pickLatestInWindow,
+  pickWatchlist,
+  weekCategoryStats,
+  type ReleaseHit,
+  type RepoReleaseEntry
+} from '../lib/weekActivity'
 import { Button } from '../components/common/Button'
 import { Card } from '../components/common/Card'
 import { Badge } from '../components/common/Badge'
@@ -70,6 +79,30 @@ function downloadMarkdown(report: WeeklyReport): void {
 }
 
 /**
+ * 查 watchlist 里每个仓库的 Release。
+ *
+ * 刻意**不走 lib/api 的 call()**：那个失败会弹 toast，而这一块是页面的被动增强——
+ * 没配 Token 时 10 个仓库就是 10 条红 toast，把整页刷满。这里失败就当这个仓库
+ * 这周没动静，静默跳过；周报的主体（新增列表、图表、AI 总结）跟它无关。
+ *
+ * 分片串行而不是全并发：收藏一多，一次性打出去十几条请求会撞二级限频。
+ */
+async function loadReleases(watch: Repo[]): Promise<RepoReleaseEntry[]> {
+  const out: RepoReleaseEntry[] = []
+  for (let i = 0; i < watch.length; i += RELEASE_CONCURRENCY) {
+    const batch = watch.slice(i, i + RELEASE_CONCURRENCY)
+    const results = await Promise.all(
+      batch.map(async (r): Promise<RepoReleaseEntry> => {
+        const res = await window.api.github.fetchReleases(r.full_name)
+        return { fullName: r.full_name, releases: res.ok ? res.data : [] }
+      })
+    )
+    out.push(...results)
+  }
+  return out
+}
+
+/**
  * 首屏骨架。周报一进来就自动生成，AI 那一段要等 1~3 秒，这份占位负责把这段时间填满，
  * 免得用户先看到一个「还没有周报」的空白页、以为要自己点。
  * 结构刻意对着下面的真实排版（三张统计卡 + 一段正文 + 两张图表），切换时不跳版。
@@ -106,6 +139,9 @@ export function Report(): React.JSX.Element {
   const [report, setReport] = useState<WeeklyReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 「你收藏的项目这周有没有动静」。null = 还在查（与空数组区分开，免得先闪一下空态）
+  const [activity, setActivity] = useState<ReleaseHit[] | null>(null)
+  const totalRepos = useRepoStore((s) => s.repos.length)
   const palette = useChartTheme()
 
   const langOption = useMemo(() => {
@@ -158,6 +194,35 @@ export function Report(): React.JSX.Element {
     void generate()
   }, [generate])
 
+  /**
+   * 报告出来后，去查「你收藏的项目这周有没有发新版本」。
+   *
+   * 依赖 report：点「重新生成」拿到新报告时会重查一遍。cancelled 挡的是
+   * 「上一份报告的结果晚回来覆盖新的」——重新生成期间旧的那批请求还在飞。
+   */
+  useEffect(() => {
+    if (report === null) {
+      setActivity(null)
+      return
+    }
+    let cancelled = false
+    const watch = pickWatchlist(report)
+    void (async () => {
+      const entries = await loadReleases(watch)
+      if (cancelled) return
+      setActivity(
+        pickLatestInWindow(
+          entries,
+          new Date(report.weekStart).getTime(),
+          new Date(report.weekEnd).getTime()
+        )
+      )
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [report])
+
   return (
     <div className="mx-auto max-w-4xl">
       <header className="flex items-center justify-between">
@@ -196,14 +261,16 @@ export function Report(): React.JSX.Element {
               <div className="mt-1 text-sm text-fg-muted">本周新增 Star</div>
             </Card>
             <Card className="flex-1">
-              <div className="text-3xl font-semibold tabular-nums">
-                {Object.keys(report.languageStats).length}
-              </div>
-              <div className="mt-1 text-sm text-fg-muted">语言分布种类</div>
+              <div className="text-3xl font-semibold tabular-nums">{totalRepos}</div>
+              <div className="mt-1 text-sm text-fg-muted">累计收藏</div>
             </Card>
+            {/* 这一格原来是「Top 项目」= report.topRepos.length，恒等于 5（不足时等于总数），
+                是个不会变也没有信息量的数。换成真正随本周变化的一个。 */}
             <Card className="flex-1">
-              <div className="text-3xl font-semibold tabular-nums">{report.topRepos.length}</div>
-              <div className="mt-1 text-sm text-fg-muted">Top 项目</div>
+              <div className="text-3xl font-semibold tabular-nums">
+                {activity === null ? '—' : activity.length}
+              </div>
+              <div className="mt-1 text-sm text-fg-muted">本周新版本</div>
             </Card>
           </div>
 
@@ -213,6 +280,41 @@ export function Report(): React.JSX.Element {
               {report.aiSummary}
             </p>
           </Card>
+
+          {/* 本周项目动态：收藏里这周发了新版本的项目。
+              刻意在没动静时**整块不渲染**——安静的一周就该看起来安静，
+              摆一个「本周没有新版本」的卡片只是占地方。 */}
+          {activity !== null && activity.length > 0 ? (
+            <Card className="mt-4">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="text-sm font-medium text-fg">本周项目动态</h2>
+                <span className="text-[11px] text-fg-subtle">
+                  你收藏过的项目这周发布了新版本
+                </span>
+              </div>
+              <ul className="mt-3 divide-y divide-border">
+                {activity.map((h) => (
+                  <li key={h.fullName} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+                    <a
+                      href={h.htmlUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium text-link hover:underline"
+                    >
+                      {h.fullName}
+                    </a>
+                    <Badge tone="default">{h.tag}</Badge>
+                    {h.name !== null && h.name !== h.tag ? (
+                      <span className="min-w-0 truncate text-fg-muted">{h.name}</span>
+                    ) : null}
+                    <span className="ml-auto text-xs text-fg-subtle">
+                      {formatMonthDay(h.publishedAt)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
 
           <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
             <Card>
@@ -249,7 +351,24 @@ export function Report(): React.JSX.Element {
           </Card>
 
           <Card className="mt-4">
-            <h2 className="text-sm font-medium text-fg">本周新增仓库</h2>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-2">
+              <h2 className="text-sm font-medium text-fg">本周新增仓库</h2>
+              {/* 这周新收的都落在哪些方向。与上面那张「语言分布」图不是一回事：
+                  那张画的是全部收藏的语言存量，这里说的是本周的增量。 */}
+              {report.newStars.length === 0 ? null : (
+                <div className="flex flex-wrap gap-1.5">
+                  {weekCategoryStats(report.newStars).map((c) => (
+                    <span
+                      key={c.name}
+                      className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[11px] text-fg-muted"
+                    >
+                      {c.name}
+                      <span className="tabular-nums text-fg-subtle">{c.count}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
             <ul className="mt-3 divide-y divide-border">
               {report.newStars.map((r) => (
                 <li key={r.id} className="flex items-center gap-3 py-2 text-sm">

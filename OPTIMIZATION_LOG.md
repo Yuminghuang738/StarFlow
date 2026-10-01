@@ -64,7 +64,7 @@ summarizePrompt 要的正是「一句话说清这个项目做什么」。点一�
 渲染进程没有 DOM 测试环境。）
 
 ## R5 · T4 为你推荐：从「挑种子」改为按整份收藏动态推
-done · commit a/待补
+done · commit 7dfdb62
 
 原来要求用户先从下拉框里挑一个仓库当参照，等于把「我到底喜欢什么」这个问题
 又推回给用户——而答案早就写在收藏列表里。现在主进程把整份收藏压成画像
@@ -91,3 +91,43 @@ done · commit a/待补
 
 验证：tsc / eslint / build 全绿；recommend-search 自检新增第 7 节
 （buildProfile / buildForYouQueries / forYou 端到端，30+ 断言）全通过。
+
+## R6 · T5 每周回顾：结合实际 star 变动做 AI 总结 + 本周项目动态
+done · commit 557721e
+
+原来周报的 AI 总结只拿到「本周新增了哪些仓库」，不知道这些仓库**这周干不干什么**，
+所以总结只能复述列表。现在多喂一份「本周内发过新版本的项目」清单，模型能说出
+「你上周收的 X 这周出了 2.0」这种只有跨过时间轴才看得见的话。
+
+三处刻意的决定：
+- **不动 src/shared/types.ts**（WeeklyReport 是冻结契约）。主进程为了写提示词自己
+  拉一次 Release，渲染进程为了那张结构化卡片**再拉一次**——这份重复是主动选的：
+  让契约里多一个字段，等于所有构造 WeeklyReport 的地方（含自检里的 fixture）
+  都要跟着改，代价比多几次 GitHub 请求大。
+- 提示词里「没有新版本时一个字都不提新版本」。写提示词最怕的就是给模型一个
+  话头，它会顺着编出几个不存在的 Release；自检里钉了一条断言专门守这个。
+  Release 的 name 也**不写进提示词**，避免模型复述甚至扩写说明文字。
+- collectWeekReleases 吞掉**所有**异常（含没配 Token 时 client() 直接抛），
+  永远返回数组。这一块是周报的增强项，不能因为一个仓库查不到就让整份周报失败。
+
+界面：统计行第三格原来是「Top 项目 = report.topRepos.length」，恒等于 5，是个
+不会变也没有信息量的数，换成「本周新版本」；新增「本周项目动态」卡片（这周发了
+新版本的收藏，带 tag 与日期），**没动静时整块不渲染**——安静的一周就该看起来安静。
+「本周新增仓库」标题旁加了本周新增的分类分布 chips（与「语言分布」图不是一回事：
+那张画存量，这里说增量）。
+
+渲染进程侧新增 lib/weekActivity.ts（纯函数，只 import @shared/types）：pickWatchlist
+（本周新增优先 + 星标榜补齐，去重截断 10）、pickLatestInWindow（闭区间卡边界，
+每仓库只取最新，草稿 Release 跳过）、weekCategoryStats。拉 Release 时刻意**不用
+lib/api 的 call()**——它失败会弹 toast，没配 Token 时 10 个仓库就是 10 条红 toast。
+
+顺带把 MOCK_MODE 下 mockReleases 的最新一条挪到「现在」，否则本周项目动态在演示
+模式永远空着，人工验收会以为功能没做。
+
+新增自检 scripts/selfcheck/week-report.mjs（4 节 25 条断言，重点卡时间窗口边界：
+周一零点 / 周日最后一毫秒算数，差一毫秒不算；以及「没有新版本时提示词里不能出现
+新版本」）。⚠️ 中文分类顺序用 localeCompare，结果随运行环境 locale 变，所以那两条
+断言写成「谁最多 + 其余各 1 条 + 集合相等」，不钉死中文先后。
+
+验证：tsc / eslint / build 全绿；week-report / recommend-search / collection-stats
+自检全通过；重打包 ai-bundle 后 ai / ai-concurrency 也全通过（并发峰值 3）。

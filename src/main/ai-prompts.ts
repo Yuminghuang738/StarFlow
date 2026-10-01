@@ -72,6 +72,22 @@ ${categories}
 }
 
 /**
+ * 本周有新版本的收藏：仓库名 + 它最新的那个 Release。
+ *
+ * 为什么要把这个喂给模型：原来的周报只拿到「本周新增了哪些 Star」，模型能说的
+ * 就只有"你收藏了什么"；而周报真正该回答的是"**我关注的东西这周发生了什么**"——
+ * 一个收藏了半年、这周发了 v2.0 的项目，比本周新 Star 的一个陌生仓库更值得提。
+ */
+export interface RepoRelease {
+  fullName: string
+  tag: string
+  /** 上游没给 Release 起名时为 null */
+  name: string | null
+  publishedAt: string
+  htmlUrl: string
+}
+
+/**
  * 周报提示词。
  *
  * 重点改进：明确「**不得编造**列表之外的仓库」——模型偶尔会为了凑字数引入
@@ -79,8 +95,11 @@ ${categories}
  *
  * ai.ts 的 generateReport 保持「任何失败都返回本地兜底文案、绝不抛错」：
  * 本函数只负责拼 prompt，不做任何 IO。
+ *
+ * releases 默认空数组：没有新版本时**不能**在 prompt 里提"新版本"这回事，
+ * 否则模型会顺着这个话头编出几个不存在的 Release。
  */
-export function reportPrompt(repos: Repo[]): string {
+export function reportPrompt(repos: Repo[], releases: RepoRelease[] = []): string {
   const list = repos
     .slice(0, REPORT_REPO_LIMIT)
     .map(
@@ -89,6 +108,17 @@ export function reportPrompt(repos: Repo[]): string {
     )
     .join('\n')
 
+  const releaseRule =
+    releases.length === 0
+      ? ''
+      : '\n7) 下面「本周发了新版本」那一段必须提一句，但不要逐个念 tag 号，挑 1~2 个说就行'
+  const releaseBlock =
+    releases.length === 0
+      ? ''
+      : `\n\n本周发了新版本（你收藏过、且这周发布了 Release 的项目）：\n${releases
+          .map((r) => `${r.fullName} 发布了 ${r.tag}${r.publishedAt ? `（${r.publishedAt.slice(0, 10)}）` : ''}`)
+          .join('\n')}`
+
   return `请根据下面的本周新增 Star 列表，写一段中文周报总结。
 要求：
 1) 100~200 字
@@ -96,9 +126,9 @@ export function reportPrompt(repos: Repo[]): string {
 3) 提到本周新增数量、主力语言、以及最值得关注的 1~2 个项目
 4) 不要 markdown、不要分点、不要换行
 5) 直接输出这段话
-6) 只依据下面给出的列表，不得编造列表之外的仓库或数据
+6) 只依据下面给出的列表，不得编造列表之外的仓库或数据${releaseRule}
 ---
-${list}`
+${list}${releaseBlock}`
 }
 
 /* ------------------------------------------------------------------ */

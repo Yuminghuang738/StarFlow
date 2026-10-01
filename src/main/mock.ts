@@ -97,10 +97,12 @@ cd ${repoName(fullName)}
 
 export async function mockReleases(fullName: string): Promise<Release[]> {
   const tags = ['v1.2.3', 'v1.1.0', 'v1.0.0']
+  // 最新那条刻意放在「现在」：周报页的「本周项目动态」是按 [weekStart, weekEnd] 过滤的，
+  // 若最新版本也在 30 天前，MOCK_MODE 下那块永远空着，人工验收会以为功能没做。
   return tags.map((tag, i) => ({
     tag_name: tag,
     name: tag,
-    published_at: daysAgo((i + 1) * 30),
+    published_at: daysAgo(i * 30),
     html_url: `https://github.com/${fullName}/releases/tag/${tag}`
   }))
 }
