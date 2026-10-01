@@ -1,0 +1,34 @@
+# CODEOWNERS —— 只做 @提醒，不强制审批（main 的分支保护没勾 Require approvals）
+#
+# TODO(必做): 把下面所有 @P1账号 之类的占位替换成真实 GitHub 用户名。
+# 验收清单里明确检查这一项。未替换的 owner 在 GitHub 上会显示为 Unknown owner（只是警告，不会让 CI 红）。
+#
+# 注意：文件里出现 /src/main/index.ts 这类具体路径，CODEOWNERS 的匹配规则是
+# "最后一个匹配的规则生效"，所以顺序不能随意调。
+
+# ============ 集成工程师独占 ============
+/src/shared/            @P7账号
+/src/preload/           @P7账号
+/src/main/index.ts      @P7账号
+/src/main/config.ts     @P7账号
+/src/main/mock.ts       @P7账号
+
+# ============ 主进程业务模块 ============
+/src/main/github.ts     @P1账号
+/src/main/local.ts      @P3账号
+/src/main/store.ts      @P3账号
+/src/main/ai.ts         @P2账号
+/src/main/report.ts     @P4账号
+/src/main/recommend.ts  @P4账号
+/src/main/tracker.ts    @P4账号
+
+# ============ 渲染进程 ============
+/src/renderer/src/pages/Dashboard.tsx  @P5账号
+/src/renderer/src/components/repo/     @P5账号
+/src/renderer/src/components/charts/   @P5账号
+/src/renderer/src/pages/Report.tsx     @P6账号
+/src/renderer/src/App.tsx              @P6账号
+/src/renderer/src/store/               @P6账号
+/src/renderer/src/lib/                 @P6账号
+/src/renderer/src/components/common/   @P6账号
+/src/renderer/src/components/layout/   @P6账号

@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+
+  protect-contracts:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: 检查契约与基建文件是否被非集成工程师修改
+        run: |
+          # 集成工程师的 GitHub 账号列表（多个用 | 分隔）
+          # TODO(必做): 把下面的占位替换成真实账号，多个账号用 | 分隔。
+          # 验收清单里明确检查这一行，留占位会让所有 PR 都走"非集成工程师"分支。
+          INTEGRATORS="REPLACE_WITH_INTEGRATOR_USERNAME"
+          if echo "$INTEGRATORS" | grep -qw "${{ github.actor }}"; then
+            echo "集成工程师提交，跳过检查"
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          echo "变更文件："; echo "$CHANGED"
+          if echo "$CHANGED" | grep -E '^(src/shared/|src/preload/|src/main/index\.ts$|src/main/config\.ts$|src/main/mock\.ts$|mock-data\.json$|package(-lock)?\.json$|tsconfig\.json$|electron\.vite\.config\.ts$|electron-builder\.yml$|eslint\.config\.js$|tailwind\.config\.js$|postcss\.config\.js$|\.github/|docs/|README\.md$|\.env\.example$)'; then
+            echo "❌ 契约/基建文件被修改，必须由集成工程师提交（见 split-plan.md 第二节）"
+            exit 1
+          fi
+          echo "✅ 只改了业务文件"
+
+  frontend-isolation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 禁止渲染进程 import 主进程
+        run: |
+          if grep -rnE "from '.*(main/|@shared/\.\./main)" src/renderer/src 2>/dev/null; then
+            echo "❌ 渲染进程不允许 import 主进程代码"
+            exit 1
+          fi
+          echo "✅ 渲染进程隔离正常"
