@@ -114,9 +114,9 @@ export function Overview(): React.JSX.Element {
 
       {/* 统计卡片：8 项。信息量对比只有 4 项时翻了一倍，且每项都补了一句参照文案。
           带 onClick 的会下钻到收藏管理页（卡片右下角有"去处理 →"的提示，
-          不然用户看不出它能点）。「本周新增」「主题标签」刻意不可点：
-          时间窗口与 topic 都没有对应的筛选维度，做成可点却跳到一个筛不出来的列表
-          比不可点更糟。 */}
+          不然用户看不出它能点）。仍然不可点的是「AI 已分类」「语言数」「主题标签」：
+          它们数出来的都不是"一批仓库的条数"（分别是全部已分类的合计、去重后的语言
+          种数、去重后的 topic 数），凑不出一个条数恰好等于它的筛选，点了就是撒谎。 */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
           label="仓库总数"
@@ -124,11 +124,14 @@ export function Overview(): React.JSX.Element {
           hint={`总星标 ${formatStars(stats.totalStars)}`}
           onClick={() => drill({})}
         />
+        {/* 「本周新增」下钻走的是 onlyRecent（最近 RECENT_WINDOW_DAYS 个 UTC 日历日），
+            与这个数字共用 collectionStats 的 starredBucket——卡片写 5、点进去就必须是 5 条。 */}
         <StatCard
           label="本周新增"
           value={stats.recent7}
           hint={trendHint(stats.recent7, stats.prev7)}
           tone={stats.recent7 > 0 ? 'up' : 'flat'}
+          onClick={() => drill({ onlyRecent: true })}
         />
         {/* 「AI 已分类」仍然不可点：它数的是**所有**分类过的仓库，而 category 筛选
             一次只能选一个分类，点进去必然只剩一小撮——卡片写 N、点进去 M，就是撒谎。

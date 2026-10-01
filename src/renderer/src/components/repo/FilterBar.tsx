@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AI_CATEGORIES } from '@shared/types'
 import { useRepoStore } from '../../store/repoStore'
+import { RECENT_WINDOW_DAYS } from '../../lib/collectionStats'
 import {
   DEFAULT_FILTERS,
   HEALTH_OPTIONS,
@@ -20,7 +21,8 @@ import { Select } from '../common/Select'
 const KEYWORD_DEBOUNCE_MS = 200
 
 /**
- * 搜索框 + 语言筛选 + 分类筛选 + 活跃度筛选 + 只看已 clone + 排序 + 重置。
+ * 搜索框 + 语言筛选 + 分类筛选 + 活跃度筛选 + 两个开关（已 clone / 最近新增）
+ * + 排序 + 重置。
  *
  * ⚠️ 搜索框不能直接把 value 绑到 filters.keyword：
  * store 每次更新都会让受控输入重渲染，光标会跳到末尾。
@@ -69,6 +71,7 @@ export function FilterBar(): React.JSX.Element {
     filters.language !== DEFAULT_FILTERS.language ||
     filters.category !== DEFAULT_FILTERS.category ||
     filters.onlyCloned ||
+    filters.onlyRecent ||
     filters.health !== DEFAULT_FILTERS.health ||
     // 排序也必须算进来：只看排序变过就该能一键回到默认顺序
     filters.sort !== DEFAULT_FILTERS.sort
@@ -146,6 +149,18 @@ export function FilterBar(): React.JSX.Element {
           className="h-3.5 w-3.5 accent-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         />
         只看已 clone
+      </label>
+
+      {/* 天数从 RECENT_WINDOW_DAYS 拼出来：窗口改了文案就该跟着改，
+          写死"7 天"的话改了阈值它就开始骗人。它对应总览的「本周新增」那张卡。 */}
+      <label className="flex select-none items-center gap-1.5 text-sm text-fg-muted">
+        <input
+          type="checkbox"
+          checked={filters.onlyRecent}
+          onChange={(e) => setFilters({ onlyRecent: e.target.checked })}
+          className="h-3.5 w-3.5 accent-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        />
+        只看最近 {RECENT_WINDOW_DAYS} 天新增
       </label>
 
       <label className="ml-auto flex items-center gap-1.5 text-sm text-fg-muted">

@@ -22,6 +22,9 @@ import {
   activityBucket,
   computeCollectionStats,
   isRealCategory,
+  starredBucket,
+  utcDayStart,
+  RECENT_WINDOW_DAYS,
   UNCATEGORIZED_LABEL
 } from '../../src/renderer/src/lib/collectionStats'
 
@@ -608,6 +611,116 @@ check(
   '语言名就叫 unknown 的仓库会作为候选出现',
   languageOptions(withUnknownLang, 'all').join(',') === 'unknown' &&
     languageOption(languageOptions(withUnknownLang, 'all')[0]!) === 'name:unknown'
+)
+
+// ============================================================
+console.log('\n== 10. 最近新增（onlyRecent）==')
+// ============================================================
+// 总览的「本周新增 N」以前没有去处：没有时间窗口这个筛选维度。现在按收藏时间
+// 加了一档，判据同样收在 collectionStats 的 starredBucket 里，只有一处阈值。
+//
+// 这一节自带一份 fixture，不动上面那份：窗口边界要四个档位各摆一条，塞进主 fixture
+// 会把第 5 节的排序期望整个搅乱（那里把 6 个仓库的名字全列出来了）。
+check('DEFAULT_FILTERS.onlyRecent 是 false', DEFAULT_FILTERS.onlyRecent === false)
+check('onlyRecent 为 false 时不过滤', vis({ onlyRecent: false }).length === REPOS.length)
+
+const recentRepos = [
+  makeRepo({ full_name: 'w/today', starred_at: new Date(NOW).toISOString() }),
+  makeRepo({ full_name: 'w/6d', starred_at: daysAgo(6) }),
+  makeRepo({ full_name: 'w/7d', starred_at: daysAgo(7) }),
+  makeRepo({ full_name: 'w/13d', starred_at: daysAgo(13) }),
+  makeRepo({ full_name: 'w/14d', starred_at: daysAgo(14) }),
+  makeRepo({ full_name: 'w/bad', starred_at: '???' })
+]
+const visR = (over: Partial<RepoFilters> = {}): Repo[] => filterRepos(recentRepos, F(over), NOW)
+
+// 窗口是「含今天在内的 RECENT_WINDOW_DAYS 个 UTC 日历日」，不是"此刻往前推
+// N×24 小时"。两者在界面上长得一模一样、差一天也没人看得出来，所以边界必须钉死。
+check(
+  '四个档位各自的边界都对',
+  names(recentRepos.filter((r) => starredBucket(r, NOW) === 'week')) === 'w/today,w/6d' &&
+    names(recentRepos.filter((r) => starredBucket(r, NOW) === 'prevWeek')) === 'w/7d,w/13d' &&
+    names(recentRepos.filter((r) => starredBucket(r, NOW) === 'earlier')) === 'w/14d' &&
+    names(recentRepos.filter((r) => starredBucket(r, NOW) === 'unknown')) === 'w/bad',
+  recentRepos.map((r) => `${r.full_name}:${starredBucket(r, NOW)}`).join(',')
+)
+check(
+  '窗口长度就是 RECENT_WINDOW_DAYS 个日历日（改常量，边界跟着走）',
+  RECENT_WINDOW_DAYS === 7 &&
+    starredBucket(makeRepo({ full_name: 'x/edge', starred_at: daysAgo(RECENT_WINDOW_DAYS) }), NOW) ===
+      'prevWeek' &&
+    starredBucket(
+      makeRepo({ full_name: 'x/inside', starred_at: daysAgo(RECENT_WINDOW_DAYS - 1) }),
+      NOW
+    ) === 'week'
+)
+check(
+  '差一毫秒就出界（判据是 >= 界点，界点本身仍在窗口内）',
+  starredBucket(
+    makeRepo({ full_name: 'x/ms', starred_at: new Date(NOW - 1).toISOString() }),
+    NOW
+  ) === 'week' &&
+    starredBucket(
+      makeRepo({
+        full_name: 'x/ms2',
+        starred_at: new Date(utcDayStart(NOW) - (RECENT_WINDOW_DAYS - 1) * DAY - 1).toISOString()
+      }),
+      NOW
+    ) === 'prevWeek'
+)
+check(
+  'starred_at 解析不出来的一档都不算',
+  starredBucket(makeRepo({ full_name: 'x/bad', starred_at: '不是日期' }), NOW) === 'unknown' &&
+    !visR({ onlyRecent: true }).some((r) => r.full_name === 'w/bad')
+)
+check('onlyRecent 只留下最近 7 天收藏的', names(visR({ onlyRecent: true })) === 'w/today,w/6d')
+
+const stats10 = computeCollectionStats(recentRepos, NOW)
+// —— 落点：卡片上的数字 == 筛出来的条数 ——
+check(
+  '总览「本周新增」的数字 == onlyRecent 筛出的条数',
+  stats10.recent7 === visR({ onlyRecent: true }).length && stats10.recent7 === 2,
+  `${stats10.recent7} vs ${visR({ onlyRecent: true }).length}`
+)
+check(
+  '总览「上周新增」的数字 == prevWeek 档的条数（趋势文案的来源）',
+  stats10.prev7 === recentRepos.filter((r) => starredBucket(r, NOW) === 'prevWeek').length &&
+    stats10.prev7 === 2,
+  `${stats10.prev7}`
+)
+// 四档必须构成划分。漏掉任一档（比如把解析不出的默默算进"更早"），总数就少一条，
+// 而「本周新增」「上周」两个数字都还是对的——这种漏法在界面上完全看不出来。
+check(
+  '四档构成划分：week + prevWeek + earlier + unknown = 总数',
+  (['week', 'prevWeek', 'earlier', 'unknown'] as const).reduce(
+    (n, b) => n + recentRepos.filter((r) => starredBucket(r, NOW) === b).length,
+    0
+  ) === recentRepos.length
+)
+check(
+  '下钻最近新增只带 onlyRecent，其余回默认',
+  (() => {
+    const f = filtersFor({ onlyRecent: true })
+    return (
+      f.onlyRecent === true &&
+      f.keyword === '' &&
+      f.language === 'all' &&
+      f.category === 'all' &&
+      f.onlyCloned === false &&
+      f.health === 'all' &&
+      f.sort === DEFAULT_FILTERS.sort
+    )
+  })()
+)
+check(
+  '下钻最近新增筛出的条数 == 卡片上的数字',
+  selectRepos(recentRepos, filtersFor({ onlyRecent: true }), NOW).length === stats10.recent7
+)
+check(
+  'onlyRecent 与其它条件仍是「与」关系',
+  names(visR({ onlyRecent: true, keyword: 'today' })) === 'w/today' &&
+    visR({ onlyRecent: true, category: '后端' }).length === 0 &&
+    visR({ onlyRecent: true, onlyCloned: true }).length === 0
 )
 
 console.log(`\n== 结果：${failures === 0 ? '全部通过' : `${failures} 项失败`} ==`)

@@ -94,6 +94,38 @@ export function utcDayStart(ms: number): number {
 }
 
 /**
+ * 「最近 N 天」的 N，指**含今天在内的 N 个 UTC 日历日**（不是"当前时刻往前推 N×24h"）。
+ * 导出是为了让界面上的文案从这个数生成——改了窗口而文案没改，就是在骗人。
+ */
+export const RECENT_WINDOW_DAYS = 7
+
+/** 最近这个窗口的起点。上一个窗口就是再往前整整一个窗口，别手算 13 天 */
+function recentStart(now: number): number {
+  return utcDayStart(now) - (RECENT_WINDOW_DAYS - 1) * DAY
+}
+
+/**
+ * 按收藏时间分档，与 activityBucket 同一个思路：**阈值只有一处**。
+ * 总览的「本周新增 / 上周」与列表的「只看最近 7 天新增」都走它，
+ * 各写一遍 `>= todayStart - 6 * DAY` 迟早会漂，而漂了之后卡片写 5、点进去 3，
+ * 两边都"看着对"。
+ *
+ * 'prevWeek' 只服务于趋势文案（比上周多/少），界面上没有对应的筛选——这与
+ * activityBucket 里 'middle' 的处境一样，它必须存在，但不必做成一个选项。
+ * 'unknown' 是 starred_at 解析不出来的，不计入任何一档。
+ */
+export type StarredBucket = 'week' | 'prevWeek' | 'earlier' | 'unknown'
+
+export function starredBucket(repo: Repo, now: number): StarredBucket {
+  const starredAt = safeTime(repo.starred_at)
+  if (starredAt === null) return 'unknown'
+  const start = recentStart(now)
+  if (starredAt >= start) return 'week'
+  if (starredAt >= start - RECENT_WINDOW_DAYS * DAY) return 'prevWeek'
+  return 'earlier'
+}
+
+/**
  * 计数 → 降序排名。同数打平时按名称字典序，保证结果稳定可复现
  * （否则 Set/Map 的插入顺序会让同一份数据排出不同的名次）。
  */
@@ -128,10 +160,6 @@ export function computeCollectionStats(repos: Repo[], now: number): CollectionSt
   const categoryCounts = new Map<string, number>()
   const topicCounts = new Map<string, number>()
 
-  const todayStart = utcDayStart(now)
-  const recentStart = todayStart - 6 * DAY
-  const prevStart = todayStart - 13 * DAY
-
   let cloned = 0
   let forked = 0
   let categorized = 0
@@ -152,10 +180,17 @@ export function computeCollectionStats(repos: Repo[], now: number): CollectionSt
     if (r.ai_category) categorized += 1
     totalStars += r.stargazers_count
 
-    const starredAt = safeTime(r.starred_at)
-    if (starredAt !== null) {
-      if (starredAt >= recentStart) recent7 += 1
-      else if (starredAt >= prevStart) prev7 += 1
+    // 同样走 starredBucket：与列表的「只看最近 7 天新增」共用一处阈值
+    switch (starredBucket(r, now)) {
+      case 'week':
+        recent7 += 1
+        break
+      case 'prevWeek':
+        prev7 += 1
+        break
+      case 'earlier':
+      case 'unknown':
+        break
     }
 
     // 走 activityBucket 而不是在这里再判一次：阈值只有一处，

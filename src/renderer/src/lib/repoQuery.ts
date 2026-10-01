@@ -12,7 +12,7 @@
  */
 
 import type { AiCategory, Repo } from '@shared/types'
-import { activityBucket, type ActivityBucket } from './collectionStats'
+import { activityBucket, starredBucket, type ActivityBucket } from './collectionStats'
 
 /**
  * 列表排序方式。
@@ -109,6 +109,8 @@ export interface RepoFilters {
   language: LanguageFilter
   category: CategoryFilter
   onlyCloned: boolean
+  /** 只看最近 RECENT_WINDOW_DAYS 天新增（收藏）的，对应总览的「本周新增」 */
+  onlyRecent: boolean
   health: HealthFilter
   sort: RepoSort
 }
@@ -127,6 +129,7 @@ export const DEFAULT_FILTERS: RepoFilters = {
   language: 'all',
   category: 'all',
   onlyCloned: false,
+  onlyRecent: false,
   health: 'all',
   sort: 'starred_desc'
 }
@@ -166,6 +169,8 @@ export function filterRepos(repos: Repo[], filters: RepoFilters, now: number): R
       return false
     }
     if (filters.onlyCloned && !r.local?.cloned_path) return false
+    // 与「本周新增」共用 starredBucket：那边数 `case 'week'`，这边筛同一个档
+    if (filters.onlyRecent && starredBucket(r, now) !== 'week') return false
     if (filters.health !== 'all' && activityBucket(r, now) !== filters.health) return false
     return true
   })
