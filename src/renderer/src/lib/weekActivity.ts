@@ -10,6 +10,7 @@
  */
 
 import type { Release, Repo, WeeklyReport } from '@shared/types'
+import { UNCATEGORIZED_LABEL } from './collectionStats'
 
 /** 查 Release 的并发。3 与 ai.enrichRepos、report.ts 同一个量级 */
 export const RELEASE_CONCURRENCY = 3
@@ -111,8 +112,10 @@ export function pickLatestInWindow(
 export function weekCategoryStats(newStars: Repo[]): { name: string; count: number }[] {
   const counts = new Map<string, number>()
   for (const r of newStars) {
-    // 还没跑过 AI 补全的仓库用「未分类」，不要混进某个真分类里
-    const key = r.ai_category ?? '未分类'
+    // 还没跑过 AI 补全的仓库用「未分类」，不要混进某个真分类里。
+    // 桶名从 collectionStats 取（那边「分类分布」那张表用的是同一个字符串）：
+    // 两处各写一遍'未分类'的话，改了其中一处就会出现两个只差一个字的分组。
+    const key = r.ai_category ?? UNCATEGORIZED_LABEL
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
   return [...counts.entries()]
