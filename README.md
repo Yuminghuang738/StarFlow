@@ -184,7 +184,7 @@ preload 以 `contextIsolation: true`、`nodeIntegration: false` 加载。渲染�
 | --- | --- |
 | `src/main/` | 主进程。各业务模块（`github.ts` / `ai.ts` / `local.ts` / `store.ts` / `report.ts` / `recommend.ts` / `tracker.ts` / `auth.ts` / `mock.ts` / `config.ts`）与 IPC handler 注册入口 `index.ts` |
 | `src/preload/` | 唯一的跨进程桥。`index.ts` 把 39 条通道包成 `window.api`，`index.d.ts` 给渲染进程补上全局类型 |
-| `src/renderer/` | React 界面。`src/pages/`（Dashboard / Report / Settings）、`src/components/`（repo / charts / common / layout / auth）、`src/store/`（Zustand）、`src/lib/api.ts` |
+| `src/renderer/` | React 界面。`src/pages/`（Discover / Overview / Manage / Similar / Report / Settings）、`src/components/`（repo / charts / common / layout / auth / settings）、`src/store/`（Zustand）、`src/lib/`（api / theme / cn） |
 | `src/shared/` | `types.ts` 定义全部数据结构，`ipc.ts` 定义通道名。三端共用的唯一契约 |
 | `docs/` | 主进程模块签名（`module-signatures.md`）与渲染进程契约（`renderer-contracts.md`） |
 | `scripts/selfcheck/` | 不依赖 GUI 的自检脚本（见下） |
@@ -196,9 +196,9 @@ preload 以 `contextIsolation: true`、`nodeIntegration: false` 加载。渲染�
 
 ### 一条数据流：从 GitHub 同步 Star 列表
 
-以 Dashboard 上点「从 GitHub 同步」为例，看一次调用如何穿过三进程并落盘：
+以「Star 管理」页上点「从 GitHub 同步」为例，看一次调用如何穿过三进程并落盘：
 
-1. `Dashboard` 的按钮触发 `repoStore.refreshFromGitHub()`。
+1. `Manage` 的按钮触发 `repoStore.refreshFromGitHub()`。
 2. store 调 `window.api.github.fetchStarred()`。这是 preload 暴露的方法，内部执行 `ipcRenderer.invoke('github:fetchStarred')`，不传任何参数。
 3. 主进程的 `handle()` 包装器收到调用，丢弃第一个 `event` 参数，转到 `github.fetchStarred()`。
    - Mock 模式：直接返回 `mock-data.json` 里的数据。

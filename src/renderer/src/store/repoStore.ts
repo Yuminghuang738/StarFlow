@@ -129,7 +129,7 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
     }
 
     // 对账：把"记录里有、磁盘上已经被用户删掉"的 cloned_path 静默清掉，卡片自然
-    // 回到 [Clone] 态。折在 load() 里而不是让 Dashboard 自己调，是为了不动 Dashboard 的文件。
+    // 回到 [Clone] 态。折在 load() 里而不是让页面自己调，省得每个页面各写一遍。
     // 只在真的读到列表时才跑；pruneLocalClones 内部绝不抛，不会影响上面的加载结果。
     if (loaded) await get().pruneLocalClones()
   },
@@ -274,7 +274,7 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
   async pruneLocalClones() {
     try {
       // 刻意不走 unwrap / call：那两个封装（lib/api.ts）都会弹 toast，而对账必须是静默的
-      // ——它挂在每次 load() 后面，用 unwrap 就等于每次切回 Dashboard 都弹一条，
+      // ——它挂在每次 load() 后面，用 unwrap 就等于每次启动都弹一条，
       // 而且弹的还是用户没做过任何操作的一条提示。
       const res = await window.api.local.pruneClones()
       if (!res.ok || res.data.length === 0) return

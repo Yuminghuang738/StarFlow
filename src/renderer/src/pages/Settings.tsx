@@ -5,6 +5,7 @@ import { useRepoStore } from '../store/repoStore'
 import { Button } from '../components/common/Button'
 import { Card } from '../components/common/Card'
 import { Badge } from '../components/common/Badge'
+import { Input } from '../components/common/Input'
 import { GithubLoginCard } from '../components/auth/GithubLoginCard'
 import { ThemeCard } from '../components/settings/ThemeCard'
 import type { AiConfigView } from '@shared/types'
@@ -15,13 +16,6 @@ const SOURCE_LABEL: Record<AiConfigView['source'], string> = {
   env: '来自 .env',
   none: '未配置'
 }
-
-/**
- * 输入框基类。第 5 处重复在 FilterBar，PR 2 会把它和那边一起抽成 common/Input.tsx；
- * 这里先收成一个常量，免得改了边框色漏掉某一个。
- */
-const FIELD_CLASS =
-  'rounded-md border border-border-strong bg-surface px-3 py-1.5 text-sm outline-none placeholder:text-fg-subtle focus:border-primary'
 
 export function Settings(): React.JSX.Element {
   const [token, setToken] = useState('')
@@ -199,12 +193,13 @@ export function Settings(): React.JSX.Element {
           注意：unstar 是破坏性操作，会真正取消你 GitHub 上的 Star。
         </p>
         <div className="mt-3 flex gap-2">
-          <input
+          <Input
+            size="md"
             type={showToken ? 'text' : 'password'}
             value={token}
             onChange={(e) => setToken(e.target.value)}
             placeholder="ghp_..."
-            className={cn(FIELD_CLASS, 'min-w-0 flex-1')}
+            className="min-w-0 flex-1"
           />
           <Button variant="ghost" onClick={() => setShowToken((v) => !v)}>
             {showToken ? '隐藏' : '显示'}
@@ -235,12 +230,13 @@ export function Settings(): React.JSX.Element {
 
         <div className="mt-3 space-y-2">
           <div className="flex gap-2">
-            <input
+            <Input
+              size="md"
               type={showApiKey ? 'text' : 'password'}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={aiConfig?.hasKey ? '已保存（留空则不修改）' : 'sk-...'}
-              className={cn(FIELD_CLASS, 'min-w-0 flex-1')}
+              className="min-w-0 flex-1"
             />
             <Button variant="ghost" onClick={() => setShowApiKey((v) => !v)}>
               {showApiKey ? '隐藏' : '显示'}
@@ -248,12 +244,12 @@ export function Settings(): React.JSX.Element {
           </div>
 
           <div>
-            <input
-              type="text"
+            <Input
+              size="md"
               value={aiBaseUrl}
               onChange={(e) => setAiBaseUrl(e.target.value)}
               placeholder="Base URL（留空使用 .env / 官方默认）"
-              className={cn(FIELD_CLASS, 'w-full')}
+              className="w-full"
             />
             {baseUrlMissingScheme ? (
               <p className="mt-1 text-xs text-danger">
@@ -279,12 +275,12 @@ export function Settings(): React.JSX.Element {
             ) : null}
           </div>
 
-          <input
-            type="text"
+          <Input
+            size="md"
             value={aiModel}
             onChange={(e) => setAiModel(e.target.value)}
             placeholder="模型名（留空使用 .env / 官方默认 gpt-4o-mini）"
-            className={cn(FIELD_CLASS, 'w-full')}
+            className="w-full"
           />
         </div>
 
