@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRepoStore } from '../store/repoStore'
 import { Card } from '../components/common/Card'
 import { Button } from '../components/common/Button'
@@ -22,6 +22,15 @@ import { cn } from '../lib/cn'
 import { PageContainer, PageHeader } from '../components/layout/PageLayout'
 import { useNav } from '../components/layout/NavContext'
 import type { Repo } from '@shared/types'
+
+/**
+ * 自动生成画像失败之后，同一份摘要至少隔这么久才会在"再次进入本页"时重试。
+ *
+ * 60 秒是个手感值，不是精确的：它要足够长到让人不会因为来回切两次板块就连撞两次墙，
+ * 又要足够短到"刚才是网络抖动、现在想再试一次"不用等太久。真正的重试入口是那个按钮，
+ * 这里只是别让自动行为变成骚扰。
+ */
+const AUTO_ANALYSIS_RETRY_MS = 60_000
 
 /**
  * 收藏总览：统计卡片 + 分布条形图 + 图表 + 亮点。
@@ -48,7 +57,9 @@ export function Overview(): React.JSX.Element {
   // 失败也会往里写，拿它当"列表为什么是空的"的判据会把两件事张冠李戴。
   const loadError = useRepoStore((s) => s.loadError)
   const load = useRepoStore((s) => s.load)
-  const { goTo } = useNav()
+  // current：本页是保活的（切走只是 display:none），AI 收藏画像要判断"我现在是不是
+  // 可见"，只能问这个上下文——组件自己察觉不到"我又被切回来了"。
+  const { goTo, current } = useNav()
 
   /**
    * 下钻：整份替换筛选器（而不是合并），然后跳到收藏管理页。
@@ -91,23 +102,80 @@ export function Overview(): React.JSX.Element {
   const { at: now, stats } = snapshot
 
   // —— AI 收藏画像 ——
-  // 刻意**不做**进页面就自动生成：那会在用户只是点一下侧边栏时就消耗一次额度，
-  // 撞上限频或没配 Key 时也很突兀。与「为你推荐」页同一条约定：显式按钮。
+  //
+  // **进「收藏总览」就自动生成，不用手动点**（用户明确要求的）。但"自动"不等于
+  // "每次切回来都重新生成"——那会白烧用户的额度与钱。所以下面那份决策是**幂等**的：
+  // 同一份摘要已经有画像了就不动；刚试过没成的也不立刻重试（见 AUTO_ANALYSIS_RETRY_MS）。
+  // 手动按钮保留：摘要没变又想重写一段时，它是唯一的入口。
   const [analysis, setAnalysis] = useState<{ text: string; hint: string } | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
 
+  /** 单飞：自动触发与手动点击走同一个函数，两个请求同时在飞只会白烧一次额度 */
+  const analysisBusyRef = useRef(false)
+  /**
+   * 上一次**尝试**用的摘要与时刻。注意是"尝试"而不是"成功"：失败的摘要也要记住，
+   * 否则每次切回本页都会拿同一份数据再撞一次墙（没配 Key 时尤其明显）。
+   */
+  const lastAttemptRef = useRef<{ digest: string; at: number } | null>(null)
+
   async function generateAnalysis(): Promise<void> {
+    if (analysisBusyRef.current) return
+    analysisBusyRef.current = true
     setAnalyzing(true)
+    const digest = buildAiDigest(stats, now)
+    lastAttemptRef.current = { digest, at: Date.now() }
     try {
       // 主进程保证不抛错：未配置 / 失败都以 { text: '', hint } 返回
-      setAnalysis(await unwrap(window.api.ai.analyzeCollection(buildAiDigest(stats, now))))
+      setAnalysis(await unwrap(window.api.ai.analyzeCollection(digest)))
     } catch (e) {
       // 走到这里只可能是 IPC 本身出了问题（主进程没起来之类），仍然给一行人话
       setAnalysis({ text: '', hint: ipcErrorMessage(e) })
     } finally {
+      analysisBusyRef.current = false
       setAnalyzing(false)
     }
   }
+
+  /**
+   * 「要不要自动生成」的判据。挂在**每次渲染都刷新**的 ref 上，由下面那个 effect 调用。
+   *
+   * 为什么绕这一下：判据要用到 analysis / stats / now / repos（都是渲染期的值）。
+   * 直接写进 effect 的话，依赖数组得把这几个全拉进来，于是每次数据变化都重跑一遍；
+   * 与 GithubLoginCard 里 onAuthChangeRef 是同一个手法。
+   */
+  const autoAnalysisRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    autoAnalysisRef.current = (): void => {
+      // 没有数据就没有画像可谈，也不该白花一次额度
+      if (repos.length === 0) return
+      if (analysisBusyRef.current) return
+      const digest = buildAiDigest(stats, now)
+      const last = lastAttemptRef.current
+      const sameData = last !== null && last.digest === digest
+      // 这份摘要已经有画像了 → 不动。切回来一次就重新生成一次，用户是看不见的，
+      // 账单上是看得见的。
+      if (sameData && analysis !== null && analysis.text !== '') return
+      // 刚拿这份摘要试过、没成（没配 Key / 网络失败 / 限频）→ 缓一缓再说。
+      // 刻意不"每次进来都重试"：没配 Key 的人每切一次板块就撞一次墙；真想再试的人
+      // 手边就是那个「生成画像」按钮，不必替他反复试。
+      if (sameData && last !== null && Date.now() - last.at < AUTO_ANALYSIS_RETRY_MS) return
+      void generateAnalysis()
+    }
+  })
+
+  /**
+   * 触发时机：**在本页可见时**，板块切回本页、或数据换了一份（同步 / 补全回来之后
+   * repos 是整份替换的）——两者都会让上面那份判据重跑，而判据本身是幂等的。
+   *
+   * 刻意不做"进入沿"判定（Manage 那边做，因为那里是真的要发网络请求）：本页首屏就是
+   * 默认板块（App.tsx 的 DEFAULT_TAB），那时数据还没加载到，光看"进入沿"会一次都不触发，
+   * 用户得先切走再切回来才有画像——那正是他要我们改掉的行为。
+   */
+  useEffect(() => {
+    if (current !== 'overview') return
+    if (repos.length === 0) return
+    autoAnalysisRef.current()
+  }, [current, repos])
 
   if (repos.length === 0) {
     // 空态分两种，而且给用户的下一步动作正好相反。曾经它们长得一模一样：
@@ -271,7 +339,7 @@ export function Overview(): React.JSX.Element {
             loading={analyzing}
             onClick={() => void generateAnalysis()}
           >
-            {analysis === null ? '生成画像' : '重新生成'}
+            {analyzing ? '生成中…' : analysis === null ? '生成画像' : '重新生成'}
           </Button>
         </div>
 
@@ -290,8 +358,11 @@ export function Overview(): React.JSX.Element {
               ))}
             </div>
           ) : analysis === null ? (
+            // 正常路径下这一句几乎看不到（进页面就会自动生成）；它出现在：数据还没加载到、
+            // 或上一次生成的摘要已经过期。所以措辞不能写"点按钮开始"，而要说明白
+            // "这事是自动的，按钮是补一个手动入口"。
             <p className="text-sm text-fg-subtle">
-              点「生成画像」，AI 会根据你的语言分布、分类偏好和活跃度写一段点评。
+              会根据你的语言分布、分类偏好和活跃度自动写一段点评；如果想立刻重写一段，点「生成画像」。
             </p>
           ) : analysis.text ? (
             <p className="text-sm leading-relaxed text-fg-muted">{analysis.text}</p>

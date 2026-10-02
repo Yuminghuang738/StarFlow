@@ -127,19 +127,7 @@ export function TitleBar(): React.JSX.Element {
   }
 
   return (
-    <header className="app-region-drag flex h-9 shrink-0 select-none items-center justify-between border-b border-border bg-surface pl-3">
-      <div className="flex items-center gap-2 text-xs font-medium tracking-wide text-fg-muted">
-        <svg
-          className="h-3.5 w-3.5 text-primary"
-          viewBox="0 0 24 24"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-        </svg>
-        <span>StarFlow</span>
-      </div>
-
+    <header className="app-region-drag flex h-9 shrink-0 select-none items-center justify-end border-b border-border bg-surface">
       {/* 三个按钮各自 no-drag —— 否则点不动（拖拽区会吞掉鼠标事件） */}
       <div className="flex items-center">
         <button

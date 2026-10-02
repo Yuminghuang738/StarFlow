@@ -1,5 +1,13 @@
 import { create } from 'zustand'
-import type { Repo, LocalState, IpcResult } from '@shared/types'
+import type {
+  Repo,
+  LocalState,
+  IpcResult,
+  LocalSyncStatus,
+  LocalUpdateKind,
+  LocalUpdateOutcome,
+  AiEnrichProgress
+} from '@shared/types'
 import { unwrap, ipcErrorMessage } from '../lib/api'
 import { pushToast } from '../components/common/Toast'
 import { DEFAULT_FILTERS, selectRepos, type RepoFilters } from '../lib/repoQuery'
@@ -9,11 +17,31 @@ import { DEFAULT_FILTERS, selectRepos, type RepoFilters } from '../lib/repoQuery
 export type { RepoFilters, RepoSort } from '../lib/repoQuery'
 export { DEFAULT_FILTERS, filterRepos, selectRepos, sortRepos } from '../lib/repoQuery'
 
+/**
+ * AI 补全进度的轮询间隔。
+ *
+ * 比克隆进度（500ms 级）慢：enrich 一次要跑几分钟、每个仓库要等一次模型往返，
+ * 800ms 与 200ms 在观感上没有区别，而前者少问四分之三的次数。这不是网络开销
+ * （读的是主进程内存），是为了少搅动渲染。
+ */
+const ENRICH_PROGRESS_POLL_MS = 800
+
 export interface RepoStore {
   repos: Repo[]
   loading: boolean
   // —— 新增（非契约成员；契约允许新增，见 renderer-contracts.md）——
   enriching: boolean
+  /**
+   * 这批 AI 补全跑到第几个。**null = 没有一批在跑**（也包含"还没问到"）。
+   *
+   * 订阅它本身，不要订阅 `{done,total}` 这种临时拼出来的对象——zustand v5 用严格
+   * 相等比较快照，每次都是新对象的话组件会无限重渲染（本仓库踩过的坑）。
+   *
+   * `total === 0` 表示**总数还未知**（不是"0 个仓库"），界面这时只显示「补全中…」，
+   * 不拿 0 冒充进度；跑完之后主进程那侧归零、这里也置 null，界面上不会留下
+   * 一条停在 100% 的记录。
+   */
+  enrichProgress: AiEnrichProgress | null
   /** 最近一次**任何**操作的失败原文（给排查用）。界面的空态分叉别读它，读下面的 loadError */
   error: string | null
   /**
@@ -74,6 +102,23 @@ export interface RepoStore {
    * 失败仍然**不抛错**（toast 由 unwrap 弹，error 字段由这里写），只是把结果交回调用方。
    */
   saveToken(token: string): Promise<boolean>
+  // —— 本地副本的「落后上游多少 + 更新」（非契约成员；结果只在内存，不落盘）——
+  /**
+   * full_name -> 最近一次检查结果。**键不存在 = 未检查**（这是"未检查"的唯一真相来源，
+   * 重启后必然所有仓库都回到这个状态）。刻意不进 LocalState、不写库：
+   * 落后数是"截至上次抓取"的瞬时事实，落盘后重启会把它当成此刻的事实显示出来。
+   */
+  syncByRepo: Record<string, LocalSyncStatus>
+  syncingAll: boolean
+  /** 本会话最近一次**成功**检查的完成时刻；null = 从未查过。只用于进页面自动检查的节流 */
+  syncCheckedAt: number | null
+  /** full_name -> 该仓库的单行更新是否进行中 */
+  updatingFullNames: Record<string, boolean>
+  /** 「更新全部」是否进行中 */
+  updatingAll: boolean
+  checkAllLocalSync(): Promise<void>
+  updateLocal(fullName: string): Promise<void>
+  updateAllLocal(): Promise<void>
 }
 
 /**
@@ -130,14 +175,154 @@ async function persistLocalState(
   }
 }
 
-export const useRepoStore = create<RepoStore>((set, get) => ({
+/**
+ * 在主进程的并发闸之外再放一道（"更新全部"用）：一次把几十条 updateClone invoke
+ * 全甩出去，会让主进程同时开几十个 git 进程，也让每个仓库的成败更难对上账。
+ */
+async function runWithConcurrency<T>(
+  items: readonly T[],
+  limit: number,
+  task: (item: T) => Promise<void>
+): Promise<void> {
+  let cursor = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const item = items[cursor++]
+      await task(item)
+    }
+  })
+  await Promise.all(workers)
+}
+
+/** 从 Record 里删掉一个键并返回新对象（原地 delete 不触发 zustand 重渲染） */
+function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  const next = { ...record }
+  delete next[key]
+  return next
+}
+
+type ToastArg = { type: 'success' | 'error'; message: string }
+
+function categoryOf(kind: LocalUpdateKind): 'updated' | 'up-to-date' | 'skipped' | 'failed' {
+  if (kind === 'updated') return 'updated'
+  if (kind === 'up-to-date') return 'up-to-date'
+  if (kind === 'error') return 'failed'
+  return 'skipped'
+}
+
+/** refused-* 的短原因，给汇总 toast 用 */
+function skipReason(kind: LocalUpdateKind): string {
+  switch (kind) {
+    case 'refused-dirty':
+      return '本地有未提交的改动'
+    case 'refused-diverged':
+      return '已分叉'
+    case 'refused-no-upstream':
+      return '没有跟踪分支'
+    case 'refused-detached':
+      return '游离 HEAD'
+    case 'refused-path':
+      return '本地副本不在'
+    default:
+      return '未更新'
+  }
+}
+
+/**
+ * 单行更新的提示。
+ * ⚠️ refused-* 一律说清"没动你的东西、为什么"，绝不写成"更新失败"——
+ * 那些是预期内的拒绝，用户看到"失败"会以为自己的仓库出了事。
+ */
+function singleUpdateToast(o: LocalUpdateOutcome): ToastArg {
+  switch (o.kind) {
+    case 'updated':
+      return { type: 'success', message: `已更新 ${o.full_name}（+${o.pulled} 个提交）` }
+    case 'up-to-date':
+      return { type: 'success', message: `${o.full_name} 已是最新` }
+    case 'error':
+      return { type: 'error', message: `更新 ${o.full_name} 失败：${o.detail ?? '未知错误'}` }
+    default:
+      return { type: 'error', message: `未更新 ${o.full_name}：${o.detail ?? skipReason(o.kind)}` }
+  }
+}
+
+/**
+ * 「更新全部」的汇总。
+ *
+ * ⚠️ 绝不弹一句光秃秃的「更新完成」：只要有一项没更新成功，用户必须能一眼看到
+ * 是**哪些**仓库、**为什么**。失败（error）与跳过（refused-*）分开列，
+ * 因为前者要排查、后者是应用在保护用户的改动。
+ */
+function summaryToast(outcomes: LocalUpdateOutcome[], failedNames: string[]): ToastArg {
+  const updated = outcomes.filter((o) => o.kind === 'updated')
+  const upToDate = outcomes.filter((o) => o.kind === 'up-to-date')
+  const skipped = outcomes.filter((o) => categoryOf(o.kind) === 'skipped')
+  const errored = outcomes.filter((o) => o.kind === 'error')
+  const failedCount = errored.length + failedNames.length
+
+  const parts = [`${updated.length} 个已更新`, `${upToDate.length} 个已是最新`]
+  if (skipped.length > 0) parts.push(`${skipped.length} 个跳过`)
+  if (failedCount > 0) parts.push(`${failedCount} 个失败`)
+
+  const pulled = updated.reduce((sum, o) => sum + o.pulled, 0)
+  let message = `更新完成：${parts.join('、')}`
+  if (pulled > 0) message += `，共拉取 ${pulled} 个提交`
+
+  const skipLines = skipped.map((o) => `${o.full_name}（${skipReason(o.kind)}）`)
+  const failLines = [
+    ...errored.map((o) => `${o.full_name}（${o.detail ?? '未知错误'}）`),
+    ...failedNames.map((n) => `${n}（请求未能完成）`)
+  ]
+  if (skipLines.length > 0) message += `。跳过：${skipLines.join('、')}`
+  if (failLines.length > 0) message += `。失败：${failLines.join('、')}`
+
+  return { type: failedCount > 0 ? 'error' : 'success', message }
+}
+
+export const useRepoStore = create<RepoStore>((set, get) => {
+  /**
+   * 跑一次单仓库更新并就地刷新它的徽章。
+   *
+   * 返回 null = IPC 层面就没成（网络/主进程异常），此时**不谎报任何结果**：
+   * error 已写下、由调用方决定怎么提示。返回 LocalUpdateOutcome 则表示拿到了
+   * 主进程的明确结论（含 refused-* 这类"预期内的没更新"）。
+   */
+  async function applyUpdate(fullName: string): Promise<LocalUpdateOutcome | null> {
+    set((s) => ({ updatingFullNames: { ...s.updatingFullNames, [fullName]: true } }))
+    try {
+      // 裸调而不是 unwrap：refused-* 是正常返回值，不能走"失败就弹 toast"的那条路
+      const res = await window.api.local.updateClone(fullName)
+      if (!res.ok) {
+        set({ error: res.error })
+        return null
+      }
+      const outcome = res.data
+      if (outcome.status) {
+        set((s) => ({ syncByRepo: { ...s.syncByRepo, [fullName]: outcome.status as LocalSyncStatus } }))
+      }
+      return outcome
+    } catch (err) {
+      set({ error: ipcErrorMessage(err) })
+      return null
+    } finally {
+      set((s) => ({ updatingFullNames: withoutKey(s.updatingFullNames, fullName) }))
+    }
+  }
+
+  return {
   repos: [],
   loading: false,
   enriching: false,
+  enrichProgress: null,
   error: null,
   loadError: null,
   cloningFullName: null,
   filters: { ...DEFAULT_FILTERS },
+  syncByRepo: {},
+  syncingAll: false,
+  syncCheckedAt: null,
+  updatingFullNames: {},
+  updatingAll: false,
 
   visibleRepos() {
     const { repos, filters } = get()
@@ -190,7 +375,35 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
 
   async enrich() {
     if (get().enriching) return
-    set({ enriching: true, error: null })
+    set({ enriching: true, error: null, enrichProgress: null })
+    // 进度：只在真的开始跑之后才去问主进程。
+    //
+    // 主进程那份记录在跑完之后是**刻意归零**的（见 main/ai.ts 的 finally），所以
+    // 没跑的时候去问只会白问一遍；而"跑完立刻收起数字"这件事也必须由这一侧的收尾
+    // （下面 finally 里清空）兜住——否则最后一帧的 12/12 会留在按钮上，看起来像
+    // "这次刚跑完 100%"。
+    //
+    // 裸调 window.api + 自己判 ok：这是一条按秒跑的轮询，失败不能弹 toast
+    // （与 CloneProgressBar 同一条约定）。读不到就让数字缺席、按钮退回「补全中…」，
+    // 那比拿一个编出来的百分比更接近事实。单飞标记防止慢响应叠成一堆。
+    let polling = false
+    const timer = window.setInterval(() => {
+      if (polling) return
+      polling = true
+      void window.api.ai
+        .enrichProgress()
+        .then((res) => {
+          // running 为 false → 存 null（"没在跑"），不是存一条 done:0 的记录：
+          // 界面上要区分的是"有数字"和"没数字"，不是"0 个"。
+          if (res.ok) set({ enrichProgress: res.data.running ? res.data : null })
+        })
+        .catch(() => {
+          // 通道本身挂了：不写状态，保持上一次读到的（或 null），不打扰用户
+        })
+        .finally(() => {
+          polling = false
+        })
+    }, ENRICH_PROGRESS_POLL_MS)
     try {
       // 落盘由主进程的 ai.enrichRepos 负责，渲染进程只更新本地列表
       set({ repos: await unwrap(window.api.ai.enrichRepos(get().repos)) })
@@ -198,7 +411,8 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
     } catch (err) {
       set({ error: ipcErrorMessage(err) })
     } finally {
-      set({ enriching: false })
+      window.clearInterval(timer)
+      set({ enriching: false, enrichProgress: null })
     }
   },
 
@@ -426,5 +640,66 @@ export const useRepoStore = create<RepoStore>((set, get) => ({
       set({ error: ipcErrorMessage(err) })
       return false
     }
+  },
+
+  async checkAllLocalSync() {
+    // 手动「检查更新」与"进页面自动检查"共用这一条；重入直接忽略，
+    // 免得快速来回切 tab 时并发打两批 fetch。
+    if (get().syncingAll) return
+    set({ syncingAll: true, error: null })
+    try {
+      // 裸调：这里要自己控制 toast 的措辞，而且失败时刻意**不写 syncCheckedAt**，
+      // 好让下次进页面还会再试一次（写下去就等于把一次失败当成"刚查过"）。
+      const res = await window.api.local.checkUpdates()
+      if (!res.ok) {
+        set({ error: res.error })
+        pushToast({ type: 'error', message: `检查本地副本状态失败：${res.error}` })
+        return
+      }
+      const map: Record<string, LocalSyncStatus> = {}
+      for (const status of res.data) map[status.full_name] = status
+      // 整份替换：上一次检查里存在、这次已经不在（仓库被删/取消 clone）的条目
+      // 不该继续留着徽章
+      set({ syncByRepo: map, syncCheckedAt: Date.now() })
+    } catch (err) {
+      const message = ipcErrorMessage(err)
+      set({ error: message })
+      pushToast({ type: 'error', message: `检查本地副本状态失败：${message}` })
+    } finally {
+      set({ syncingAll: false })
+    }
+  },
+
+  async updateLocal(fullName) {
+    // 「更新全部」进行中时单行按钮本来就禁用了，这里再兜一层，避免并发改同一批仓库
+    if (get().updatingAll) return
+    const outcome = await applyUpdate(fullName)
+    // null = IPC 层面就没成，applyUpdate 已经记过 error；这里不谎报任何更新结果
+    if (outcome === null) return
+    pushToast(singleUpdateToast(outcome))
+  },
+
+  async updateAllLocal() {
+    const names = get()
+      .repos.filter((r) => r.local?.cloned_path)
+      .map((r) => r.full_name)
+    if (names.length === 0) return
+    if (get().updatingAll || get().syncingAll) return
+
+    set({ updatingAll: true })
+    const outcomes: LocalUpdateOutcome[] = []
+    const failedNames: string[] = []
+    try {
+      await runWithConcurrency(names, 3, async (name) => {
+        const outcome = await applyUpdate(name)
+        if (outcome === null) failedNames.push(name)
+        else outcomes.push(outcome)
+      })
+    } finally {
+      set({ updatingAll: false, updatingFullNames: {} })
+    }
+    // 一条汇总，逐项报账：跳过与失败都带仓库名和原因
+    pushToast(summaryToast(outcomes, failedNames))
   }
-}))
+  }
+})

@@ -3,6 +3,7 @@ import type { Repo } from '@shared/types'
 import { useRepoStore } from '../../store/repoStore'
 import { Button } from '../common/Button'
 import { Card } from '../common/Card'
+import { RepoExplain } from './RepoExplain'
 import { formatStars, languageColor } from './repoFormat'
 
 /**
@@ -76,6 +77,14 @@ export function RecommendRepoCard({ repo }: { repo: Repo }): React.JSX.Element {
           ))}
         </div>
       ) : null}
+
+      {/* 「AI 解释」归在描述区这一侧、放在底栏**之前**，而不是塞进底栏：
+          底栏（下一行那个 mt-auto）是靠 margin-auto 把 Star 按钮钉到卡片底边的，
+          它是 justify-end 的单行动作区；把会展开成多行的解释放进去会把按钮挤歪，
+          也会让整条底栏的高度随手一点而变。作为底栏的兄弟节点则两不相干——
+          mt-auto 仍作用在底栏那一层，卡片被撑高时按钮照旧贴底；
+          收起态所有卡片都只多出这一行按钮，网格里不会忽高忽低。 */}
+      <RepoExplain repo={repo} />
 
       <div className="mt-auto flex justify-end pt-4">
         {starred ? (

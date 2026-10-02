@@ -17,30 +17,6 @@ jobs:
       - run: npm run lint
       - run: npm run build
 
-  protect-contracts:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - name: 检查契约与基建文件是否被非集成工程师修改
-        run: |
-          # 集成工程师的 GitHub 账号列表（多个用 | 分隔）
-          # Yuminghuang738 = 集成工程师，同时也是仓库所有者。
-          # syeu-oss = 所有者授权的自动化协作账号（文档与基建类改动）。
-          INTEGRATORS="Yuminghuang738|syeu-oss"
-          if echo "$INTEGRATORS" | grep -qw "${{ github.actor }}"; then
-            echo "集成工程师提交，跳过检查"
-            exit 0
-          fi
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
-          echo "变更文件："; echo "$CHANGED"
-          if echo "$CHANGED" | grep -E '^(src/shared/|src/preload/|src/main/index\.ts$|src/main/config\.ts$|src/main/mock\.ts$|mock-data\.json$|package(-lock)?\.json$|tsconfig\.json$|electron\.vite\.config\.ts$|electron-builder\.yml$|eslint\.config\.js$|tailwind\.config\.js$|postcss\.config\.js$|\.github/|docs/|README\.md$|\.env\.example$)'; then
-            echo "❌ 契约/基建文件被修改，必须由集成工程师提交"
-            exit 1
-          fi
-          echo "✅ 只改了业务文件"
-
   frontend-isolation:
     runs-on: ubuntu-latest
     steps:

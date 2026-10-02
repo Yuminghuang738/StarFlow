@@ -6,9 +6,12 @@ import { basename, dirname, join, parse as parsePath, sep } from 'node:path'
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { lstat, realpath, rm, stat } from 'node:fs/promises'
 import { app, BrowserWindow, dialog, shell } from 'electron'
+import pLimit from 'p-limit'
 import { simpleGit } from 'simple-git'
-import type { CloneProgress, Repo } from '@shared/types'
+import type { CloneProgress, LocalSyncStatus, LocalUpdateOutcome, Repo } from '@shared/types'
 import { isMockMode } from './config'
+import { classifyLocalSync, decideUpdate, parseAheadBehind, type SyncProbe } from './localSync'
+import { mockLocalSync, mockUpdateLocal } from './mock'
 
 /** 'owner/repo' -> 'repo'；没有 '/' 时原样返回 */
 function repoNameOf(fullName: string): string {
@@ -422,3 +425,354 @@ export async function listMissingCloneRecords(repos: Repo[]): Promise<string[]> 
 
   return missing
 }
+
+// ============================================================
+// 落后上游多少 + 快进更新
+//
+// 判定逻辑全在 localSync.ts 的纯函数里（自检不装 git 就能跑），这里只负责
+// "把事实问出来"和"在能更新时更新"，并把每个失败编码进返回值——本段所有
+// 导出函数都不抛错，因为批量检查/批量更新时，一个仓库的失败不该拖垮整批。
+//
+// 结果**不落盘**：LocalState 一个字段都不加。重启后界面如实显示"未检查"，
+// 而不是把上次的数字当成此刻的事实。
+// ============================================================
+
+/** 同时最多探测 / 更新的仓库数。与 ai.ts 的 ENRICH_CONCURRENCY 同值，别单方面调大 */
+const SYNC_CONCURRENCY = 3
+
+/**
+ * 单条 git 命令的静默超时。fetch 卡在一个半死不活的网络上时，没有它整批
+ * 检查会永远挂在那里——而进度条/取消在本次改动里是没有的（见下方说明）。
+ */
+const SYNC_TIMEOUT_MS = 30_000
+
+/** err -> 用户看得懂的中文。宁可为空也好过把 git 的原文直接甩给用户 */
+function describeGitError(err: unknown, action: string): string {
+  const raw = err instanceof Error ? err.message : String(err)
+  if (/ENOENT|not found|不是内部或外部命令|无法将/.test(raw)) {
+    return '未找到 git 命令，请确认本机已安装 git 并加入 PATH'
+  }
+  if (/Could not resolve host|unable to access|Connection|timed out|timeout|Could not read from remote/.test(raw)) {
+    return '无法连接远端仓库（请检查网络、代理或仓库权限）'
+  }
+  return `${action}失败：${raw}`
+}
+
+async function makeGit(realPath: string): Promise<ReturnType<typeof simpleGit>> {
+  return simpleGit({ baseDir: realPath, timeout: { block: SYNC_TIMEOUT_MS } })
+}
+
+/**
+ * 问一次事实：目录/git 工作树校验 + 当前分支 + 跟踪分支 + 差异 + 脏不脏。
+ *
+ * `fetch` 由调用方决定要不要发：探测（检查更新）需要最新数字，而"更新"是先按
+ * 本地事实拒绝掉一批（dirty / 分叉 / 无上游），只对真的能更新的才发 fetch。
+ * `doFetch=false` 时 ahead/behind 来自本地已有的 origin/* 引用——调用方必须
+ * 知道自己拿的是"截至上次抓取"的数字，不能当最新的用。
+ */
+async function probeLocal(
+  fullName: string,
+  path: string,
+  doFetch: boolean
+): Promise<{ probe: SyncProbe; realPath: string | null }> {
+  const probe: SyncProbe = {
+    pathExists: false,
+    identityMatches: false,
+    isGitWorktree: false,
+    branch: null,
+    upstream: null,
+    ahead: null,
+    behind: null,
+    dirty: null,
+    fetchError: null,
+    fatalError: null
+  }
+
+  if (!(await pathExists(path))) {
+    return { probe, realPath: null }
+  }
+  probe.pathExists = true
+
+  // 目录名闸门与 removeClone 同源：有 .git 只能证明"这是个 git 仓库"，
+  // 证明不了"这是这个仓库的副本"。更新会写文件，比删除更该守住这一条。
+  let real: string
+  try {
+    real = await realpath(path)
+  } catch {
+    probe.fatalError = `无法解析真实路径（可能是断链的符号链接）：${path}`
+    return { probe, realPath: null }
+  }
+  probe.identityMatches = basename(real) === repoNameOf(fullName)
+  if (!probe.identityMatches) {
+    return { probe, realPath: real }
+  }
+
+  probe.isGitWorktree = existsSync(join(real, '.git'))
+  if (!probe.isGitWorktree) {
+    return { probe, realPath: real }
+  }
+
+  const git = await makeGit(real)
+
+  try {
+    probe.branch = (await git.raw(['rev-parse', '--abbrev-ref', 'HEAD'])).trim()
+  } catch (err) {
+    probe.fatalError = describeGitError(err, '读取分支')
+    return { probe, realPath: real }
+  }
+
+  // 游离 HEAD 与无跟踪分支都不必联网：它们回答不了"落后多少"，也不该让
+  // 一次检查去发一个注定用不上的网络请求。
+  if (probe.branch === 'HEAD') {
+    return { probe, realPath: real }
+  }
+
+  try {
+    probe.upstream = (
+      await git.raw(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
+    ).trim()
+  } catch {
+    // @{u} 解析不出来就是没有跟踪分支，不是错误——故意吞掉 git 的原文
+    probe.upstream = null
+    return { probe, realPath: real }
+  }
+
+  // remote 从实际配置的跟踪分支里取（'origin/main' -> 'origin'），
+  // **不拿 full_name 反推 URL**：用户可能把 origin 指向了别处或自己的 fork，
+  // 按实际配置判断才是唯一诚实的答案。
+  const slash = probe.upstream.indexOf('/')
+  const remote = slash > 0 ? probe.upstream.slice(0, slash) : 'origin'
+
+  if (doFetch) {
+    try {
+      await git.raw(['fetch', remote])
+    } catch (err) {
+      probe.fetchError = describeGitError(err, '抓取远端')
+      return { probe, realPath: real }
+    }
+  }
+
+  try {
+    const diff = parseAheadBehind(
+      await git.raw(['rev-list', '--left-right', '--count', `HEAD...@{u}`])
+    )
+    if (diff === null) {
+      throw new Error('无法解析与上游的提交差异')
+    }
+    probe.ahead = diff.ahead
+    probe.behind = diff.behind
+  } catch (err) {
+    probe.fatalError = describeGitError(err, '比对提交差异')
+    return { probe, realPath: real }
+  }
+
+  try {
+    // --porcelain 把未跟踪文件也算脏，正是我们要的：更新只允许快进，
+    // 工作区不干净时先拒绝，绝不把用户的改动卷进去。
+    probe.dirty = (await git.raw(['status', '--porcelain'])).trim().length > 0
+  } catch (err) {
+    probe.fatalError = describeGitError(err, '读取工作区状态')
+  }
+
+  return { probe, realPath: real }
+}
+
+/**
+ * 探测单个仓库相对上游的状态。**不抛错**：任何失败都编码进返回值的 state/detail。
+ * 结果只活在内存里，不进 store、不落盘。
+ */
+export async function checkLocalSync(fullName: string, path: string): Promise<LocalSyncStatus> {
+  if (isMockMode()) {
+    // 演示模式的 clone 没有 .git，主进程无法真探测；假数据只允许 mock.ts 伪造
+    return mockLocalSync(fullName)
+  }
+
+  const { probe } = await probeLocal(fullName, path, true)
+  const { state, detail } = classifyLocalSync(probe)
+
+  return {
+    full_name: fullName,
+    state,
+    branch: probe.branch,
+    upstream: probe.upstream,
+    behind: probe.behind,
+    ahead: probe.ahead,
+    dirty: probe.dirty,
+    checkedAt: new Date().toISOString(),
+    detail
+  }
+}
+
+/**
+ * 批量探测（并发严格 3，与 enrichRepos 同一约定）。
+ *
+ * 入参是完整的 repo 列表而不是只挑出已 clone 的：与 listMissingCloneRecords
+ * 同一形状，调用方（IPC handler）直接交 store.getRepos() 即可。没有 cloned_path
+ * 的仓库不会被检查，也不会出现在结果里。
+ */
+export async function checkAllLocalSync(repos: Repo[]): Promise<LocalSyncStatus[]> {
+  const targets = repos.filter((r) => r.local?.cloned_path)
+
+  if (isMockMode()) {
+    return targets.map((r) => mockLocalSync(r.full_name))
+  }
+
+  const limit = pLimit(SYNC_CONCURRENCY)
+  return Promise.all(
+    targets.map((r) => limit(() => checkLocalSync(r.full_name, r.local?.cloned_path as string)))
+  )
+}
+
+/**
+ * 快进更新一个本地副本。**只做 fast-forward**：本地有改动或已分叉就拒绝并说明，
+ * 绝不生成 merge 提交、绝不覆盖用户的修改。
+ *
+ * 与 clone/cancelClone 一样，预期内的结果走返回值而不是抛错：
+ * refused-* 是"没动你的东西，原因是……"，error 才是真的失败。界面据此分别措辞。
+ */
+export async function updateLocalClone(
+  fullName: string,
+  path: string
+): Promise<LocalUpdateOutcome> {
+  if (isMockMode()) {
+    return mockUpdateLocal(fullName)
+  }
+
+  // 先按**本地事实**探测（不发 fetch）：dirty / 分叉 / 无上游 / 游离 HEAD
+  // 这几条在联网之前就能判定，没理由为一个注定拒绝的仓库打一次网络请求。
+  const { probe } = await probeLocal(fullName, path, false)
+  const decision = decideUpdate(probe)
+
+  if (decision.action === 'refuse') {
+    return {
+      full_name: fullName,
+      kind: decision.kind,
+      pulled: 0,
+      status: classifyToStatus(fullName, probe),
+      detail: decision.detail
+    }
+  }
+  if (decision.action === 'fail') {
+    return {
+      full_name: fullName,
+      kind: 'error',
+      pulled: 0,
+      status: classifyToStatus(fullName, probe),
+      detail: decision.detail
+    }
+  }
+  if (decision.action === 'up-to-date') {
+    return { full_name: fullName, kind: 'up-to-date', pulled: 0, status: await checkLocalSync(fullName, path), detail: null }
+  }
+
+  // action === 'update'：此刻本地是干净的、有的落后。先抓取再**重算**差异——
+  // 用户读到的落后数可能来自上一次检查，这一次 fetch 之后才是真的。
+  const upstream = probe.upstream as string
+  const slash = upstream.indexOf('/')
+  const remote = slash > 0 ? upstream.slice(0, slash) : 'origin'
+  const git = await makeGit(await realpath(path))
+
+  try {
+    await git.raw(['fetch', remote])
+  } catch (err) {
+    return {
+      full_name: fullName,
+      kind: 'error',
+      pulled: 0,
+      status: null,
+      detail: describeGitError(err, '抓取远端')
+    }
+  }
+
+  let fresh: ReturnType<typeof parseAheadBehind> = null
+  try {
+    fresh = parseAheadBehind(await git.raw(['rev-list', '--left-right', '--count', 'HEAD...@{u}']))
+  } catch (err) {
+    return {
+      full_name: fullName,
+      kind: 'error',
+      pulled: 0,
+      status: null,
+      detail: describeGitError(err, '比对提交差异')
+    }
+  }
+  if (fresh === null) {
+    return {
+      full_name: fullName,
+      kind: 'error',
+      pulled: 0,
+      status: null,
+      detail: '无法解析与上游的提交差异'
+    }
+  }
+
+  if (fresh.behind === 0) {
+    return {
+      full_name: fullName,
+      kind: 'up-to-date',
+      pulled: 0,
+      status: await checkLocalSync(fullName, path),
+      detail: null
+    }
+  }
+  // 抓取之后才发现分叉（fetch 前本地看不到上游的新提交）：仍然拒绝，不动历史
+  if (fresh.ahead > 0) {
+    return {
+      full_name: fullName,
+      kind: 'refused-diverged',
+      pulled: 0,
+      status: await checkLocalSync(fullName, path),
+      detail: '抓取后发现本地与上游都有各自的提交，快进无法完成'
+    }
+  }
+
+  try {
+    await git.raw(['merge', '--ff-only', '@{u}'])
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : String(err)
+    // 我们在 rev-list 与 merge 之间给远端留了时间：上游又前进时 --ff-only 会失败。
+    // 这属于"再点一次就好"，不该糊成一条通用错误。
+    if (/fast-forward|not possible to fast-forward|diverging/i.test(raw)) {
+      return {
+        full_name: fullName,
+        kind: 'refused-diverged',
+        pulled: 0,
+        status: await checkLocalSync(fullName, path),
+        detail: '上游在你检查之后又有新提交，快进无法完成，请重试'
+      }
+    }
+    return {
+      full_name: fullName,
+      kind: 'error',
+      pulled: 0,
+      status: null,
+      detail: describeGitError(err, '快进')
+    }
+  }
+
+  console.log(`[local] ${fullName} 已快进 ${fresh.behind} 个提交`)
+  return {
+    full_name: fullName,
+    kind: 'updated',
+    pulled: fresh.behind,
+    status: await checkLocalSync(fullName, path),
+    detail: null
+  }
+}
+
+/** probe -> 状态，供拒绝/失败时一并返回（界面可以就地刷新徽章，不必再问一次） */
+function classifyToStatus(fullName: string, probe: SyncProbe): LocalSyncStatus {
+  const { state, detail } = classifyLocalSync(probe)
+  return {
+    full_name: fullName,
+    state,
+    branch: probe.branch,
+    upstream: probe.upstream,
+    behind: probe.behind,
+    ahead: probe.ahead,
+    dirty: probe.dirty,
+    checkedAt: new Date().toISOString(),
+    detail
+  }
+}
+

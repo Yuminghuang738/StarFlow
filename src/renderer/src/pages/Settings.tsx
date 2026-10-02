@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { unwrap, ipcErrorMessage } from '../lib/api'
 import { cn } from '../lib/cn'
+import { enrichButtonLabel } from '../lib/enrichLabel'
 import { useRepoStore } from '../store/repoStore'
 import { Button } from '../components/common/Button'
 import { Card } from '../components/common/Card'
@@ -49,6 +50,8 @@ export function Settings(): React.JSX.Element {
 
   const loading = useRepoStore((s) => s.loading)
   const enriching = useRepoStore((s) => s.enriching)
+  // 补全进度（跑的时候按钮上显示 12/40）。订阅字段本身，不订阅新对象——zustand v5 陷阱
+  const enrichProgress = useRepoStore((s) => s.enrichProgress)
   const refreshFromGitHub = useRepoStore((s) => s.refreshFromGitHub)
   const enrich = useRepoStore((s) => s.enrich)
   const saveToken = useRepoStore((s) => s.saveToken)
@@ -509,7 +512,7 @@ export function Settings(): React.JSX.Element {
             loading={enriching}
             disabled={loading || enriching}
           >
-            AI 补全分类
+            {enriching ? enrichButtonLabel(enrichProgress) : 'AI 补全分类'}
           </Button>
           <Button onClick={() => void test()} loading={testing}>
             测试 GitHub 连接

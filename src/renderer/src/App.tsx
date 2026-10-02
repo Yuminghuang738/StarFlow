@@ -9,6 +9,7 @@ import { Manage } from './pages/Manage'
 import { Discover } from './pages/Discover'
 import { Similar } from './pages/Similar'
 import { Report } from './pages/Report'
+import { Logs } from './pages/Logs'
 import { Settings } from './pages/Settings'
 
 const PAGES: { key: AppTab; render: () => React.JSX.Element }[] = [
@@ -17,6 +18,7 @@ const PAGES: { key: AppTab; render: () => React.JSX.Element }[] = [
   { key: 'manage', render: () => <Manage /> },
   { key: 'similar', render: () => <Similar /> },
   { key: 'report', render: () => <Report /> },
+  { key: 'logs', render: () => <Logs /> },
   { key: 'settings', render: () => <Settings /> }
 ]
 
@@ -92,9 +94,10 @@ export default function App(): React.JSX.Element {
     // 位移 / 缩放这类动画（透明度保留）。只靠 CSS 的 prefers-reduced-motion 拦不住
     // framer——它走的是 JS 驱动的动画，不过 CSS transition，两处都要管。
     <MotionConfig reducedMotion="user">
-      {/* NavProvider 只暴露"跳到某个板块"这一个动作，给总览页的下钻卡片用
-          （页面不收 props，见 NavContext.tsx 的说明）。必须包住 AppShell。 */}
-      <NavProvider goTo={setTab}>
+      {/* NavProvider 暴露"跳到某个板块"（给总览页的下钻卡片用）与"当前在哪个板块"
+          （给收藏管理页判断"我又被切回来了"、触发一次本地副本状态检查用）。
+          页面不收 props，见 NavContext.tsx 的说明。必须包住 AppShell。 */}
+      <NavProvider goTo={setTab} current={tab}>
         <AppShell current={tab} onNavigate={setTab}>
           {PAGES.map((page) => {
             if (!mounted.includes(page.key)) return null

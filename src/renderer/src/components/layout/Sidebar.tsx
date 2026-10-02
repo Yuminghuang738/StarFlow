@@ -2,6 +2,7 @@ import { motion, type Transition } from 'framer-motion'
 import { cn } from '../../lib/cn'
 import { NAV_ITEMS, type AppTab } from './nav'
 import { NAV_ICONS } from './navIcons'
+import { AccountPanel } from './AccountPanel'
 
 /**
  * 左侧导航。
@@ -84,11 +85,11 @@ export function Sidebar({
         })}
       </div>
 
+      {/* 底部原来写死的是「v0.1.0 / Hackathon Build」——一行没人会看的静态信息，
+          占了侧边栏唯一一块"常驻、且属于你"的位置。换成账号块：头像 + 昵称，
+          点开就能登录 / 退出（见 AccountPanel.tsx）。 */}
       <div className="mt-auto px-2 pt-3">
-        <div className="rounded-lg border border-border bg-surface-2/60 px-3 py-2">
-          <div className="text-xs font-medium text-fg-muted">v0.1.0</div>
-          <div className="text-[11px] text-fg-subtle">Hackathon Build</div>
-        </div>
+        <AccountPanel />
       </div>
     </nav>
   )

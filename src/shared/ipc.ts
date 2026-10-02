@@ -31,11 +31,24 @@ export const IPC = {
   // （界面认为在跑、主进程可能已经结束了，那种情况不算错，所以不抛）。中止后目标目录
   // 由主进程在 clone 的 catch 里清掉——cloned_path 压根没写过，对账救不了它。
   LOCAL_CANCEL_CLONE: 'local:cancelClone',
+  // 检查每个已 clone 仓库落后上游多少。主进程并发 3，一次 fetch 后算 ahead/behind。
+  // **结果不落盘**：只在内存里活到本次运行结束，重启后界面如实显示「未检查」。
+  // 单个仓库检查失败不影响其它仓库（结果里以 state:'error' 出现，不抛整批）。
+  LOCAL_CHECK_UPDATES: 'local:checkUpdates',
+  // 快进更新一个本地副本（fetch + merge --ff-only）。**只做快进**：本地有改动或已
+  // 分叉就拒绝并说明，绝不生成 merge 提交、绝不覆盖用户修改。
+  // 与 removeClone 同一约定：只收 fullName，路径由主进程从 store 查，渲染进程交不出任意路径。
+  LOCAL_UPDATE_CLONE: 'local:updateClone',
 
   // AI
   AI_SUMMARIZE: 'ai:summarize',
   AI_CLASSIFY: 'ai:classify',
   AI_ENRICH_REPOS: 'ai:enrichRepos',
+  // 分类补全的进行状态。与 LOCAL_CLONE_PROGRESS 同因同法：enrich 是一次跑几分钟的
+  // 长驻 invoke，在它返回之前渲染进程什么都拿不到，所以主进程必须在跑的过程中把
+  // 进度记在内存里、由这条独立的查询通道来拉。返回 { running, done, total }，
+  // running 为 false 时 done/total 归零（跑完即"没在跑"，不停在 100%）。
+  AI_ENRICH_PROGRESS: 'ai:enrichProgress',
   AI_GENERATE_REPORT: 'ai:generateReport',
   // 连接探针。**不能拿 summarize 当探针**——它在失败时静默降级成空串，永远"成功"。
   // 这条走一次极简调用，并把错误分类成人话返回（不抛错）。
@@ -63,6 +76,14 @@ export const IPC = {
   // 周报
   REPORT_GENERATE: 'report:generate',
 
+  // 运行日志。数据源是主进程自己的 console 缓冲（logBuffer.ts），
+  // 与 GITHUB_* / STORE_* 那些"读远端/读磁盘"的通道不同：这里读的是一块进程内内存，
+  // 不会失败也不会阻塞，所以页面可以按固定间隔轮询。
+  LOG_TAIL: 'log:tail',
+  // 清空缓冲（total / dropped 一起归零）。**只影响这一个展示用的环状缓冲**，
+  // 不碰终端里已经打出来的东西，也不碰磁盘。
+  LOG_CLEAR: 'log:clear',
+
   // 推荐
   RECOMMEND_SIMILAR: 'recommend:similar',
   // 「一句话找仓库」。**刻意不暴露 github:searchRepos**：界面只需要"推荐/猜你喜欢/
@@ -83,6 +104,10 @@ export const IPC = {
   AUTH_START_DEVICE_FLOW: 'auth:startDeviceFlow',
   AUTH_WAIT_FOR_LOGIN: 'auth:waitForLogin',
   AUTH_CANCEL_DEVICE_FLOW: 'auth:cancelDeviceFlow',
+  // 当前登录的是谁。AuthUser 只在登录成功那一刻随 LoginOutcome 回来过，重启后就没了
+  //（磁盘上只有一条 token），所以侧边栏的账号块要用 token 现查一次。
+  // 与上面几条同样不抛错：没登录 / 登录能力不可用 / 有 token 但取不到，都在返回值里区分。
+  AUTH_GET_USER: 'auth:getUser',
 
   // 无边框窗口控制
   // 窗口本身没有"查 event.sender"的机会：handle() 包装器会主动丢弃第一个 event 参数，

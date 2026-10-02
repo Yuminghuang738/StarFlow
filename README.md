@@ -236,8 +236,8 @@ Electron 应用被拆成三层，**边界是硬的**：
 | 进程 | 职责 | 能碰什么 |
 | --- | --- | --- |
 | **主进程** `src/main/` | 全部业务逻辑：GitHub 读写、AI 调用、本地 git、落盘、周报、推荐、定时追踪、OAuth 登录，以及 IPC handler 注册 | 完整的 Node API、文件系统、网络、Electron 主进程 API |
-| **preload** `src/preload/` | 唯一的跨进程桥：把 43 条 IPC 通道包成类型化的 `window.api` | `ipcRenderer`（只做 `invoke`）、`contextBridge` |
-| **渲染进程** `src/renderer/` | React 界面：列表、筛选、图表、周报页、设置页、自绘标题栏 | 只有浏览器 API 和 `window.api`；**碰不到任何 Node API** |
+| **preload** `src/preload/` | 唯一的跨进程桥：把 49 条 IPC 通道包成类型化的 `window.api` | `ipcRenderer`（只做 `invoke`）、`contextBridge` |
+| **渲染进程** `src/renderer/` | React 界面：列表、筛选、图表、周报页、日志页、设置页、自绘标题栏 | 只有浏览器 API 和 `window.api`；**碰不到任何 Node API** |
 | **共享层** `src/shared/` | 数据结构（`types.ts`）与 IPC 通道名（`ipc.ts`）的唯一定义 | 纯类型与常量，三端都 import |
 
 窗口用 `frame: false` 建成无边框，原生标题栏与菜单都被去掉，最小化 / 最大化 / 关闭由渲染进程的 `TitleBar` 通过 `window:minimize` 等通道驱动主进程完成。preload 以 `contextIsolation: true`、`nodeIntegration: false` 加载——渲染进程不能 `import` 主进程代码，也不能使用 `process` / `require` / `fs` / `path`，任何跨进程调用都必须走 `window.api`。
@@ -246,28 +246,31 @@ Electron 应用被拆成三层，**边界是硬的**：
 
 `src/shared/ipc.ts` 与 `src/shared/types.ts` 是通道名与数据结构的唯一来源，三端都从这里 import。通道命名统一为 `模块:camelCase`，例如 `github:fetchStarred`、`local:cloneProgress`。
 
-当前共 **43 条通道**：
+当前共 **49 条通道**：
 
 | 命名空间 | 条数 | 通道 |
 | --- | --- | --- |
 | `github:` | 7 | `fetchStarred`、`fetchReadme`、`fetchReleases`、`fetchCommits`、`unstar`、`fork`、`star` |
-| `local:` | 7 | `chooseDir`、`clone`、`openDir`、`cloneProgress`、`removeClone`、`pruneClones`、`cancelClone` |
-| `ai:` | 6 | `summarize`、`classify`、`enrichRepos`、`generateReport`、`testConnection`、`analyzeCollection` |
+| `local:` | 9 | `chooseDir`、`clone`、`openDir`、`cloneProgress`、`removeClone`、`pruneClones`、`cancelClone`、`checkUpdates`、`updateClone` |
+| `ai:` | 7 | `summarize`、`classify`、`enrichRepos`、`enrichProgress`、`generateReport`、`testConnection`、`analyzeCollection` |
 | `store:` | 6 | `getRepos`、`saveRepos`、`saveToken`、`hasToken`、`updateLocalState`、`clearToken` |
 | `store:`（AI 配置） | 3 | `getAiConfig`、`saveAiConfig`、`clearAiKey` |
 | `report:` | 1 | `generate` |
+| `log:` | 2 | `tail`、`clear` |
 | `recommend:` | 3 | `similar`、`forQuery`、`forYou` |
 | `tracker:` | 2 | `start`、`stop` |
-| `auth:` | 4 | `getState`、`startDeviceFlow`、`waitForLogin`、`cancelDeviceFlow` |
+| `auth:` | 5 | `getState`、`startDeviceFlow`、`waitForLogin`、`cancelDeviceFlow`、`getUser` |
 | `window:` | 4 | `minimize`、`toggleMaximize`、`close`、`isMaximized` |
 
 主进程侧统一用一个 `handle()` 包装器注册：它把处理函数的返回值包成 `IpcResult<T>`（成功是 `{ ok: true, data }`，失败是 `{ ok: false, error }`），所以业务函数抛出的错误会变成一条可读的失败结果，而不是一个 reject。渲染进程侧由 `src/renderer/src/lib/api.ts` 的 `unwrap()` / `call()` 统一拆包。
 
 > [!IMPORTANT]
-> **IPC 只有 `invoke`，没有主进程主动推送。** 这是本项目一条贯穿整个代码库的设计约束：主进程无法在任意时刻把消息推给渲染进程，渲染进程只能「拉」。两个直接后果：
+> **IPC 只有 `invoke`，没有主进程主动推送。** 这是本项目一条贯穿整个代码库的设计约束：主进程无法在任意时刻把消息推给渲染进程，渲染进程只能「拉」。几个直接后果：
 >
 > - **clone 进度靠轮询。** clone 本身是一条长时间不返回的 `invoke`，在它返回之前渲染进程什么都拿不到。于是主进程把 git 的进度行解析后缓存在内存里，单独开一条 `local:cloneProgress` 通道；渲染进程的 `CloneProgressBar` 每 300ms 拉一次。进度记录在 clone 结束后刻意保留，避免最后一次轮询读到空值导致进度条闪回。
 > - **窗口最大化状态靠返回值 + resize 兜底。** `window:toggleMaximize` 返回切换**之后**的状态，供图标权威更新；窗口被窗口管理器改变大小时，再靠 `window.resize` 事件兜底查询 `window:isMaximized`。
+> - **AI 分类补全进度靠轮询。** 与 clone 同理：`ai:enrichRepos` 是一次跑几分钟的长驻 `invoke`，跑到第几个只有主进程知道。主进程把 `{ running, done, total }` 记在内存里，渲染进程在补全期间按 800ms 轮询 `ai:enrichProgress`，按钮上显示「补全中 12/40」。这份记录在跑完时**立刻归零**（不是停在 100%），所以界面上不会留下一条冒充"刚跑完"的残影；`total` 为 0 表示总数还未知，那时只显示「补全中…」，不拿 0 冒充进度。
+> - **本地副本落后上游多少、运行日志同样靠轮询。** `local:checkUpdates` 与 `log:tail` 都是纯内存查询。前者每次进「收藏管理」页自动跑一次（同一会话 20s 内不重复打整批 `git fetch`），后者只在「运行日志」页可见时按 1.2s 轮询。
 
 ### 一条数据流：从 GitHub 同步 Star 列表
 
@@ -289,8 +292,8 @@ Electron 应用被拆成三层，**边界是硬的**：
 | 路径 | 说明 |
 | --- | --- |
 | `src/main/` | 主进程。各业务模块（`github.ts` / `ai.ts` / `local.ts` / `store.ts` / `report.ts` / `recommend.ts` / `tracker.ts` / `auth.ts` / `mock.ts` / `config.ts`）与 IPC handler 注册入口 `index.ts` |
-| `src/preload/` | 唯一的跨进程桥。`index.ts` 把 43 条通道包成 `window.api`，`index.d.ts` 给渲染进程补上全局类型 |
-| `src/renderer/` | React 界面。`src/pages/`（Discover / Overview / Manage / Similar / Report / Settings）、`src/components/`（repo / charts / common / layout / auth / settings）、`src/store/`（Zustand）、`src/lib/`（api / theme / cn） |
+| `src/preload/` | 唯一的跨进程桥。`index.ts` 把 49 条通道包成 `window.api`，`index.d.ts` 给渲染进程补上全局类型 |
+| `src/renderer/` | React 界面。`src/pages/`（Discover / Overview / Manage / Similar / Report / Logs / Settings）、`src/components/`（repo / charts / common / layout / auth / settings）、`src/store/`（Zustand）、`src/lib/`（api / theme / cn / enrichLabel） |
 | `src/shared/` | `types.ts` 定义全部数据结构，`ipc.ts` 定义通道名。三端共用的唯一契约 |
 | `docs/` | 主进程模块签名（`module-signatures.md`）与渲染进程契约（`renderer-contracts.md`），以及本文档所用的图片资源 |
 | `scripts/selfcheck/` | 不依赖 GUI 的自检脚本（见下） |

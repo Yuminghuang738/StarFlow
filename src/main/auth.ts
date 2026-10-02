@@ -13,9 +13,9 @@
 //      会把它当成 IPC 故障弹一条错误的 toast
 
 import { shell } from 'electron'
-import type { AuthState, AuthUser, DeviceFlowInfo, LoginOutcome } from '@shared/types'
+import type { AuthState, AuthUser, DeviceFlowInfo, GithubViewer, LoginOutcome } from '@shared/types'
 import { getEnv, isMockMode } from './config'
-import { saveToken } from './store'
+import { getToken, saveToken } from './store'
 
 const DEVICE_CODE_URL = 'https://github.com/login/device/code'
 const TOKEN_URL = 'https://github.com/login/oauth/access_token'
@@ -338,6 +338,43 @@ export function getState(): AuthState {
     available: true,
     reason: null,
     pending: flow && !flow.settled ? toInfo(flow) : null
+  }
+}
+
+/**
+ * 用已保存的 token 现查一次"当前登录的是谁"。
+ *
+ * 存在的理由：token 才是唯一长期存在的东西，AuthUser 只在登录成功那一刻随
+ * LoginOutcome 回来过一次——重启之后主进程手里只剩一条 token，界面却要显示头像与昵称。
+ * 所以侧边栏的账号块在挂载时调这一条，用 token 换回账号信息。
+ *
+ * **不抛错**：这是一条"页面挂载就会调"的通道，抛错在前端 unwrap() 里会变成一条
+ * 用户什么也做不了的红 toast。三种"没拿到"按 GithubViewer.reason 如实区分
+ * （没登录 / 登录能力不可用 / 有 token 但这次取不到），界面据此说三种不同的话。
+ */
+export async function getViewer(): Promise<GithubViewer> {
+  const state = getState()
+  if (!state.available) {
+    return { user: null, reason: 'unavailable', detail: state.reason }
+  }
+
+  const token = await getToken()
+  if (token === null) {
+    return { user: null, reason: 'no-token', detail: null }
+  }
+
+  try {
+    return { user: await fetchUser(token), reason: null, detail: null }
+  } catch (err) {
+    const message = msgOf(err)
+    console.warn(`[auth] 读取账号信息失败：${message}`)
+    // 401 是最常见的一种，也是最该说清楚的一种：token 过期/被撤销之后，
+    // "取不到账号"和"没登录"长得一模一样，可用户的下一步动作完全不同
+    // （重新登录 vs 去配置页）。这里把 GitHub 的原文换成一句能照着做的话。
+    const detail = message.includes('401')
+      ? '保存的 Token 已失效（GitHub 返回 401），重新登录一次即可'
+      : message
+    return { user: null, reason: 'error', detail }
   }
 }
 

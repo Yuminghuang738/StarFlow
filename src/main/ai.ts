@@ -12,7 +12,7 @@
 
 import OpenAI from 'openai'
 import pLimit from 'p-limit'
-import type { Repo, AiCategory, AiConnectionResult } from '@shared/types'
+import type { Repo, AiCategory, AiConnectionResult, AiEnrichProgress } from '@shared/types'
 import { AI_CATEGORIES } from '@shared/types'
 import { isLocalEndpoint, type CollectionAnalysis } from '@shared/ai-providers'
 import { isMockMode, getEnv, setAiOverride } from './config'
@@ -306,6 +306,33 @@ async function mergeAiResults(results: Repo[]): Promise<Repo[]> {
   })
 }
 
+/* ------------------------------------------------------------------ */
+/* 分类补全进度（enrich 的实时状态）                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * enrich 的进行状态。本项目没有 main→renderer 推送，所以进度必须由主进程在跑的
+ * 过程中记在内存里、渲染进程另开一条查询通道来拉（IPC.AI_ENRICH_PROGRESS）。
+ *
+ * 生命周期刻意做成"跑完即归零"：enrichRepos 的 finally 里把它复位成
+ * `{ running:false, done:0, total:0 }`。这是诚实性要求——渲染进程在 enrich 的
+ * invoke 返回之后还会再问一次，读到的必须是"没在跑"，绝不能是一条停在 100%
+ * 上的记录（那会让界面显示成"这次跑完了"，而它其实只是上一次的残影）。
+ *
+ * `total === 0` 单独表示"总数还未知"（尚未开始记录），渲染进程据此显示不带数字的
+ * 忙碌态，而不是拿 0 冒充进度。
+ */
+let enrichProgress: AiEnrichProgress = { running: false, done: 0, total: 0 }
+
+/**
+ * 读一次当前的补全进度。纯内存、同步、不抛错——给渲染进程在 enrich 进行中按固定
+ * 间隔轮询用。返回副本而不是内部对象，避免调用方拿着引用去改内部状态
+ * （跨 IPC 本来就是结构化克隆，这里只是把同一约定写死）。
+ */
+export function getEnrichProgress(): AiEnrichProgress {
+  return { ...enrichProgress }
+}
+
 export async function enrichRepos(repos: Repo[]): Promise<Repo[]> {
   // 这一轮真正去问了模型的有几个、其中失败几个。用来在最后判断是不是「全军覆没」
   let attempted = 0
@@ -349,12 +376,21 @@ export async function enrichRepos(repos: Repo[]): Promise<Repo[]> {
 
   if (isMockMode()) return mockEnrich(repos)
 
+  // 开始记录进度：total 用**这一次收到的仓库数**（含那些两个字段都齐、会被 skip 的
+  // 仓库）——渲染进程要的就是"跑到第几个 / 一共几个"，总数对得上入参才对得上界面。
+  // 放在 mock 提前返回之后：mock 下不另造一份假进度（与 local.ts 的 clone 进度同一条
+  // 约定——全项目只有 mock.ts 一个假数据源）。
+  const total = repos.length
+  enrichProgress = { running: true, done: 0, total }
+
   const limit = pLimit(ENRICH_CONCURRENCY)
   let done = 0
   const tasks = repos.map((r) =>
     limit(async () => {
       const result = await enrichOne(r)
       done += 1
+      // 每个仓库真正跑完（成功或降级）才 +1，不提前报数
+      enrichProgress = { running: true, done, total }
       if (done % 5 === 0 || done === repos.length) {
         console.log(`[ai] 已补全 ${done}/${repos.length}`)
       }
@@ -400,6 +436,11 @@ export async function enrichRepos(repos: Repo[]): Promise<Repo[]> {
     if (isConfigError(err)) throw err
     console.error('[ai] enrichRepos 失败:', errorMessage(err))
     throw new Error(`AI 补全失败: ${errorMessage(err)}`)
+  } finally {
+    // 成功、部分失败、整批抛错——三种结局都要立即复位。跑完之后渲染进程再问一次，
+    // 读到的必须是 { running:false, done:0, total:0 }，界面据此收起进度、绝不
+    // 停在满格上冒充"这次跑完了"（诚实性要求，见 enrichProgress 的说明）。
+    enrichProgress = { running: false, done: 0, total: 0 }
   }
 }
 
