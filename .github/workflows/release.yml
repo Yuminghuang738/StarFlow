@@ -81,8 +81,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
-          name: StarFlow ${{ steps.ver.outputs.version }}
-          generate_release_notes: true
+          name: StarFlow v${{ steps.ver.outputs.version }}
+          # 只在「打 tag 新建 Release」时自动生成说明。
+          # 手动触发通常是往**已存在**的 Release 里补产物（如给 v0.1.0 补 Windows 包），
+          # 此时必须关掉：action 源码里 generate_release_notes 会覆盖 release 正文，
+          # 而 body 留空时走 `workflowBody || existingReleaseBody`，正文才不会被冲掉。
+          generate_release_notes: ${{ github.event_name == 'push' }}
           draft: false
           prerelease: false
           files: |
