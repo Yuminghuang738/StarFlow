@@ -164,6 +164,53 @@ tasks:
       返回 false、clone 从不返回 null"——照它读代码的人会绕开 cancelClone 自己造一套
       （24c908a）。两处都属"文档比没有更坏"
 
+## 功能：本地副本落后追踪 + 快进更新（分支 `feat/local-clone-update`）
+
+> 与上面那批 R 编号的修 bug 轮次无关：这是一次**新增功能**，从 main 另开的分支，
+> 不塞进已开的 PR #32。三条决策已在动手前与用户确认：**只做快进**、**进页面自动检查**、
+> **不落盘**。
+
+**做了什么**：每个已 Clone 的仓库显示落后上游多少个提交（及领先 / 分叉 / 无上游 /
+游离 HEAD / 副本不在 / 检查失败等诚实状态），支持单个「更新」与「更新全部」。
+更新策略只有 `git fetch` + `git merge --ff-only`：绝不生成 merge 提交、绝不覆盖用户改动，
+dirty / 分叉一律「拒绝 + 说明原因」，拒绝是**正常结局**（`refused-*`），不是失败。
+
+**为什么这样切**：
+- **判定顺序即正确性**，所以把顺序抽成零 git 依赖的纯函数 `src/main/localSync.ts`
+  （`classifyLocalSync` / `decideUpdate` / `parseAheadBehind`），自检直接喂事实组合即可断言。
+  顺序钉死：`missing → path-mismatch → not-git → fatal → detached → no-upstream →
+  fetchError → ahead/behind 为 null → diverged → behind → ahead → up-to-date`。
+  **`fetchError` 必须排在 behind/ahead 之前**——否则一次断网会拿过期的 `origin/*`
+  引用算出"已是最新"，正是本功能最容易「安静说谎」的一处（有反向探针钉住）。
+- **不落盘**：`LocalState` 一个字段没加，结果全在渲染进程内存（`syncByRepo`，
+  **键缺席 = 未检查**是唯一真相来源）。落后数是"截至上次抓取"的瞬时事实，落盘后
+  重启会拿它冒充此刻的事实；重启后界面如实显示「未检查」。
+- **进页面自动检查**：页面保活、切走只是 `display:none`，组件察觉不到"又被看见了"，
+  所以 `NavContext` 加了 `current`，`Manage.tsx` 用 ref 做**进入沿**判定 + 同一会话 20s
+  节流（防快速来回切 tab 打出一堆 `git fetch`），StrictMode 双跑由 ref 吸收。
+- **「更新全部」逐条报账**：`已更新 X / 已是最新 Y / 跳过 Z / 失败 W`，跳过与失败都带
+  仓库名与原因，绝不弹一句光秃秃的「更新完成」。并发分三层（主进程 p-limit 3、
+  store 的 `syncingAll`/`updatingAll` 闸、`RepoActions` 的 `busyRef`）。
+- **Mock 模式**：`local.ts` 不伪造 git 数据，委派给 `mock.ts` 的 `mockLocalSync` /
+  `mockUpdateLocal`（全项目唯一假数据源），自检断言**零 raw git 调用**。
+
+**同批交付的另外三件用户要求的改动**（都由子代理起草、逐行核对后并入）：
+① 发现仓库 / 为你推荐两处的仓库行都有 AI 解释（`RepoExplain`）；
+② 「运行日志」页（设置与每周回顾之间），主进程新增 `logBuffer.ts` 环形缓冲 +
+`log:tail` / `log:clear` 两条通道，**只镜像不接管**主进程 console、token/Key 脱敏、
+被挤掉的条数如实报；③ 侧边栏左下角那块 v0.1.0 卡片换成 GitHub 账号块
+（头像 / 昵称 / 就地登录退出，`useGithubAuth` 从设置页卡片抽成共享 hook）。
+另按用户要求把「AI 收藏画像」从**手动点按钮**改成**进入总览自动生成**
+（幂等决策：digest + 上次尝试时刻 + 单飞，失败后 60s 内不重试），并把「从分布图下钻到
+收藏管理」的筛选改成**离开该板块即清空**（再进来是全量）。
+
+**验证口径**：`npm run typecheck` / `npm run lint` 干净；15 个自检驱动器全绿
+（新增 `local-sync`，扩展 `simple-git-stub` 加 `raw(args)`，并回归 clone-progress /
+local-manage / clone-cancel / store-local）；`npm run build` 通过。
+通道数 43 → **49**（新增 local 2 + ai 1 + log 2 + auth 1），README 中英 + preload +
+`index.ts` 顶部注释四处同步。组件层仍**无 DOM 测试环境**，界面行为只能人工验收
+（`! npm run dev`），已在 renderer-contracts 里写明。
+
 ## 已知的收尾事项
 - **本轮刻意不修的两处**（都已记进 OPTIMIZATION_LOG，别当成漏掉的）：
   1. ~~`CloneProgressBar` 的进度条在克隆结束后可能停在 100% 不清零。根因是共享类型

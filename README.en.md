@@ -148,7 +148,7 @@ The Electron app is split into three layers with hard boundaries:
 | Process | Responsibility | What it can touch |
 | --- | --- | --- |
 | **Main** `src/main/` | All business logic: GitHub reads/writes, AI calls, local git, persistence, weekly report, recommendations, scheduled tracking, OAuth sign-in, and IPC handler registration | The full Node API, the filesystem, the network, Electron main-process APIs |
-| **preload** `src/preload/` | The only cross-process bridge: wraps the 43 IPC channels into a typed `window.api` for the renderer | `ipcRenderer` (`invoke` only), `contextBridge` |
+| **preload** `src/preload/` | The only cross-process bridge: wraps the 49 IPC channels into a typed `window.api` for the renderer | `ipcRenderer` (`invoke` only), `contextBridge` |
 | **Renderer** `src/renderer/` | The React UI: list, filters, charts, report page, Settings page, custom title bar | Browser APIs and `window.api` only; **no Node API access whatsoever** |
 | **Shared** `src/shared/` | The single definition of data structures (`types.ts`) and IPC channel names (`ipc.ts`) | Pure types and constants, imported by all three sides |
 
@@ -160,35 +160,38 @@ preload is loaded with `contextIsolation: true` and `nodeIntegration: false`. Th
 
 `src/shared/ipc.ts` and `src/shared/types.ts` are the single source of truth for channel names and data shapes, imported by all three sides. Channels are named `module:camelCase`, e.g. `github:fetchStarred`, `local:cloneProgress`.
 
-There are currently **43 channels**:
+There are currently **49 channels**:
 
 | Namespace | Count | Channels |
 | --- | --- | --- |
 | `github:` | 7 | `fetchStarred`, `fetchReadme`, `fetchReleases`, `fetchCommits`, `unstar`, `fork`, `star` |
-| `local:` | 7 | `chooseDir`, `clone`, `openDir`, `cloneProgress`, `removeClone`, `pruneClones`, `cancelClone` |
-| `ai:` | 6 | `summarize`, `classify`, `enrichRepos`, `generateReport`, `testConnection`, `analyzeCollection` |
+| `local:` | 9 | `chooseDir`, `clone`, `openDir`, `cloneProgress`, `removeClone`, `pruneClones`, `cancelClone`, `checkUpdates`, `updateClone` |
+| `ai:` | 7 | `summarize`, `classify`, `enrichRepos`, `enrichProgress`, `generateReport`, `testConnection`, `analyzeCollection` |
 | `store:` | 6 | `getRepos`, `saveRepos`, `saveToken`, `hasToken`, `updateLocalState`, `clearToken` |
 | `store:` (AI config) | 3 | `getAiConfig`, `saveAiConfig`, `clearAiKey` |
 | `report:` | 1 | `generate` |
+| `log:` | 2 | `tail`, `clear` |
 | `recommend:` | 3 | `similar`, `forQuery`, `forYou` |
 | `tracker:` | 2 | `start`, `stop` |
-| `auth:` | 4 | `getState`, `startDeviceFlow`, `waitForLogin`, `cancelDeviceFlow` |
+| `auth:` | 5 | `getState`, `startDeviceFlow`, `waitForLogin`, `cancelDeviceFlow`, `getUser` |
 | `window:` | 4 | `minimize`, `toggleMaximize`, `close`, `isMaximized` |
 
 On the main-process side, handlers are registered through a single `handle()` wrapper: it wraps the handler's return value into an `IpcResult<T>` (success is `{ ok: true, data }`, failure is `{ ok: false, error }`), so an error thrown by a business function becomes a readable failure result rather than a rejection. On the renderer side, `unwrap()` / `call()` in `src/renderer/src/lib/api.ts` take the result apart uniformly.
 
-**IPC is `invoke`-only; there is no main-to-renderer push.** This is an important design constraint that runs through the whole codebase: the main process cannot push to the renderer at an arbitrary moment, so the renderer can only pull. Two direct consequences:
+**IPC is `invoke`-only; there is no main-to-renderer push.** This is an important design constraint that runs through the whole codebase: the main process cannot push to the renderer at an arbitrary moment, so the renderer can only pull. Several direct consequences:
 
 - **Clone progress is polled.** A clone is a long-running `invoke` that returns nothing until it finishes. So the main process parses git's progress lines and caches them in memory behind a separate `local:cloneProgress` channel; the renderer's `CloneProgressBar` polls it every 300 ms. The progress record is deliberately kept after the clone ends, so the last poll before the `invoke` returns does not read an empty value and flash the bar back.
 - **Window maximize state relies on the return value plus a resize fallback.** `window:toggleMaximize` returns the state **after** toggling, for an authoritative icon update; when the window is resized by the window manager, a `window.resize` listener falls back to querying `window:isMaximized`.
+- **AI classification progress is polled.** Same reason as clone: `ai:enrichRepos` is a long-running `invoke` that can take minutes, and only the main process knows how far along it is. The main process keeps `{ running, done, total }` in memory and the renderer polls `ai:enrichProgress` every 800 ms while the batch runs, showing "enriching 12/40" on the button. That record is **reset to zero the moment the batch ends** (it never sits at 100%), so the UI cannot show a leftover that pretends to be a fresh run; `total === 0` means the total is not known yet, in which case the button just says "enriching…" rather than passing 0 off as progress.
+- **Local clone staleness and the run log are polled too.** `local:checkUpdates` and `log:tail` are both pure in-memory queries. The former runs automatically once per visit to "Manage Stars" (no repeated full `git fetch` within 20 s in the same session); the latter polls every 1.2 s only while the "Run log" page is visible.
 
 ### Directory layout
 
 | Path | Description |
 | --- | --- |
 | `src/main/` | Main process. Business modules (`github.ts` / `ai.ts` / `local.ts` / `store.ts` / `report.ts` / `recommend.ts` / `tracker.ts` / `auth.ts` / `mock.ts` / `config.ts`) plus the IPC handler entry point `index.ts` |
-| `src/preload/` | The only cross-process bridge. `index.ts` wraps the 43 channels into `window.api`; `index.d.ts` adds the global types for the renderer |
-| `src/renderer/` | The React UI. `src/pages/` (Discover / Overview / Manage / Similar / Report / Settings), `src/components/` (repo / charts / common / layout / auth / settings), `src/store/` (Zustand), `src/lib/` (api / theme / cn) |
+| `src/preload/` | The only cross-process bridge. `index.ts` wraps the 49 channels into `window.api`; `index.d.ts` adds the global types for the renderer |
+| `src/renderer/` | The React UI. `src/pages/` (Discover / Overview / Manage / Similar / Report / Logs / Settings), `src/components/` (repo / charts / common / layout / auth / settings), `src/store/` (Zustand), `src/lib/` (api / theme / cn / enrichLabel) |
 | `src/shared/` | `types.ts` defines all data structures, `ipc.ts` defines the channel names. The single contract shared by all three sides |
 | `docs/` | Main-process module signatures (`module-signatures.md`) and renderer contracts (`renderer-contracts.md`) |
 | `scripts/selfcheck/` | GUI-free self-check scripts (see below) |

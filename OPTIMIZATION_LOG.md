@@ -1355,3 +1355,57 @@ R48 把 `hasToken()` 改成"密文解不开就抛错"，那在设置页的 Token
 `saveToken` 只回 ok/fail，无密钥环时这两者与成功无异），属于动 IPC 表面，记入残留。
 
 验证：tsc 干净、eslint 干净、npm run build 通过。文案改动，无自检可跑。
+
+---
+
+## F1 · 功能：已 Clone 仓库的落后追踪 + 快进更新（分支 feat/local-clone-update）
+done · 未提交（等用户确认后再提交）
+
+**需求**：「新增一个已clone的仓库的追踪，展示本地仓库落后了多少，同时增加更新本地clone的
+仓库功能，可以一键全部更新，也可以手动一个一个更新」。
+
+**三条决策（动手前与用户确认）**：只做快进；进「收藏管理」页自动检查（并发 3）+ 手动按钮；
+结果**不落盘**（重启后如实显示「未检查」）。
+
+**改了什么**：
+- `src/shared/types.ts` 新增 `LocalSyncState` / `LocalSyncStatus` / `LocalUpdateKind` /
+  `LocalUpdateOutcome`。**`LocalState` 一个字段没加**——落后数是瞬时事实，落盘后重启会
+  拿它冒充此刻的事实。
+- 新增 `src/main/localSync.ts`：零 git 依赖的纯函数（`classifyLocalSync` / `decideUpdate` /
+  `parseAheadBehind`）。判定顺序即正确性，**`fetchError` 排在 behind/ahead 之前**——
+  否则一次断网会拿过期的 `origin/*` 引用算出"已是最新"。
+- `src/main/local.ts` 新增 `checkLocalSync` / `checkAllLocalSync`（p-limit 3）/
+  `updateLocalClone`。更新只走 `git merge --ff-only`；dirty / 分叉 / 游离 HEAD / 无上游
+  一律「拒绝 + 说明」，是**正常结局**（`refused-*`）不是失败。路径由 `index.ts` 从 store
+  里查（渲染进程永远交不出任意路径，同 removeClone）。Mock 委派给 mock.ts，零 git 调用。
+- IPC 43 → 49 条（local 2 + ai 1 + log 2 + auth 1），preload 两处、README 中英、
+  `index.ts` 顶部注释四处同步。
+- `repoStore` 新增 `syncByRepo`（**键缺席 = 未检查**，唯一真相来源）、`syncingAll`、
+  `syncCheckedAt`（仅节流，失败时刻意不写）、`updatingFullNames` / `updatingAll` 与三个动作。
+  「更新全部」末尾只弹**一条**逐项报账的汇总 toast（跳过与失败都带仓库名 + 原因）。
+- `NavContext` 加 `current`：页面保活、切走只是 `display:none`，组件察觉不到"又被看见了"。
+  `Manage.tsx` 用 ref 做进入沿 + 20s 节流。新增 `SyncBadge.tsx`、`RepoActions` 的「更新」按钮。
+
+**同批并入的四件用户要求的改动**：
+- 发现仓库 / 为你推荐两处的仓库行都有 AI 解释（`RepoExplain`）。
+- 新增「运行日志」页 + 主进程 `logBuffer.ts`（环形缓冲 500 条、`log:tail` / `log:clear`）。
+  三条边界写在文件头：**只镜像不接管**（终端输出逐字不变）、**只收主进程**、
+  **被挤掉的条数如实报**。token / AI Key 过一遍正则脱敏；`clearLogs` 不重置 `nextSeq`
+  （渲染进程靠它判断有没有新条目，归零会让新旧 seq 撞上、把新日志当旧的丢掉）。
+- 侧边栏左下角的 v0.1.0 / Hackathon 卡片换成 GitHub 账号块（`AccountPanel`），
+  `useGithubAuth` 从设置页卡片抽成共享 hook + 进程内广播（防止两处同时显示"已登录/未登录"）。
+- 「AI 收藏画像」由**手动点按钮**改成**进入总览自动生成**。它不能靠进入沿：DEFAULT_TAB
+  就是总览、repos 在挂载后才异步到达，纯进入沿在首次启动时永远不触发。改用幂等决策
+  （digest 只含日历日期 + 上次尝试时刻 + 单飞），失败 / 无 key 后 60s 内不重试，避免反复计费。
+  另：从分布图下钻到收藏管理带来的筛选，改成**离开该板块即清空**（再进来是全量展示），
+  做法在离开沿逐键比对 DEFAULT_FILTERS、脏了才 `setFilters({...DEFAULT_FILTERS})`
+  （传拷贝，避免污染常量）。
+
+**验证**：`npm run typecheck` / `npm run lint` 干净；15 个自检驱动器全绿
+（新增 `scripts/selfcheck/local-sync.mjs`，扩展 `simple-git-stub.mjs` 加 `raw(args)` 并回归
+clone-progress / local-manage / clone-cancel / store-local）；`npm run build` 通过。
+其中一条自检断言原本写错并已修正：假数据六种分支里「落后且脏」与「落后」共享
+`state:'behind'`，只数 state 永远到不了 6，改为按 `(state, dirty)` 计数。
+
+**盲区（未改变）**：渲染进程没有 DOM 测试环境，store 的编排 / 汇总 toast / 徽章与面板的
+实际渲染只能人工验收（`! npm run dev`）。改这些地方时不能拿"自检全绿"当验收。

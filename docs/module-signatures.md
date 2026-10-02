@@ -80,10 +80,18 @@ export function mockFork(fullName: string): Repo
 export function mockSimilar(fullName: string): Repo[]
 export function mockSummary(readme: string): string
 export function mockClassify(repo: Repo): AiCategory
+export function mockLocalSync(fullName: string): LocalSyncStatus
+export function mockUpdateLocal(fullName: string): LocalUpdateOutcome
 export function mockReportSummary(repos: Repo[]): string
 
 说明：mock.ts 是唯一的假数据源，内部维护一份内存态 starred 列表：
 unstar 从内存列表移除、fork 写 local.forked_full_name，因此刷新后不会"复活"。
+
+mockLocalSync / mockUpdateLocal 是 local:checkUpdates / local:updateClone 在
+MOCK_MODE 下的委派目标（local.ts 自己不伪造 git 数据——全项目只有这里一个假数据源）。
+状态由 stableHash(full_name) % 6 确定性选出，六种分支：最新 / 落后 / 落后且脏 /
+领先 / 分叉 / 无上游；mockUpdateLocal 对一个"落后且不脏"的仓库会把它记进
+mockUpdated 集合，之后再问就是"已是最新"（同一次会话内幂等，刷新后重置）。
 
 ## src/main/github.ts
 export function fetchStarred(): Promise<Repo[]>
@@ -101,6 +109,9 @@ export function getCloneProgress(fullName: string): CloneProgress | null
 export function cancelClone(fullName: string): boolean
 export function removeClone(fullName: string, path: string): Promise<string | null>
 export function listMissingCloneRecords(repos: Repo[]): Promise<string[]>
+export function checkLocalSync(fullName: string, path: string): Promise<LocalSyncStatus>
+export function checkAllLocalSync(repos: Repo[]): Promise<LocalSyncStatus[]>
+export function updateLocalClone(fullName: string, path: string): Promise<LocalUpdateOutcome>
 
 说明：MOCK_MODE=true 时 openDir 仍然走真实实现（shell.openPath），
 因为演示前会预先 clone 好仓库，"打开目录"必须真的能打开。
@@ -141,11 +152,63 @@ listMissingCloneRecords 做对账，返回"记录里有、磁盘上却没有"的
 外接盘/网络盘没挂载，跳过。内部是异步 stat：路径挂在已断开的 NFS 挂载点上时，
 同步 stat 会把主进程连同整个 UI 一起冻住几十秒，而那恰好是它要处理的场景。
 
+checkLocalSync / checkAllLocalSync / updateLocalClone 是「本地副本落后上游多少 +
+快进更新」三个入口，**判定逻辑本身在 localSync.ts**（纯函数，见下），这里只负责
+把磁盘上的事实探出来、以及真的执行 git 命令。
+
+- checkLocalSync：**不抛错**，失败编码进 LocalSyncStatus（git 没装 / 网络不通 /
+  不是工作树都各是一种 state）。detached 与 no-upstream **不发 fetch**——没有
+  上游就没有可 fetch 的对象，发了也只是一次白跑的等待。fetch 失败时**绝不用过期的
+  `origin/*` 引用算一个落后数**，直接 state:'error' + detail（这是本功能最容易
+  "安静说谎"的一处）。
+- checkAllLocalSync：内部 p-limit 3（与 enrichRepos 同一约定），只处理有
+  cloned_path 的仓库，单个仓库失败不拖垮整批（失败以一条 state:'error' 的结果出现）。
+- updateLocalClone：**先按本地事实拒绝**（副本不在 / 目录名不符 / 游离 HEAD /
+  无上游 / 分叉 / 有未提交改动），能更新才 fetch，fetch 后**重算** behind（远端可能
+  在检查之后又动了），behind 为 0 → up-to-date，否则 `git merge --ff-only @{u}`。
+  **只做快进**：绝不生成 merge 提交、绝不覆盖用户改动；拒绝是一种正常结局
+  （kind 为 `refused-*`），不是失败。全程不写 store。
+- 路径一律由 index.ts 从 store 里查出来再传进来（与 removeClone 同一条约定：
+  渲染进程永远交不出任意路径）。
+- MOCK_MODE 下两个入口都委派给 mock.ts 的 mockLocalSync / mockUpdateLocal，
+  **完全不碰 simpleGit**（自检断言 zero raw calls）。
+- 结果**不落盘**：LocalState 一个字段都没加，进程重启后界面如实显示「未检查」。
+
+## src/main/localSync.ts
+export interface SyncProbe
+export interface SyncClassification
+export function classifyLocalSync(probe: SyncProbe): SyncClassification
+export type UpdateDecision
+export function decideUpdate(probe: SyncProbe): UpdateDecision
+export function parseAheadBehind(raw: string): { ahead: number; behind: number } | null
+
+说明：**零 git 依赖的纯函数模块**（只 import @shared/types，不碰 Node / electron /
+simple-git），所以自检可以直接喂各种事实组合进去断言，不需要真的有个仓库。
+它存在的理由就是"判定顺序即正确性"——这段顺序放在 local.ts 里会被 IO 淹没，
+也就没法逐条钉住了。
+
+classifyLocalSync 的判定顺序**不许重排**：
+missing → path-mismatch → not-git → fatal → detached → no-upstream → fetchError →
+ahead/behind 为 null → diverged → behind → ahead → up-to-date。
+其中 **fetchError 必须排在 behind/ahead 之前**：否则一次联网失败会拿过期的
+`origin/*` 引用算出一个"已是最新"，界面上一片祥和，用户以为查过了。
+
+decideUpdate 返回判别式联合而不是字符串哨兵，顺序同样不许重排：
+`diverged` 先于 `dirty`（分叉时快进永远不可能成功，说"你有本地改动"是把人引偏）；
+`behind > 0` 时才看 dirty（behind 为 0 时工作区脏不脏与"要不要更新"无关，
+那条脏信息仍留在 status 里由徽章显示为「已是最新 · 有本地改动」）；
+`ahead > 0 && behind === 0` → up-to-date（本地多出来的提交不构成"要更新"）。
+
+parseAheadBehind 解析 `rev-list --left-right --count` 的输出（`"0\t3"`，左=领先、
+右=落后）。切不出**恰好两个非负整数**就返回 null，不猜——猜出来的数字会被当成真的
+显示给用户。
+
 ## src/main/ai.ts
 export function summarize(readme: string): Promise<string>
 export function classify(repo: Repo): Promise<AiCategory>
 export function normalizeCategory(text: string): AiCategory
 export function enrichRepos(repos: Repo[]): Promise<Repo[]>
+export function getEnrichProgress(): AiEnrichProgress
 export function generateReport(repos: Repo[], releases?: RepoRelease[]): Promise<string>
 export function analyzeCollection(digest: string): Promise<CollectionAnalysis>
 export function planSearch(query: string): Promise<SearchPlan | null>
@@ -154,6 +217,15 @@ export function testConnection(): Promise<AiConnectionResult>
 
 说明：enrichRepos 内部用 p-limit 3 并发跑 summarize + classify，
 结果写回 store.saveRepos() 并返回完整列表（前端只调一次，不要在前端循环调用）。
+
+getEnrichProgress 是**同步的内存查询**（返回副本），供渲染进程在补全进行中按固定
+间隔轮询（IPC.AI_ENRICH_PROGRESS，见 README 的"只有 invoke"一节）。返回
+`{ running, done, total }`：`done` 在每个仓库真正跑完之后 +1，不提前报数；
+`total` 是本批收到的仓库数，**0 表示总数还未知**（不是"0 个仓库"）。
+这批结束时（**成功、部分失败、整批抛错三种结局都算**）立即复位成
+`{ running:false, done:0, total:0 }`——渲染进程在这条 invoke 返回后还会再问一次，
+读到的必须是"没在跑"，绝不能停在满格上冒充"这次刚跑完"。MOCK_MODE 下不另造假进度
+（全项目只有 mock.ts 一个假数据源）。
 
 refreshAiConfigCache 读 store 里存的 AI 配置再调 config.setAiOverride，是**同步**的。
 调用点有三处：app.whenReady() 启动时一次、store:saveAiConfig 与 store:clearAiKey 两条
@@ -226,6 +298,7 @@ export function getState(): AuthState
 export function startDeviceFlow(): Promise<DeviceFlowInfo>
 export function waitForLogin(): Promise<LoginOutcome>
 export function cancelDeviceFlow(): void
+export function getViewer(): Promise<GithubViewer>
 export function dispose(): void
 
 说明：GitHub OAuth Device Flow（无需 client_secret，client id 来自环境变量
@@ -233,4 +306,41 @@ GITHUB_OAUTH_CLIENT_ID）。waitForLogin 只 resolve 不 reject，取消 / 超�
 正常结局，走 LoginOutcome 的 data 分支返回。token 绝不进渲染进程，LoginOutcome 只带
 AuthUser。MOCK_MODE=true 时不提供该能力（AuthState.available 恒为 false），
 因为 mock.ts 是全项目唯一的假数据源，这里不另造一套假的设备流。
-dispose() 挂在 app.on('before-quit') 上，清掉挂起的轮询定时器。
+dispose() 挂在 app.on('before-quit') 上，清掉挂起的轮询定时器。getViewer 是**后加的**：token 才是唯一长期存在的东西，AuthUser 只在登录成功那一刻
+随 LoginOutcome 回来过一次——重启之后主进程手里只剩一条 token，而侧边栏的账号块
+要显示头像与昵称。所以用 token 现查一次 `GET /user`。**不抛错**：三种"没拿到"按
+GithubViewer.reason 如实区分（no-token 本来就没登录 / unavailable 没配 Client ID
+或 Mock 模式 / error 有 token 但这次取不到），因为这是一条"页面挂载就会调"的通道，
+抛错在前端 unwrap() 里只会变成一条用户什么也做不了的红 toast。401 单独换成人话
+（「保存的 Token 已失效…重新登录一次即可」）——token 过期与"没登录"长得一模一样，
+而用户的下一步动作完全不同。
+
+## src/main/logBuffer.ts
+export const LOG_BUFFER_LIMIT: number
+export function installLogCapture(): void
+export function getLogSnapshot(): LogSnapshot
+export function clearLogs(): void
+
+说明：主进程 console 的**展示用**内存环形缓冲，给界面「运行日志」页轮询取走
+（IPC.LOG_TAIL / LOG_CLEAR）。之所以需要它：Electron 主进程的 console 只写到启动它的
+终端，用户双击图标启动时根本没有终端可看。
+
+三条边界（改这个文件之前先读，写在文件头部注释里）：
+- **只镜像，不接管**：包装后的函数先记缓冲、再原样委托给原始实现（`console.log.bind(console)`
+  捕获，不依赖调用方 this），终端里看到的东西必须**逐字不变**；记录这一步整个包在 try/catch 里，
+  采集失败只丢这一条缓冲，绝不连累输出本身。
+- **只收主进程**：渲染进程的 console 有自己的开发者工具，而且本项目只有 invoke、
+  没有 main→renderer 推送，收不过来也没必要。
+- **被挤掉的条数如实报**：`getLogSnapshot()` 的 `dropped` 原样交给界面显示「已丢弃 N 条」，
+  悄悄吞掉会让「日志看起来是连续的」变成一句谎。上限 500 条，超限 shift 并累加 dropped。
+
+另外两条实现约定：
+- `record()` **只用数组操作、绝不调 console**，否则包装器调回自己就无限递归。
+- `seq` 由模块级 `nextSeq` 单调递增，**`clearLogs()` 不重置它**：seq 的契约是「本会话内
+  单调递增」，渲染进程靠它判断有没有新条目；清空后从头编号会让旧 seq 与新 seq 撞上，
+  去重逻辑就会把刚来的新日志当旧的丢掉。`total` / `dropped` 则随 clearLogs 一起归零
+  （界面上的「共 N 条」要能重置）。
+- 拼行用 `util.inspect`（`[object Object]` 对排查毫无用处），并过一遍 `SECRET_RE` 脱敏：
+  `ghp_…` / `github_pat_…` / `sk-…` 整体替换成 `***`，只替换 token 片段、不动其余文字——
+  这一栏是要展示、要能被复制走的，主进程日志里恰恰会带上 Token 与 AI Key。
+- `installLogCapture()` **幂等**（`installed` 标志），热重载或别的模块想确保已装时重复调用只装一次。
