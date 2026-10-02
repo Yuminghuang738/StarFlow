@@ -209,8 +209,8 @@ tasks:
   weekActivity 里写死的 `'未分类'` 换成 collectionStats 的 UNCATEGORIZED_LABEL
 - ~~本分支基于**未合并**的 feat/ai-endpoint-agnostic（PR #31），若开 PR 到 main 会带上
   PR #31 的改动，需在描述里显著标注~~ → **已不成立**：PR #31 已合并进 main
-  （origin/main 的 c8b9442 "Merge pull request #31"），本分支相对 origin/main 的 76 个
-  提交全部是夜间优化，开 PR 到 main 是干净的，描述里不必再提堆叠。
+  （origin/main 的 c8b9442 "Merge pull request #31"），本分支相对 origin/main 的 78 个
+  提交（PR #32 创建时的数字）全部是夜间优化，开 PR 到 main 是干净的，描述里不必再提堆叠。
 - IPC 表面三处一致（R37 顺手核对）：shared/ipc.ts 通道数 = index.ts handle() 调用数
   = preload 的 invoke 数 = 43，没有"声明了没注册/注册了没暴露"的通道
 - 全量自检口径（R26–R33 之后跑过，全绿）：
@@ -230,8 +230,8 @@ tasks:
   `NIGHT_STATE.md` 与 `OPTIMIZATION_LOG.md` 都是最新的。
 - 本轮（Phase 1 T1–T7 + Phase 2 R1–R52）全部落在
   `night/auto-optimize-20261002-0019`，相对 origin/main 领先 76 个提交。
-- **没有推送、也没有开 PR**：推送是对外动作，等你的话。要开 PR 的话这个分支是干净的
-  （PR #31 早已合并进 main，不必再标注堆叠）。
+- **已推送并开 PR #32**：https://github.com/Yuminghuang738/StarFlow/pull/32
+  （base = main，MERGEABLE，73 个文件 +7976/−712；由用户在收尾后要求开，等他合并）
 - 未修的东西都写在上面的「已知的收尾事项」里（6 条），另有一条只有主进程自检能覆盖、
   组件层一条自检都没有——这是本仓库当前最大的盲区：**渲染进程没有 DOM 测试环境**，
   这一半的缺陷只能靠人工验收，本轮里 R46–R52 有 6 轮属于这一半。
