@@ -5,7 +5,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, ipcMain, Menu } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { IpcResult, Repo, LocalState, AiConfigPatch } from '@shared/types'
+import type { IpcResult, Repo, LocalState, AiConfigPatch, LocalUpdateOutcome } from '@shared/types'
 import * as github from './github'
 import * as local from './local'
 import * as ai from './ai'
@@ -14,7 +14,13 @@ import * as report from './report'
 import * as recommend from './recommend'
 import * as tracker from './tracker'
 import * as auth from './auth'
+import * as log from './logBuffer'
 import { isMockMode } from './config'
+
+// ⚠️ 尽可能早装：把 console 的镜像缓冲装到模块顶层（import 之后立刻），
+// 越往后拖越会漏掉启动期的日志——而"启动时报了什么错"恰恰是这一栏最主要的使用场景。
+// 调用幂等，热重载或别处再调一次不会重复包装。
+log.installLogCapture()
 
 // ESM 下没有 __dirname，用 import.meta.url 推导
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -61,7 +67,7 @@ function handle<T>(channel: string, fn: AnyFn<T>): void {
 }
 
 // ============================================================
-// 43 个通道，一个都不能少也不能多
+// 49 个通道，一个都不能少也不能多
 // （自检办法：src/shared/ipc.ts 里的通道数与本文件的 handle() 调用数必须相等）
 // ============================================================
 
@@ -167,10 +173,39 @@ function registerHandlers(): void {
   // 从而绕开它自己造一套（或在 UI 上干脆不给取消入口）。
   handle(IPC.LOCAL_CANCEL_CLONE, (fullName: string) => local.cancelClone(fullName))
 
+  // 检查每个已 clone 仓库落后上游多少。结果只进内存、不落盘（LocalState 不动），
+  // 与 LOCAL_CLONE_PROGRESS 同属"查询型"通道。并发与单仓库失败隔离都在 local.ts 里。
+  handle(IPC.LOCAL_CHECK_UPDATES, async () => local.checkAllLocalSync(await store.getRepos()))
+
+  // 快进更新一个本地副本。与 LOCAL_REMOVE_CLONE 同一约定：只收 fullName，
+  // 路径由主进程从 store 查出来，渲染进程没有机会指定任意目录。
+  handle(IPC.LOCAL_UPDATE_CLONE, async (fullName: string) => {
+    const repos = await store.getRepos()
+    const path = repos.find((r) => r.full_name === fullName)?.local?.cloned_path
+
+    // 记录没了 = 界面与主进程脱节（可能刚被对账清掉）。返回 refused-path 而不是抛错：
+    // "更新全部"要能对每个仓库逐条报账，一条抛错不能把整批带塌。
+    if (!path) {
+      return {
+        full_name: fullName,
+        kind: 'refused-path',
+        pulled: 0,
+        status: null,
+        detail: '本地记录里没有该仓库的克隆路径'
+      } satisfies LocalUpdateOutcome
+    }
+
+    return local.updateLocalClone(fullName, path)
+  })
+
   // AI
   handle(IPC.AI_SUMMARIZE, (readme: string) => ai.summarize(readme))
   handle(IPC.AI_CLASSIFY, (repo: Repo) => ai.classify(repo))
   handle(IPC.AI_ENRICH_REPOS, (repos: Repo[]) => ai.enrichRepos(repos))
+  // 补全进度：纯内存的同步查询，不会失败也不会阻塞。enrich 是一条跑几分钟的长驻
+  // invoke，在它返回前渲染进程什么都拿不到，所以另开这条通道让渲染进程按固定间隔拉
+  // （与 LOCAL_CLONE_PROGRESS 同一套路，本项目没有 main→renderer 推送）。
+  handle(IPC.AI_ENRICH_PROGRESS, () => ai.getEnrichProgress())
   handle(IPC.AI_GENERATE_REPORT, (repos: Repo[]) => ai.generateReport(repos))
   // 探针不抛错：失败也以 { ok: true, data: { ok: false, message } } 正常返回，
   // 让设置页能直接把 message 渲染成一行提示，而不是走 IpcResult 的 error 分支弹红 toast。
@@ -205,6 +240,13 @@ function registerHandlers(): void {
   // 周报
   handle(IPC.REPORT_GENERATE, () => report.generate())
 
+  // 运行日志。读的是一块进程内内存（logBuffer 的环状缓冲），是纯查询，不会失败也不会阻塞；
+  // clear 只清这块展示用缓冲，不碰终端里已经打出来的东西，也不碰磁盘。
+  handle(IPC.LOG_TAIL, async () => log.getLogSnapshot())
+  handle(IPC.LOG_CLEAR, async () => {
+    log.clearLogs()
+  })
+
   // 推荐
   handle(IPC.RECOMMEND_SIMILAR, (fullName: string) => recommend.similar(fullName))
   handle(IPC.RECOMMEND_FOR_QUERY, (query: string) => recommend.forQuery(query))
@@ -223,6 +265,10 @@ function registerHandlers(): void {
   // 重新挂载时靠 AUTH_GET_STATE 的 pending 字段恢复并重新挂上等待。
   handle(IPC.AUTH_WAIT_FOR_LOGIN, () => auth.waitForLogin())
   handle(IPC.AUTH_CANCEL_DEVICE_FLOW, () => auth.cancelDeviceFlow())
+  // 当前登录的是谁。侧边栏的账号块要显示头像昵称，而 AuthUser 只在登录成功那一刻
+  // 随 LoginOutcome 回来过一次——重启后主进程手里只剩一条 token，所以只能用 token 现查。
+  // 与上面几条同理不抛错：没登录 / 登录不可用 / 有 token 但取不到，都在返回值里如实区分。
+  handle(IPC.AUTH_GET_USER, () => auth.getViewer())
 
   // 无边框窗口
   // 这四个都对着模块级的 mainWindow 操作（handle() 丢掉了 event，拿不到 sender）。

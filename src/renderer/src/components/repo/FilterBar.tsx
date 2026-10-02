@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AI_CATEGORIES } from '@shared/types'
 import { useRepoStore } from '../../store/repoStore'
+import { useNav } from '../layout/NavContext'
 import { RECENT_WINDOW_DAYS } from '../../lib/collectionStats'
 import {
   DEFAULT_FILTERS,
@@ -36,6 +37,7 @@ export function FilterBar(): React.JSX.Element {
   const repos = useRepoStore((s) => s.repos)
   const filters = useRepoStore((s) => s.filters)
   const setFilters = useRepoStore((s) => s.setFilters)
+  const { current } = useNav()
 
   const [keyword, setKeyword] = useState(filters.keyword)
   // 记录"最后一次由本组件写入 store 的关键词"，用来区分外部重置与用户输入
@@ -50,6 +52,21 @@ export function FilterBar(): React.JSX.Element {
     }, KEYWORD_DEBOUNCE_MS)
     return () => clearTimeout(timer)
   }, [keyword, setFilters])
+
+  // 不在「收藏管理」页时让输入框跟随 store（Manage 的离开沿会把筛选整份清空）。
+  //
+  // 为什么需要它：关键词是防抖 200ms 才写进 store 的。若用户敲完最后一个字就切走，
+  // Manage 清空筛选时 store 的 keyword 可能**本来就是空**（那次输入还没写进去），
+  // 于是下面那个"外部改动同步回输入框"的 effect 不会触发，待触发的那次防抖
+  // 过后仍会把关键词补写回 store——切走再回来筛选又出现了。
+  // 这里在离开页面的那一刻就把本地值拉回 store 当前值，顺带让上面的 effect
+  // 清掉未触发的计时器。放在 FilterBar 而不是 Manage：只有这里持有那个本地值。
+  useEffect(() => {
+    if (current === 'manage') return
+    if (keyword === filters.keyword) return
+    lastPushedKeyword.current = filters.keyword
+    setKeyword(filters.keyword)
+  }, [current, filters.keyword, keyword])
 
   // 外部改动（「重置」、空列表里的重置按钮、其它页面改筛选）要能同步回输入框
   useEffect(() => {

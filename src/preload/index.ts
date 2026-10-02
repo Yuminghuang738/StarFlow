@@ -11,10 +11,15 @@ import type {
   AuthState,
   DeviceFlowInfo,
   LoginOutcome,
+  GithubViewer,
   CloneProgress,
+  LocalSyncStatus,
+  LocalUpdateOutcome,
   AiConfigView,
   AiConfigPatch,
-  AiConnectionResult
+  AiConnectionResult,
+  AiEnrichProgress,
+  LogSnapshot
 } from '@shared/types'
 import type { CollectionAnalysis } from '@shared/ai-providers'
 import type { RecommendForYou } from '@shared/recommend'
@@ -53,7 +58,14 @@ const api = {
     pruneClones: (): Promise<IpcResult<string[]>> => ipcRenderer.invoke(IPC.LOCAL_PRUNE_CLONES),
     // true = 确实中止了一个在跑的克隆；false = 本来就没有人在跑（不算错）
     cancelClone: (fullName: string): Promise<IpcResult<boolean>> =>
-      ipcRenderer.invoke(IPC.LOCAL_CANCEL_CLONE, fullName)
+      ipcRenderer.invoke(IPC.LOCAL_CANCEL_CLONE, fullName),
+    // 每个已 clone 仓库落后上游多少。只回已 clone 的那些，结果不落盘
+    checkUpdates: (): Promise<IpcResult<LocalSyncStatus[]>> =>
+      ipcRenderer.invoke(IPC.LOCAL_CHECK_UPDATES),
+    // 快进更新一个本地副本。kind 为 refused-* 表示预期内的拒绝（本地有改动/已分叉等），
+    // 不是失败——渲染进程要按后果措辞，不要一律说成"更新失败"
+    updateClone: (fullName: string): Promise<IpcResult<LocalUpdateOutcome>> =>
+      ipcRenderer.invoke(IPC.LOCAL_UPDATE_CLONE, fullName)
   },
   ai: {
     summarize: (readme: string): Promise<IpcResult<string>> =>
@@ -62,6 +74,10 @@ const api = {
       ipcRenderer.invoke(IPC.AI_CLASSIFY, repo),
     enrichRepos: (repos: Repo[]): Promise<IpcResult<Repo[]>> =>
       ipcRenderer.invoke(IPC.AI_ENRICH_REPOS, repos),
+    // 补全进度。enrich 是一条跑几分钟的长驻 invoke，只能另开一条通道轮询
+    // （与 local.getCloneProgress 同一套路；本项目没有 main→renderer 推送）
+    enrichProgress: (): Promise<IpcResult<AiEnrichProgress>> =>
+      ipcRenderer.invoke(IPC.AI_ENRICH_PROGRESS),
     generateReport: (repos: Repo[]): Promise<IpcResult<string>> =>
       ipcRenderer.invoke(IPC.AI_GENERATE_REPORT, repos),
     // 探针：不抛错，失败也以 { ok: false, message } 正常返回
@@ -91,6 +107,12 @@ const api = {
   report: {
     generate: (): Promise<IpcResult<WeeklyReport>> => ipcRenderer.invoke(IPC.REPORT_GENERATE)
   },
+  // 运行日志：主进程 console 的镜像缓冲。读的是内存，页面可轮询；
+  // clear 只清缓冲，不影响终端输出
+  log: {
+    tail: (): Promise<IpcResult<LogSnapshot>> => ipcRenderer.invoke(IPC.LOG_TAIL),
+    clear: (): Promise<IpcResult<void>> => ipcRenderer.invoke(IPC.LOG_CLEAR)
+  },
   recommend: {
     similar: (fullName: string): Promise<IpcResult<Repo[]>> =>
       ipcRenderer.invoke(IPC.RECOMMEND_SIMILAR, fullName),
@@ -113,7 +135,10 @@ const api = {
     waitForLogin: (): Promise<IpcResult<LoginOutcome>> =>
       ipcRenderer.invoke(IPC.AUTH_WAIT_FOR_LOGIN),
     cancelDeviceFlow: (): Promise<IpcResult<void>> =>
-      ipcRenderer.invoke(IPC.AUTH_CANCEL_DEVICE_FLOW)
+      ipcRenderer.invoke(IPC.AUTH_CANCEL_DEVICE_FLOW),
+    // 用已保存的 token 现查一次当前账号（头像/昵称）。不抛错：没登录、登录不可用、
+    // 有 token 但取不到，三种情况都在 GithubViewer.reason 里如实区分
+    getUser: (): Promise<IpcResult<GithubViewer>> => ipcRenderer.invoke(IPC.AUTH_GET_USER)
   },
   // 无边框窗口。frame:false 之后原生按钮没了，关闭/最小化/最大化只能走这里
   window: {

@@ -7,7 +7,7 @@ import { CloneProgressBar } from './CloneProgressBar'
 import { formatRelative } from './repoFormat'
 
 /**
- * 仓库行右侧的操作按钮（Unstar / Fork / Clone / 打开目录）。
+ * 仓库行右侧的操作按钮（Unstar / Fork / Clone / 打开目录 / 更新）。
  *
  * ⚠️ Toast 归属：成功与失败的提示全部由 repoStore 内部弹出，这里一个都不弹。
  * 本组件只负责两件事：
@@ -22,6 +22,14 @@ export function RepoActions({ repo }: { repo: Repo }): React.JSX.Element {
   const openDir = useRepoStore((s) => s.openDir)
   const removeLocal = useRepoStore((s) => s.removeLocal)
   const cancelClone = useRepoStore((s) => s.cancelClone)
+  const updateLocal = useRepoStore((s) => s.updateLocal)
+  /**
+   * 这一行是否正在「更新本地副本」，以及是否有「更新全部」在跑。
+   * 订阅的是 `updatingFullNames[fullName] === true` 这个**布尔原语**，不是整个
+   * Record——后者每次任意仓库变化都会换新对象，会让所有行一起重渲染。
+   */
+  const updating = useRepoStore((s) => s.updatingFullNames[repo.full_name] === true)
+  const updatingAll = useRepoStore((s) => s.updatingAll)
   /**
    * 真的在跑克隆的那个仓库（见 repoStore 里这个字段的说明）。
    *
@@ -123,6 +131,23 @@ export function RepoActions({ repo }: { repo: Repo }): React.JSX.Element {
             load() 时把 cloned_path 清掉，这一行自然回到 [Clone]。 */}
         {clonedPath ? (
           <>
+            {/* 快进更新。**刻意不按状态预先隐藏**：分叉 / 有本地改动 / 无上游的行也会
+                渲染这个按钮，点下去会拿到一句明确的拒绝（见 store 的 toast 文案）。
+                按状态藏按钮的话，用户只会以为"这行不给更新"，却不知道为什么。
+                也没做「更新中」的百分比进度——进度条那条通道属于 clone，混用会串味。 */}
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={busy || updatingAll}
+              onClick={() => void run('updateLocal', () => updateLocal(repo.full_name))}
+              title={
+                updatingAll
+                  ? '「更新全部」正在进行，等它跑完再单独更新这一个'
+                  : 'git fetch + git merge --ff-only，不会生成合并提交'
+              }
+            >
+              {updating ? '更新中…' : '更新'}
+            </Button>
             <Button
               size="sm"
               variant="ghost"

@@ -67,6 +67,20 @@ export function IconCalendar(): React.JSX.Element {
   )
 }
 
+/**
+ * 运行日志：一叠横向短行（列表）＋ 一个光标块。
+ * 刻意不用"终端窗口"那种外框——在这个尺寸下外框会吃掉一半的描边细节，
+ * 看起来就只是一个方框。
+ */
+export function IconLog(): React.JSX.Element {
+  return (
+    <svg className="h-[18px] w-[18px]" {...ICON_PROPS}>
+      <path d="M4 6.5h9M4 11.5h16M4 16.5h11" />
+      <path d="M18.6 5.6h1.8" strokeWidth="2.4" />
+    </svg>
+  )
+}
+
 export function IconSettings(): React.JSX.Element {
   return (
     <svg className="h-[18px] w-[18px]" {...ICON_PROPS}>
@@ -82,5 +96,6 @@ export const NAV_ICONS: Record<AppTab, () => React.JSX.Element> = {
   manage: IconStar,
   similar: IconSparkle,
   report: IconCalendar,
+  logs: IconLog,
   settings: IconSettings
 }

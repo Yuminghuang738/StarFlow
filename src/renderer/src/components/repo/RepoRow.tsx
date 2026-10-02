@@ -1,6 +1,7 @@
 import type { Repo } from '@shared/types'
 import { RepoActions } from './RepoActions'
 import { RepoExplain } from './RepoExplain'
+import { SyncBadge } from './SyncBadge'
 import { formatRelative, formatStars, languageColor } from './repoFormat'
 
 /**
@@ -84,6 +85,10 @@ export function RepoRow({ repo, index = 0 }: { repo: Repo; index?: number }): Re
           <span className="tabular-nums">★ {formatStars(repo.stargazers_count)}</span>
 
           <span title={repo.starred_at}>{formatRelative(repo.starred_at)} Star</span>
+
+          {/* 本地副本的同步状态。**只在已 clone 的行上出现**——没克隆就无所谓
+              落不落后，画一个「未检查」出来只会让人以为漏了什么。 */}
+          {repo.local?.cloned_path ? <SyncBadge fullName={repo.full_name} /> : null}
 
           {topics.map((t) => (
             <span

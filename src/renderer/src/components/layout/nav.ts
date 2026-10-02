@@ -5,7 +5,14 @@
  * 两边都要用 AppTab 和这份清单，谁定义都会绕回去。
  */
 
-export type AppTab = 'recommend' | 'overview' | 'manage' | 'similar' | 'report' | 'settings'
+export type AppTab =
+  | 'recommend'
+  | 'overview'
+  | 'manage'
+  | 'similar'
+  | 'report'
+  | 'logs'
+  | 'settings'
 
 export interface NavItem {
   key: AppTab
@@ -28,5 +35,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { key: 'manage', label: '收藏管理', hint: '筛选、Fork、Clone 全部 Star' },
   { key: 'similar', label: '为你推荐', hint: '从你 Star 过的仓库出发，推荐可能喜欢的' },
   { key: 'report', label: '每周回顾', hint: '本周新增 Star 的图表与 AI 总结' },
+  // 放在「每周回顾」与「设置」之间：它是排查问题时才去的地方，与设置同属"配置/维护"这一侧，
+  // 不该插在几个日常浏览板块中间。
+  { key: 'logs', label: '运行日志', hint: '主进程的运行日志，出错时看这里发生了什么' },
   { key: 'settings', label: '设置', hint: '主题、GitHub Token、AI 配置' }
 ]

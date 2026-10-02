@@ -1,7 +1,7 @@
 // mock.ts 是全项目唯一的假数据源，所有业务模块的 Mock 分支都调这里。
 // 严禁调用 octokit / openai / simple-git；严禁在本文件读写文件或数据库（那是 store.ts 的职责）。
 
-import type { Repo, Release, Commit, AiCategory } from '@shared/types'
+import type { Repo, Release, Commit, AiCategory, LocalSyncStatus, LocalUpdateOutcome } from '@shared/types'
 import mockData from '../../mock-data.json'
 
 // mock-data.json 的 ai_category 被 TS 推断成宽泛的 string，这里收敛回契约类型
@@ -374,4 +374,169 @@ export function mockCollectionAnalysis(): string {
     '不过有一批仓库收藏之后再没被碰过，可以挑几个真正用得上的 clone 到本地，' +
     '让收藏夹变成工作台。'
   )
+}
+
+/* ------------------------------------------------------------------ */
+/* 本地 clone 同步状态的 mock                                          */
+/*                                                                     */
+/* 演示模式下的 clone 不建 .git（只写一个 README），主进程无法真的探测  */
+/* 同步状态。按项目规则，假数据只允许由本文件伪造，所以 local.ts 的     */
+/* mock 分支委派到这里，绝不自己编。                                    */
+/*                                                                     */
+/* 结果按 full_name 的稳定哈希决定，**不用 Math.random**：同一个仓库在  */
+/* 每次演示里必须显示同一个状态，否则"更新之后再检查"会自相矛盾。       */
+/* ------------------------------------------------------------------ */
+
+/** 已经被「更新」过的仓库，检查时按已是最新返回，保证 mock 内部自洽 */
+const mockUpdated = new Set<string>()
+
+function stableHash(s: string): number {
+  let h = 0
+  for (const ch of s) {
+    h = (Math.imul(h, 31) + (ch.codePointAt(0) ?? 0)) >>> 0
+  }
+  return h
+}
+
+export function mockLocalSync(fullName: string): LocalSyncStatus {
+  const checkedAt = new Date().toISOString()
+  const base = { full_name: fullName, checkedAt, dirty: false } as const
+
+  if (mockUpdated.has(fullName)) {
+    return {
+      ...base,
+      state: 'up-to-date',
+      branch: 'main',
+      upstream: 'origin/main',
+      ahead: 0,
+      behind: 0,
+      detail: null
+    }
+  }
+
+  switch (stableHash(fullName) % 6) {
+    case 0:
+      return {
+        ...base,
+        state: 'up-to-date',
+        branch: 'main',
+        upstream: 'origin/main',
+        ahead: 0,
+        behind: 0,
+        detail: null
+      }
+    case 1:
+      return {
+        ...base,
+        state: 'behind',
+        branch: 'main',
+        upstream: 'origin/main',
+        ahead: 0,
+        behind: 3,
+        detail: null
+      }
+    case 2:
+      return {
+        ...base,
+        state: 'behind',
+        branch: 'main',
+        upstream: 'origin/main',
+        ahead: 0,
+        behind: 12,
+        dirty: true,
+        detail: null
+      }
+    case 3:
+      return {
+        ...base,
+        state: 'ahead',
+        branch: 'main',
+        upstream: 'origin/main',
+        ahead: 2,
+        behind: 0,
+        detail: null
+      }
+    case 4:
+      return {
+        ...base,
+        state: 'diverged',
+        branch: 'main',
+        upstream: 'origin/main',
+        ahead: 1,
+        behind: 4,
+        detail: '本地领先 1、落后 4，已分叉'
+      }
+    default:
+      return {
+        ...base,
+        state: 'no-upstream',
+        branch: 'main',
+        upstream: null,
+        ahead: null,
+        behind: null,
+        detail: '分支 main 没有跟踪分支'
+      }
+  }
+}
+
+export function mockUpdateLocal(fullName: string): LocalUpdateOutcome {
+  const before = mockLocalSync(fullName)
+
+  switch (before.state) {
+    case 'up-to-date':
+    case 'ahead':
+      return { full_name: fullName, kind: 'up-to-date', pulled: 0, status: before, detail: null }
+    case 'behind': {
+      if (before.dirty) {
+        return {
+          full_name: fullName,
+          kind: 'refused-dirty',
+          pulled: 0,
+          status: before,
+          detail: '本地有未提交的改动，已保留你的修改，未做更新'
+        }
+      }
+      mockUpdated.add(fullName)
+      const after = mockLocalSync(fullName)
+      return {
+        full_name: fullName,
+        kind: 'updated',
+        pulled: before.behind ?? 0,
+        status: after,
+        detail: null
+      }
+    }
+    case 'diverged':
+      return {
+        full_name: fullName,
+        kind: 'refused-diverged',
+        pulled: 0,
+        status: before,
+        detail: '本地与上游都有各自的提交，快进无法完成'
+      }
+    case 'no-upstream':
+      return {
+        full_name: fullName,
+        kind: 'refused-no-upstream',
+        pulled: 0,
+        status: before,
+        detail: '当前分支没有跟踪分支'
+      }
+    case 'detached':
+      return {
+        full_name: fullName,
+        kind: 'refused-detached',
+        pulled: 0,
+        status: before,
+        detail: '当前处于游离 HEAD，没有分支可以快进'
+      }
+    default:
+      return {
+        full_name: fullName,
+        kind: 'refused-path',
+        pulled: 0,
+        status: before,
+        detail: '本地副本不在或不是 git 工作树'
+      }
+  }
 }

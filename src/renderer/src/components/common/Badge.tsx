@@ -1,11 +1,14 @@
 import { cn } from '../../lib/cn'
 
-type Tone = 'default' | 'success' | 'warning' | 'muted'
+type Tone = 'default' | 'success' | 'warning' | 'danger' | 'muted'
 
 const TONE_CLASS: Record<Tone, string> = {
   default: 'bg-primary/15 text-primary',
   success: 'bg-success/15 text-success',
   warning: 'bg-warning/15 text-warning',
+  // 与 warning 区分开：warning 是"需要注意但没坏"，danger 是"状态本身就不对"
+  // （如本地仓库已分叉 / 目录对不上），不该和"落后几个提交"共用一种颜色。
+  danger: 'bg-danger/15 text-danger',
   muted: 'bg-surface-2 text-fg-muted'
 }
 

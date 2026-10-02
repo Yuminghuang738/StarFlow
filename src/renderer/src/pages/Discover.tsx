@@ -33,13 +33,40 @@ export function Discover(): React.JSX.Element {
   const searching = useRecommendStore((s) => s.searching)
   const searchError = useRecommendStore((s) => s.searchError)
   const search = useRecommendStore((s) => s.search)
+  const resetSearch = useRecommendStore((s) => s.resetSearch)
 
   // 输入框是受控的，但只在提交时真正搜；所以要一个本地态承接"正在输入"
   const [draft, setDraft] = useState(query)
 
+  // 输入框里当前有没有内容（只有空白也算空）。结果区与状态行都以它为准：
+  // 页面是保活的（切走只 display:none，不卸载），上一次的结果不会因为切 tab 而消失，
+  // 所以"框里空着就什么都不显示"必须由这里主动保证，不能指望页面重挂载。
+  const hasQuery = draft.trim() !== ''
+
   function run(q: string): void {
     setDraft(q)
     void search(q)
+  }
+
+  /**
+   * 输入变化。
+   *
+   * - 清空（含只剩空白）= 立刻 resetSearch：它会把请求序号 +1、作废在飞的搜索，
+   *   并清掉上一批结果、状态行与报错。少了这一步，用户清空输入框后前一次搜索的
+   *   响应回来时，会把结果重新填回一个已经空着的输入框下面（页面保活，这些状态
+   *   本来也不会自己消失）。
+   * - 改成别的词（且不是正在搜的那个词）= 同样作废在飞的搜索：那条响应对应的已是
+   *   旧输入，回来时不能填到新输入下面。**已经搜完、正在显示的结果不动**——状态行
+   *   会注明它是按哪个词搜出来的，那不算"对不上"。
+   */
+  function onChangeDraft(value: string): void {
+    setDraft(value)
+    const next = value.trim()
+    if (next === '') {
+      resetSearch()
+      return
+    }
+    if (searching && next !== searchedQuery) resetSearch()
   }
 
   return (
@@ -60,7 +87,7 @@ export function Discover(): React.JSX.Element {
         <Input
           size="md"
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => onChangeDraft(e.target.value)}
           placeholder="例如：能离线跑的中文 OCR 库"
           aria-label="描述你想找的仓库"
           className="min-w-0 flex-1"
@@ -85,7 +112,10 @@ export function Discover(): React.JSX.Element {
             <SkeletonCard key={`searching-${i}`} />
           ))}
         </div>
-      ) : searchedQuery === null ? (
+      ) : !hasQuery || searchedQuery === null ? (
+        // 空输入框（!hasQuery）与"有内容但还没搜过"都回到同一个初始空态：
+        // 输入框空着时，屏幕上一个结果、一行状态都不该留（onChangeDraft 已同步清过 store，
+        // 这里的 !hasQuery 再兜一层，保证任何情况下都不会拿旧结果显示给一个空输入框）。
         <EmptyState
           title="还没有搜索"
           description="没配 AI Key 也能用：那种情况下会直接拿你这句话去搜"
