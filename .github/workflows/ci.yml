@@ -27,7 +27,8 @@ jobs:
         run: |
           # 集成工程师的 GitHub 账号列表（多个用 | 分隔）
           # Yuminghuang738 = 集成工程师，同时也是仓库所有者。
-          INTEGRATORS="Yuminghuang738"
+          # syeu-oss = 所有者授权的自动化协作账号（文档与基建类改动）。
+          INTEGRATORS="Yuminghuang738|syeu-oss"
           if echo "$INTEGRATORS" | grep -qw "${{ github.actor }}"; then
             echo "集成工程师提交，跳过检查"
             exit 0
