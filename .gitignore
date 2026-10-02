@@ -12,3 +12,6 @@ wave0-skeleton.md
 
 # 本地工作区（会话笔记、预览截图等），不进仓库
 .workbuddy/
+
+# README 截图用的浏览器预览沙箱（含大量打桩代码与截图产物），不进仓库
+.preview/
