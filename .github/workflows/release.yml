@@ -1,0 +1,91 @@
+name: release
+
+# 打 tag 即发布：推送 v* 标签后自动构建 Windows 安装包并创建 GitHub Release。
+# 也支持手动触发（需填已存在的 tag，或在 Actions 页面直接跑）。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的 tag（如 v0.1.0）'
+        required: true
+        type: string
+
+# action-gh-release 需要写权限才能创建 Release 并上传产物
+permissions:
+  contents: write
+
+jobs:
+  build-win:
+    name: 构建并发布 Windows 包
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 生成 release notes 需要完整历史
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # 先按 lock 装依赖，再去改 package.json 的 version，避免 npm ci 的lock 一致性校验报错
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 解析版本号（取自 tag，去掉 v 前缀）
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            REF="${{ inputs.tag }}"
+          else
+            REF="${GITHUB_REF_NAME}"
+          fi
+          VERSION="${REF#v}"
+          echo "tag=$REF" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag = $REF, version = $VERSION"
+
+      - name: 让 package.json 版本与 tag 对齐
+        shell: bash
+        run: npm version "${{ steps.ver.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: 构建（typecheck + electron-vite build + electron-builder）
+        env:
+          # 显式禁止 electron-builder 自己发布，产物统一交给下面的 action 上传，
+          # 这样产物与 Release 一一对应，失败时也不会出现"包传了一半"的状态
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm run build
+          npx electron-builder --win --config electron-builder.yml --publish never
+
+      - name: 列出产物
+        shell: bash
+        run: ls -lh dist/
+
+      - name: 暂存产物（便于在 Actions 页面直接下载）
+        uses: actions/upload-artifact@v4
+        with:
+          name: starflow-windows-${{ steps.ver.outputs.version }}
+          path: |
+            dist/*.exe
+            dist/*.blockmap
+            dist/latest.yml
+          if-no-files-found: error
+
+      - name: 发布 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: StarFlow ${{ steps.ver.outputs.version }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: |
+            dist/*.exe
+            dist/*.blockmap
+            dist/latest.yml
