@@ -4,8 +4,10 @@
 // 前置：先跑 npm run build；且本机能访问 github.com。
 import { spawn } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { writeFakeGitHome } from './fake-git-home.mjs'
+import { freshProfileFlag } from './e2e-profile.mjs'
 
 const PORT = 9335
 const BASE = join(process.cwd(), 'out', 'selfcheck', 'e2e-realclone')
@@ -15,17 +17,19 @@ const check = (name, ok, detail = '') => {
   if (!ok) failures++
 }
 
+// 自己清干净再建，不要指望调用方（store-local.mjs 的 runE2E 也会清一次，
+// 这里是防御性的）：留着上一轮的 Hello-World 会让首次 clone 直接返回
+// 「目标目录已存在」，于是「返回完整绝对路径」失败，而紧接着的
+// 「重复克隆应是这个错」反倒**因为同样的原因**通过了——一条断言变红、
+// 另一条假绿，看日志很容易以为是网络问题。
+rmSync(BASE, { recursive: true, force: true })
 mkdirSync(BASE, { recursive: true })
 
 // simple-git 出于安全会剥掉子进程环境里**所有** GIT_ 前缀的变量，所以没法用
 // GIT_CONFIG_* 给 clone 注入配置（在 bash 里手跑 git clone 有效、在应用里必然无效）。
 // 只能让 git 去读一份临时 global config —— 不动用户真实的 ~/.gitconfig。
-const FAKE_HOME = join(process.cwd(), 'out', 'selfcheck', 'fakehome')
-mkdirSync(FAKE_HOME, { recursive: true })
-writeFileSync(
-  join(FAKE_HOME, '.gitconfig'),
-  ['# 自检专用：拦截式网络下关掉 git 的证书吊销检查', '[http]', '\tsslBackend = schannel', '\tschannelCheckRevoke = false', ''].join('\n')
-)
+// 平台相关的键写在 fake-git-home.mjs 里（写死 schannel 会让非 Windows 机器全红）。
+const FAKE_HOME = writeFakeGitHome(join(process.cwd(), 'out', 'selfcheck', 'fakehome'))
 
 const env = {
   ...process.env,
@@ -41,6 +45,8 @@ const child = spawn(
     'node_modules/electron/cli.js',
     '.',
     `--remote-debugging-port=${PORT}`,
+    // 隔离 userData：理由见 e2e-profile.mjs（会真写 token，且不隔离就不可重复）
+    freshProfileFlag('e2e-realclone'),
     '--no-sandbox',
     '--disable-gpu-sandbox',
     '--in-process-gpu'

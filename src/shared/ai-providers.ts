@@ -7,6 +7,22 @@
 // ⚠️ AI_PRESETS 里的模型名会随服务商迭代而过时。这是「点一下就能用」的代价，
 //    缓解手段是界面上模型名始终可编辑。改这张表时请顺手核对各家的当前模型名。
 
+/**
+ * 「AI 收藏画像」的结果。
+ *
+ * 为什么不用 IpcResult 的 error 分支传失败：生成画像是一次**可选的增强**，
+ * 没配 Key 或额度用尽都不该让总览页弹红色 toast、更不该让页面崩掉。
+ * 所以这里把「成功」与「下一步该做什么」都放进 data，调用方永远拿到一个能直接渲染的对象。
+ *
+ * text 与 hint 互斥：有 text 就是成功（hint 为空串），否则 hint 一定是句人话。
+ */
+export interface CollectionAnalysis {
+  /** 生成好的画像文本；失败或未配置时为空串 */
+  text: string
+  /** 没生成出文本时，为什么、以及下一步该做什么 */
+  hint: string
+}
+
 /** 一个服务商预设：点一下就把 baseUrl + model 填进设置页 */
 export interface AiPreset {
   id: string

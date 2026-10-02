@@ -26,7 +26,13 @@ export function AppShell({ current, onNavigate, children }: AppShellProps): Reac
         <TitleBar />
         <div className="flex min-h-0 flex-1">
           <Sidebar current={current} onNavigate={onNavigate} />
-          <main className="min-w-0 flex-1 overflow-y-auto p-6 lg:p-8">{children}</main>
+          {/* scrollbar-gutter:stable 让滚动条**一直占位**。
+              各页内容长短差得多（设置页一屏放得下，收藏管理要滚很久），不留位的话
+              切板块时整块内容会横向抖一下——滚动条突然出现/消失，内容跟着挪十几像素。
+              这是最容易被忽略、但切几个来回就能看出来的廉价感来源。 */}
+          <main className="min-w-0 flex-1 overflow-y-auto p-6 [scrollbar-gutter:stable] lg:p-8">
+            {children}
+          </main>
         </div>
       </div>
     </ToastProvider>

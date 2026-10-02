@@ -25,6 +25,13 @@ export interface RepoStore {
   visibleRepos(): Repo[];
   setFilters(patch: Partial<RepoFilters>): void;
   load(): Promise<void>;
+  // —— 错误字段是两个，别混用 ——
+  // error：最近一次**任何**操作的失败原文（star / clone / saveToken 也会写），供排查用
+  // loadError：**只有 load() 会写**，表示"读取收藏列表这一次"的结果。
+  //   页面的空态分叉（"读失败"还是"确实没有"）必须读它——读 error 会把
+  //   一次 Star 失败渲染成「读取本地数据失败，本地数据都在」
+  error: string | null;
+  loadError: string | null;
   refreshFromGitHub(): Promise<void>;
   enrich(): Promise<void>;
   unstar(fullName: string): Promise<void>;
@@ -36,9 +43,20 @@ export interface RepoStore {
   pruneLocalClones(): Promise<void>;
   // —— 取消克隆（取消克隆 PR 落地）：必须裸调 window.api，不能走 unwrap() ——
   cancelClone(fullName: string): Promise<void>;
+  // cloningFullName：**真的在跑**克隆的那个仓库（null = 没有在跑）。进度条与
+  //   「取消克隆」按钮挂它，不挂 RepoActions 自己的 pendingAction——后者从点下按钮
+  //   就有值，而那时用户还在目录选择框里，主进程的进度记录仍是**上一次**留下的
+  //   那条 100%（local.ts 刻意保留，见 clone-progress 自检），挂上去会显示一条
+  //   满进度 + 上一次的「已用 Ns」，像"这次已经跑完了"。
+  cloningFullName: string | null;
   // —— token：hasToken/saveToken 供设置页使用 ——
-  hasToken(): Promise<boolean>;
-  saveToken(token: string): Promise<void>;
+  // hasToken 返回 null 表示「这一次没读到」，与 false（确实没配置）是两回事，
+  // 页面必须分开显示，否则一次读取失败会装成「未配置」
+  hasToken(): Promise<boolean | null>;
+  // saveToken 返回「这一次到底存进去了没有」（原为 Promise<void>，2026-10 改为 boolean）。
+  // 失败仍然不抛错（toast 由 unwrap 弹），但设置页要拿它决定**能不能清空输入框**——
+  // 清空是一句"成了"，保存失败时照样清空就等于把用户刚粘进来的 token 扔掉。
+  saveToken(token: string): Promise<boolean>;
 }
 
 export const useRepoStore: UseBoundStore<StoreApi<RepoStore>>;
@@ -129,3 +147,8 @@ Linux 没有对应物；`roundedCorners` 在 Linux 上还依赖桌面环境是�
 
 eslint 不禁止 localStorage（`no-restricted-globals` 只拦 `process`/`require`/`__dirname`/
 `__filename`/`Buffer`）。除此之外，渲染进程的持久化一律走 IPC。
+
+`applyTheme(choice)` 返回**「这一次到底记进本机了没有」**（2026-10 从 `void` 改为 `boolean`）。
+写不进去时主题**照样切换**——两个结果都只影响下次启动，所以不能整个报成失败；但设置页
+的主题卡片上写着「并记住你的选择」，静默失败就等于让界面替用户宣布一件没发生的事，
+卡片据此把那句话收回去（与 `saveToken` 返回 boolean 是同一条约定）。

@@ -7,7 +7,7 @@ import { CloneProgressBar } from './CloneProgressBar'
 import { formatRelative } from './repoFormat'
 
 /**
- * 卡片底部的四个操作按钮（Unstar / Fork / Clone / 打开目录）。
+ * 仓库行右侧的操作按钮（Unstar / Fork / Clone / 打开目录）。
  *
  * ⚠️ Toast 归属：成功与失败的提示全部由 repoStore 内部弹出，这里一个都不弹。
  * 本组件只负责两件事：
@@ -22,6 +22,15 @@ export function RepoActions({ repo }: { repo: Repo }): React.JSX.Element {
   const openDir = useRepoStore((s) => s.openDir)
   const removeLocal = useRepoStore((s) => s.removeLocal)
   const cancelClone = useRepoStore((s) => s.cancelClone)
+  /**
+   * 真的在跑克隆的那个仓库（见 repoStore 里这个字段的说明）。
+   *
+   * 进度条与「取消克隆」都挂它、**不挂** pendingAction：pendingAction 从点下按钮就有值，
+   * 而那时用户还在目录选择框里，主进程的进度记录仍是**上一次**克隆留下的那条 100%
+   * ——挂上去就会显示一条满进度 + 上一次的「已用 Ns」，像"这次已经跑完了"。
+   */
+  const cloningFullName = useRepoStore((s) => s.cloningFullName)
+  const cloning = cloningFullName === repo.full_name
 
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false)
@@ -111,7 +120,7 @@ export function RepoActions({ repo }: { repo: Repo }): React.JSX.Element {
 
         {/* Clone 与「打开目录」互斥：已 clone 就只给「打开目录」，不再渲染 Clone。
             没有"副本缺失"的中间态——目录一旦在磁盘上消失，主进程的对账会在下次
-            load() 时把 cloned_path 清掉，卡片自然回到 [Clone]。 */}
+            load() 时把 cloned_path 清掉，这一行自然回到 [Clone]。 */}
         {clonedPath ? (
           <>
             <Button
@@ -144,9 +153,10 @@ export function RepoActions({ repo }: { repo: Repo }): React.JSX.Element {
             >
               {pendingAction === 'clone' ? 'Clone 中…' : 'Clone'}
             </Button>
-            {/* 只在克隆进行中出现的取消按钮，紧挨 Clone。刻意不加 disabled={busy}：
-                clone 期间 busy 恒为 true，加了就等于把按钮永久禁用；也不走 run()。 */}
-            {pendingAction === 'clone' ? (
+            {/* 只在克隆真的开跑之后出现的取消按钮，紧挨 Clone。刻意不加 disabled={busy}：
+                clone 期间 busy 恒为 true，加了就等于把按钮永久禁用；也不走 run()。
+                与进度条同一个判据——目录选择框还开着的时候，没有任何东西可以取消。 */}
+            {cloning ? (
               <Button size="sm" variant="ghost" onClick={onCancelClone}>
                 取消克隆
               </Button>
@@ -155,9 +165,10 @@ export function RepoActions({ repo }: { repo: Repo }): React.JSX.Element {
         )}
       </div>
 
-      {/* 只在克隆进行中挂载：卸载即停止轮询。clone 结束后主进程的记录还在，
-          常挂会一直显示上一次的 100% */}
-      {pendingAction === 'clone' ? <CloneProgressBar fullName={repo.full_name} /> : null}
+      {/* 只在克隆进行中挂载：卸载即停止轮询。判据是 cloning（真的开跑了），不是 pendingAction
+          （那个从点下按钮就有值，包含用户待在目录选择框里的整段时间）——主进程的记录在克隆
+          结束后刻意留着最后一条，早挂上就会读到上一次的 100%。 */}
+      {cloning ? <CloneProgressBar fullName={repo.full_name} /> : null}
 
       <ConfirmDialog
         open={confirmOpen}

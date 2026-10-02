@@ -12,9 +12,10 @@
 // 产物统一放 out/selfcheck/（已 gitignore），不污染仓库。本脚本不接入 CI。
 import { build } from 'esbuild'
 import { spawn } from 'node:child_process'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { writeFakeGitHome } from './fake-git-home.mjs'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 const projectRoot = join(here, '..', '..')
@@ -100,17 +101,11 @@ function electronEnv(extra = {}) {
   return env
 }
 
-/** 拦截式网络（TLS 中间人代理）下给 git 关掉证书吊销检查。
+/** 拦截式网络（TLS 中间人代理）下给 git 放宽证书校验。
  *  simple-git 会剥掉所有 GIT_ 前缀的环境变量，只能让它读一份临时 global config，
- *  不动用户真实的 ~/.gitconfig。 */
+ *  不动用户真实的 ~/.gitconfig。平台相关的键在 fake-git-home.mjs 里。 */
 function ensureFakeHome() {
-  const home = join(outDir, 'fakehome')
-  mkdirSync(home, { recursive: true })
-  writeFileSync(
-    join(home, '.gitconfig'),
-    ['# 自检专用：拦截式网络下关掉 git 的证书吊销检查', '[http]', '\tsslBackend = schannel', '\tschannelCheckRevoke = false', ''].join('\n')
-  )
-  return home
+  return writeFakeGitHome(join(outDir, 'fakehome'))
 }
 
 async function runStub() {
@@ -158,6 +153,8 @@ async function runReal() {
   // 真机：不打桩，让 bundle 里的 import 'electron' 落到真实 Electron 上。
   const out = await bundle('store-local-real-entry.ts', 'store-local-real-bundle.mjs', { stubElectron: false })
   console.log('\n######## 真机：真实 Electron + 真实 safeStorage ########')
+  // 这个入口不需要 --user-data-dir：store-local-real-entry.ts 自己就 mkdtemp 后
+  // app.setPath('userData', ...)，而且 setPath 在启动之后跑，命令行开关压不过它。
   return asFailure(
     await runUntil([electronCli, out], electronEnv({ MOCK_MODE: 'true' }), '== 真实 Electron 全部通过 ==')
   )

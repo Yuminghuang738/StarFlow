@@ -40,6 +40,10 @@ export const IPC = {
   // 连接探针。**不能拿 summarize 当探针**——它在失败时静默降级成空串，永远"成功"。
   // 这条走一次极简调用，并把错误分类成人话返回（不抛错）。
   AI_TEST_CONNECTION: 'ai:testConnection',
+  // 收藏画像：把渲染进程算好的统计摘要交给模型解读。
+  // 入参是**摘要文本**而不是仓库列表——聚合结论只该由本地算出来，模型负责解读、不负责统计。
+  // 与探针同理不抛错：失败与「没配 Key」都以 { text: '', hint } 正常返回。
+  AI_ANALYZE_COLLECTION: 'ai:analyzeCollection',
 
   // 存储
   STORE_GET_REPOS: 'store:getRepos',
@@ -65,6 +69,10 @@ export const IPC = {
   // Star"三个动作，加一条没有消费者的通道纯粹是扩大表面积。AI 的搜索计划也只活在
   // 主进程内部，不跨进程传输。
   RECOMMEND_FOR_QUERY: 'recommend:forQuery',
+  // 为你推荐：不传种子仓库，主进程按**整份收藏**的画像拼查询。入参是「换一批」的
+  // 位移（错开画像里排后面的语言/主题），返回 { items, profile }——profile 要带回
+  // 渲染进程，页面靠它告诉用户这些推荐是凭什么推出来的。
+  RECOMMEND_FOR_YOU: 'recommend:forYou',
 
   // 定时追踪
   TRACKER_START: 'tracker:start',

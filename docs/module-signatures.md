@@ -13,7 +13,9 @@ getEnv() 里只有 openaiKey / openaiBaseUrl / modelName 三个字段会读它�
 优先级是 **界面里填的 > .env > 空串**。之所以要有这么一层，是为了让 ai.client()
 保持同步——它被四个导出函数同步调用，改成 async 会把 async 传染到整条链路。
 覆盖层必须写在 config.ts：store.ts 依赖 config.isMockMode()，反过来 import 会成环。
-调用时机见 ai.refreshAiConfigCache()。**这条通道的落地状态：Phase 0 只有桩。**
+调用时机见 ai.refreshAiConfigCache()。（覆盖层已完整落地，不再是桩。）
+⚠️ `githubToken` 字段**没有任何调用方**，且返回形状冻结所以删不得：GitHub token 走
+store.getToken()（应用内登录或设置页手填），`.env` 里的 GITHUB_TOKEN 不生效。
 
 ## src/main/store.ts
 export function getToken(): Promise<string | null>
@@ -25,6 +27,7 @@ export function updateLocalState(fullName: string, state: Partial<LocalState>): 
 export function clearClonedPath(fullName: string): Promise<void>
 export function clearClonedPaths(fullNames: string[]): Promise<void>
 export function clearToken(): Promise<void>
+export function getAiKey(): Promise<string | null>
 export function getAiConfig(): Promise<AiConfigView>
 export function saveAiConfig(patch: AiConfigPatch): Promise<void>
 export function clearAiKey(): Promise<void>
@@ -34,6 +37,12 @@ export function clearAiKey(): Promise<void>
 - getRepos() 在读到的列表为空且 MOCK_MODE=true 时，用 mockStarred() 的结果做种子并落盘
 - saveToken 优先用 Electron safeStorage 加密后存本地（base64 密文），禁止以任何形式把明文写入磁盘
 - safeStorage.isEncryptionAvailable() 为 false（例如没装 keyring 的 Linux）时，token 只保存在主进程内存中、不写盘，重启后需在设置页重新填写
+- getToken() 在密文解不开时（换机器 / keyring 变更）降级返回 null，**那是它那一侧的取舍**：
+  它的调用方 github.client() 只关心"发不发得出请求"，两种情况没有区别
+- hasToken() 问的却是另一个问题——「用户到底配过没有」——所以它在「文件里有密文、这一次
+  却解不开」时**抛出可读错误**而不是返回 false。签名没变（它本来就为读盘失败抛错），
+  渲染进程那套三态徽章直接接住：IPC 回 { ok: false } → 设置页显示「读不到」+ 原因 + 重试。
+  返回 false 仍然只表示一件事：**确实没配过**（文件里没有 token、内存里也没有）
 - clearToken 先写盘、再清内存（与 saveToken 相反），保证拿不到「磁盘上还有、内存已清」的中间态；不清 reposCache
 - clearClonedPath / clearClonedPaths 只删 local.cloned_path，其余 local 字段（fork 标记等）原样保留。
   必须是独立函数：updateLocalState 会显式过滤掉值为 undefined 的键，所以
@@ -54,7 +63,11 @@ saveToken 的范式——safeStorage 可用就写 base64 密文并清掉内存�
 
 ⚠️ **AiConfigView 里没有 apiKey 字段，这是有意的**：契约层面就杜绝回传明文，
 界面上"不回显 key"因此不靠调用方自觉。往这个类型里加字段之前，先读这段。
-（落地状态：Phase 0 只有桩，三个函数都抛「尚未实现」。）
+（落地状态：已全部实现，不再是桩。`getAiKey` 是**主进程内部**读明文的口子
+（`ai.refreshAiConfigCache` 用），绝不能让它的返回值流向渲染进程——跨进程的视图
+只有 `getAiConfig`，而那个类型里没有 apiKey。它的解密失败降级成 null，于是
+`getAiConfig` 会报 `source: 'none'`（界面显示「未配置」），这与"确实没配过"
+分不开——要分开就得给 AiConfigView 加字段，属于动契约，暂时维持。）
 
 ## src/main/mock.ts
 export function mockStarred(): Promise<Repo[]>
@@ -109,9 +122,9 @@ catch 里调 cleanupPartialClone 清掉：cloned_path 只在 clone 成功返回�
 不是抛错——渲染进程因此不必对 IPC 回来的错误文本做子串匹配，类型系统替我们守着。
 
 ⚠️ clone 的 `Promise<string | null>` 是这一版**刚定的**签名：`null` = 已取消。
-在取消克隆那个 PR 落地之前，现有实现只会返回路径、从不返回 null，
-但契约先按最终形态写死，免得两个相位各写一半。
-（落地状态：Phase 0 的 cancelClone 是恒返回 false 的桩。）
+落地状态：已完成——`clone` 会在用户取消时返回 null，`cancelClone` 也真的会中止
+正在跑的 clone（按 fullName 查 AbortController，返回 `true` 表示确实中止了；
+`false` 只表示"那一刻没有人在跑"，是正常竞态，渲染进程不当失败处理）。
 
 removeClone 是本项目唯一会真正删除用户文件的地方，闸门顺序本身即正确性，不要重排：
 ① 先用 lstat 判存在性，不存在就当"已删除"返回 null（必须最先，否则会先撞上"不是 git 工作树"）；
@@ -131,8 +144,11 @@ listMissingCloneRecords 做对账，返回"记录里有、磁盘上却没有"的
 ## src/main/ai.ts
 export function summarize(readme: string): Promise<string>
 export function classify(repo: Repo): Promise<AiCategory>
+export function normalizeCategory(text: string): AiCategory
 export function enrichRepos(repos: Repo[]): Promise<Repo[]>
-export function generateReport(repos: Repo[]): Promise<string>
+export function generateReport(repos: Repo[], releases?: RepoRelease[]): Promise<string>
+export function analyzeCollection(digest: string): Promise<CollectionAnalysis>
+export function planSearch(query: string): Promise<SearchPlan | null>
 export function refreshAiConfigCache(): void
 export function testConnection(): Promise<AiConnectionResult>
 
@@ -148,12 +164,19 @@ handler 各一次。之所以把刷新挂在 handler 里而不是只挂启动路
 **分类成人话**（未配置 key / 连不上 baseUrl / key 无效 / baseUrl 或 model 不对），
 以 `{ ok: false, message }` 正常返回而**不抛错**，设置页直接渲染 message 即可。
 MOCK_MODE=true 时不发真实请求，直接返回「Mock 模式不发起真实请求」。
-（落地状态：Phase 0 只有桩——refreshAiConfigCache 是空函数，testConnection 抛「尚未实现」。）
+（落地状态：这一节现在**全部已实现**。早先那句"Phase 0 只有桩——refreshAiConfigCache 是
+空函数、testConnection 抛尚未实现"早已不成立：refreshAiConfigCache 真的会读 store 再写
+config 的覆盖层，testConnection 真的发一次 `max_tokens: 1` 的探针并分类错误。）
 
 ## src/main/ai-prompts.ts
 export function summarizePrompt(readme: string): string
 export function classifyPrompt(repo: Repo): string
-export function reportPrompt(repos: Repo[]): string
+export function reportPrompt(repos: Repo[], releases?: RepoRelease[]): string
+export function collectionAnalysisPrompt(digest: string): string
+export function searchPlanPrompt(query: string): string
+export function parseSearchPlan(raw: string | null | undefined): SearchPlan | null
+export const README_LIMIT: number
+export const REPORT_REPO_LIMIT: number
 
 说明：把三处提示词从 ai.ts 里抽出来，做成**纯函数**（无 IO、无副作用、不读环境），
 这样能离线断言 prompt 内容（例如 classify 的 prompt 必须含全部 7 个枚举、
@@ -167,12 +190,36 @@ generateReport 任何失败都要返回兜底文案、绝不抛错。
 ## src/main/report.ts
 export function generate(): Promise<WeeklyReport>
 
+说明：**同一份周报里有两个"周"，不要试图统一**——`weekStart` / `weekEnd` / `newStars`
+是日历周（周一 00:00 UTC 起），而 `dailyStarCount` 的 7 个桶是**从今天往回数的滚动 7 天**
+（与渲染进程 collectionStats 的 RECENT_WINDOW_DAYS 同一个窗口）。两者只有恰好周日才相等，
+所以界面上那张图的标题写「最近 7 天」而不是「本周」。要改就两边一起改，否则同页两个"周"
+会互相打脸。`generate()` 本身只读本地 store；只有 Release 那一段会打 GitHub（失败即跳过，
+不影响周报主体，见 collectWeekReleases）。
+
 ## src/main/recommend.ts
 export function similar(fullName: string): Promise<Repo[]>
+export function forQuery(query: string): Promise<Repo[]>
+export function forYou(offset?: number): Promise<RecommendForYou>
+export function buildProfile(corpus: Repo[]): RecommendProfile
+export function buildForYouQueries(profile: RecommendProfile, offset?: number): string[]
+export function buildQuery(plan: SearchPlan | null, rawQuery: string): string
+export function escapeQualifier(value: string): string
+
+说明：三者都是**真实实现**（真实模式下走 Octokit 搜索，Mock 模式下走 mock.ts），
+早先"真实模式仍是占位"的说法已不成立。
+- `similar` 是「挑一个仓库当种子」的旧路径，通道与 preload 接口都保留着，但界面不再用它；
+- `forYou` 用**整份收藏**的画像（buildProfile）拼几条查询，返回值里带 profile，页面据此
+  把推荐理由摊开；结果会过滤掉已经 Star 过的仓库；
+- `forQuery` 是「一句话找仓库」：AI 不可用时 planSearch 返回 null，buildQuery 直接拿
+  原话去搜，不会因此不可用。
 
 ## src/main/tracker.ts
 export function start(): void
 export function stop(): void
+
+说明：**真实模式下仍是占位**——两者都抛 `NOT_IMPLEMENTED`，只有 Mock 模式会真的用
+node-cron 起一个每 5 分钟打一条日志的任务（演示用）。这是本仓库目前唯一未落地的模块。
 
 ## src/main/auth.ts
 export function getState(): AuthState

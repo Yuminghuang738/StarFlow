@@ -1,12 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
-import type { WeeklyReport } from '@shared/types'
+import type { Repo, WeeklyReport } from '@shared/types'
 import { unwrap, ipcErrorMessage, formatStars } from '../lib/api'
+import { useRepoStore } from '../store/repoStore'
+import {
+  RELEASE_CONCURRENCY,
+  pickLatestInWindow,
+  pickWatchlist,
+  weekCategoryStats,
+  type ReleaseHit,
+  type RepoReleaseEntry
+} from '../lib/weekActivity'
 import { Button } from '../components/common/Button'
 import { Card } from '../components/common/Card'
 import { Badge } from '../components/common/Badge'
 import { useChartTheme } from '../components/charts/chartTheme'
 import { weeklyLanguageOption, weeklyTrendBarOption } from '../components/charts/options'
+import { PageContainer, PageHeader } from '../components/layout/PageLayout'
 
 /**
  * 'YYYY-MM-DD'（UTC 口径）→ 'M月D日'。
@@ -70,13 +80,48 @@ function downloadMarkdown(report: WeeklyReport): void {
 }
 
 /**
+ * 查 watchlist 里每个仓库的 Release。
+ *
+ * 刻意**不走 lib/api 的 call()**：那个失败会弹 toast，而这一块是页面的被动增强——
+ * 没配 Token 时 10 个仓库就是 10 条红 toast，把整页刷满。
+ *
+ * 失败降级成空数组，但**降级不等于当成"没动静"**：失败数原样带回去，让调用方
+ * 能把"不知道"和"确实没有"分开显示。只降级不汇报的话，API 全挂时页面上会
+ * 理直气壮地写「本周新版本 0」——那是替用户下的一个结论，而我们其实一无所知。
+ *
+ * 分片串行而不是全并发：收藏一多，一次性打出去十几条请求会撞二级限频。
+ */
+async function loadReleases(watch: Repo[]): Promise<{
+  entries: RepoReleaseEntry[]
+  /** 有多少个仓库的 Release 是**没查到**（而不是确实没有）的 */
+  failed: number
+}> {
+  const out: RepoReleaseEntry[] = []
+  let failed = 0
+  for (let i = 0; i < watch.length; i += RELEASE_CONCURRENCY) {
+    const batch = watch.slice(i, i + RELEASE_CONCURRENCY)
+    const results = await Promise.all(
+      batch.map(async (r): Promise<RepoReleaseEntry> => {
+        const res = await window.api.github.fetchReleases(r.full_name)
+        // 失败记一笔再降级成空数组：不弹 toast（见上面的说明），但也不能让
+        // 「没查到」在下游冒充「确实没有」——那是两件事，卡片上得看得出来。
+        if (!res.ok) failed += 1
+        return { fullName: r.full_name, releases: res.ok ? res.data : [] }
+      })
+    )
+    out.push(...results)
+  }
+  return { entries: out, failed }
+}
+
+/**
  * 首屏骨架。周报一进来就自动生成，AI 那一段要等 1~3 秒，这份占位负责把这段时间填满，
  * 免得用户先看到一个「还没有周报」的空白页、以为要自己点。
  * 结构刻意对着下面的真实排版（三张统计卡 + 一段正文 + 两张图表），切换时不跳版。
  */
 function ReportSkeleton(): React.JSX.Element {
   return (
-    <div className="mt-4 animate-pulse">
+    <div className="animate-pulse">
       <div className="flex gap-3">
         {[0, 1, 2].map((i) => (
           <Card key={i} className="flex-1">
@@ -106,6 +151,21 @@ export function Report(): React.JSX.Element {
   const [report, setReport] = useState<WeeklyReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 「你收藏的项目这周有没有动静」。null = 还在查（与空数组区分开，免得先闪一下空态）
+  const [activity, setActivity] = useState<ReleaseHit[] | null>(null)
+  /**
+   * 这一批 Release 的查询结果里，有多少个是**没查到**的（以及一共查了几个）。
+   *
+   * 光有 activity 不够：查询失败时下游执行的正是「没查到 → 当它这周没动静」，
+   * 于是卡片会理直气壮地写出「本周新版本 0」。那句 0 是个结论，而真实情况是
+   * 一次都没查成（没 Token / 限频 / 断网）——把"不知道"说成"确实没有"，
+   * 正是本项目最忌讳的那类谎。
+   *
+   * 所以要区分三种态：还在查（null）、查完了但全军覆没（显示 —）、
+   * 查到了（显示数字，哪怕数字是 0）。部分失败时数字仍然可信，另给一行提示。
+   */
+  const [releaseFail, setReleaseFail] = useState<{ failed: number; total: number } | null>(null)
+  const totalRepos = useRepoStore((s) => s.repos.length)
   const palette = useChartTheme()
 
   const langOption = useMemo(() => {
@@ -158,29 +218,64 @@ export function Report(): React.JSX.Element {
     void generate()
   }, [generate])
 
+  /**
+   * 报告出来后，去查「你收藏的项目这周有没有发新版本」。
+   *
+   * 依赖 report：点「重新生成」拿到新报告时会重查一遍。cancelled 挡的是
+   * 「上一份报告的结果晚回来覆盖新的」——重新生成期间旧的那批请求还在飞。
+   */
+  useEffect(() => {
+    if (report === null) {
+      setActivity(null)
+      setReleaseFail(null)
+      return
+    }
+    let cancelled = false
+    const watch = pickWatchlist(report)
+    void (async () => {
+      const { entries, failed } = await loadReleases(watch)
+      if (cancelled) return
+      setActivity(
+        pickLatestInWindow(
+          entries,
+          new Date(report.weekStart).getTime(),
+          new Date(report.weekEnd).getTime()
+        )
+      )
+      setReleaseFail({ failed, total: watch.length })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [report])
+
   return (
-    <div className="mx-auto max-w-4xl">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">周报</h1>
-          {report ? (
-            <p className="mt-1 text-sm text-fg-muted">
-              {formatMonthDay(report.weekStart)} ~ {formatMonthDay(report.weekEnd)}
-            </p>
-          ) : null}
-        </div>
-        {report ? (
-          <div className="flex gap-2">
-            <Button variant="primary" onClick={() => void generate()} loading={loading}>
-              重新生成
-            </Button>
-            <Button onClick={() => downloadMarkdown(report)}>导出 Markdown</Button>
-          </div>
-        ) : null}
-      </header>
+    // gap-4 而不是默认的 gap-5：这一页正文里的区块自己也挂着 mt-4，两边都按 16px
+    // 走才整齐（否则标题到正文 20px、正文内部 16px，差 4px 肉眼看得出来）。长页里
+    // 的段落间距本来就该紧一点，这里不跟列表页比。
+    <PageContainer width="medium" className="gap-4">
+      <PageHeader
+        tab="report"
+        title="每周回顾"
+        subtitle={
+          report
+            ? `${formatMonthDay(report.weekStart)} ~ ${formatMonthDay(report.weekEnd)}`
+            : undefined
+        }
+        actions={
+          report ? (
+            <>
+              <Button variant="primary" onClick={() => void generate()} loading={loading}>
+                重新生成
+              </Button>
+              <Button onClick={() => downloadMarkdown(report)}>导出 Markdown</Button>
+            </>
+          ) : undefined
+        }
+      />
 
       {error ? (
-        <Card className="mt-4 border-danger/30 bg-danger/10 text-sm text-danger">
+        <Card className="border-danger/30 bg-danger/10 text-sm text-danger">
           <p className="mb-3">生成失败：{error}</p>
           <Button onClick={() => void generate()}>重试</Button>
         </Card>
@@ -196,14 +291,32 @@ export function Report(): React.JSX.Element {
               <div className="mt-1 text-sm text-fg-muted">本周新增 Star</div>
             </Card>
             <Card className="flex-1">
-              <div className="text-3xl font-semibold tabular-nums">
-                {Object.keys(report.languageStats).length}
-              </div>
-              <div className="mt-1 text-sm text-fg-muted">语言分布种类</div>
+              <div className="text-3xl font-semibold tabular-nums">{totalRepos}</div>
+              <div className="mt-1 text-sm text-fg-muted">累计收藏</div>
             </Card>
+            {/* 这一格原来是「Top 项目」= report.topRepos.length，恒等于 5（不足时等于总数），
+                是个不会变也没有信息量的数。换成真正随本周变化的一个。
+
+                ⚠️ 三个态不能压成两个。查到 0 个新版本要显示 0；**一个都没查成**时显示的是"—"
+                加一行说明，绝不能显示 0——那是在替用户下一个"你的收藏这周都没发版"的结论。
+                部分失败（查到一部分）时数字仍然可信，另给一行提示说明有几个没查到。 */}
             <Card className="flex-1">
-              <div className="text-3xl font-semibold tabular-nums">{report.topRepos.length}</div>
-              <div className="mt-1 text-sm text-fg-muted">Top 项目</div>
+              <div className="text-3xl font-semibold tabular-nums">
+                {activity === null ||
+                (releaseFail !== null &&
+                  releaseFail.total > 0 &&
+                  releaseFail.failed === releaseFail.total)
+                  ? '—'
+                  : activity.length}
+              </div>
+              <div className="mt-1 text-sm text-fg-muted">本周新版本</div>
+              {releaseFail !== null && releaseFail.failed > 0 ? (
+                <div className="mt-0.5 text-[11px] text-warning">
+                  {releaseFail.total > 0 && releaseFail.failed === releaseFail.total
+                    ? '查询失败（Token 或限频）'
+                    : `另有 ${releaseFail.failed} 个没查到`}
+                </div>
+              ) : null}
             </Card>
           </div>
 
@@ -212,7 +325,51 @@ export function Report(): React.JSX.Element {
             <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-fg-muted">
               {report.aiSummary}
             </p>
+            {/* ⚠️ 这段正文**不一定出自模型**：按 ai.generateReport 的约定，任何失败
+                （没配 Key、401、限频、断网）都要退回一段本地按数据拼的摘要，绝不抛错。
+                标题写着「AI 总结」而正文可能不是 AI 写的，不说清就会误导——刚配完 Key
+                的人来这儿看到一段通顺的话，会以为 Key 通了，其实一次模型调用都没发生。
+                说得含糊（"可能"）比说错强，也不值得为此给 WeeklyReport 加字段（契约）。 */}
+            <p className="mt-3 text-xs text-fg-subtle">
+              配好 AI Key 后这段由模型生成；没配或调用失败时，显示的是按本地数据拼成的摘要。
+              想确认 Key 是否生效，用「设置 → 测试 AI 连接」。
+            </p>
           </Card>
+
+          {/* 本周项目动态：收藏里这周发了新版本的项目。
+              刻意在没动静时**整块不渲染**——安静的一周就该看起来安静，
+              摆一个「本周没有新版本」的卡片只是占地方。 */}
+          {activity !== null && activity.length > 0 ? (
+            <Card className="mt-4">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="text-sm font-medium text-fg">本周项目动态</h2>
+                <span className="text-[11px] text-fg-subtle">
+                  你收藏过的项目这周发布了新版本
+                </span>
+              </div>
+              <ul className="mt-3 divide-y divide-border">
+                {activity.map((h) => (
+                  <li key={h.fullName} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+                    <a
+                      href={h.htmlUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium text-link hover:underline"
+                    >
+                      {h.fullName}
+                    </a>
+                    <Badge tone="default">{h.tag}</Badge>
+                    {h.name !== null && h.name !== h.tag ? (
+                      <span className="min-w-0 truncate text-fg-muted">{h.name}</span>
+                    ) : null}
+                    <span className="ml-auto text-xs text-fg-subtle">
+                      {formatMonthDay(h.publishedAt)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
 
           <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
             <Card>
@@ -220,7 +377,15 @@ export function Report(): React.JSX.Element {
               <ReactECharts option={langOption} style={{ height: 260 }} />
             </Card>
             <Card>
-              <h2 className="text-sm font-medium text-fg">本周新增趋势</h2>
+              {/* ⚠️ 标题是「最近 7 天」而不是「本周」，因为 dailyStarCount 就是
+                  最近 7 个 UTC 日历日的滚动窗口，而上面那张卡（newStars）是
+                  本周一 00:00 UTC 起的日历周——两者只有恰好周日才相等。
+                  标题跟着说「本周」的话，周三打开这一页会看到卡片 3、图里 20，
+                  用户只能以为其中一个算错了。meta 里那个数字从数据现算，
+                  不写死，免得窗口改了文案不改。 */}
+              <h2 className="text-sm font-medium text-fg">
+                最近 {Object.keys(report.dailyStarCount).length} 天新增趋势
+              </h2>
               <ReactECharts option={trendOption} style={{ height: 260 }} />
             </Card>
           </div>
@@ -249,7 +414,24 @@ export function Report(): React.JSX.Element {
           </Card>
 
           <Card className="mt-4">
-            <h2 className="text-sm font-medium text-fg">本周新增仓库</h2>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-2">
+              <h2 className="text-sm font-medium text-fg">本周新增仓库</h2>
+              {/* 这周新收的都落在哪些方向。与上面那张「语言分布」图不是一回事：
+                  那张画的是全部收藏的语言存量，这里说的是本周的增量。 */}
+              {report.newStars.length === 0 ? null : (
+                <div className="flex flex-wrap gap-1.5">
+                  {weekCategoryStats(report.newStars).map((c) => (
+                    <span
+                      key={c.name}
+                      className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[11px] text-fg-muted"
+                    >
+                      {c.name}
+                      <span className="tabular-nums text-fg-subtle">{c.count}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
             <ul className="mt-3 divide-y divide-border">
               {report.newStars.map((r) => (
                 <li key={r.id} className="flex items-center gap-3 py-2 text-sm">
@@ -272,6 +454,6 @@ export function Report(): React.JSX.Element {
         // 自动生成中（或刚挂载、effect 还没跑）时的占位
         <ReportSkeleton />
       )}
-    </div>
+    </PageContainer>
   )
 }

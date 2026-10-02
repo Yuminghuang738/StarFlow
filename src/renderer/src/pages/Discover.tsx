@@ -7,6 +7,7 @@ import { Input } from '../components/common/Input'
 import { EmptyState } from '../components/common/EmptyState'
 import { SkeletonCard, SKELETON_COUNT } from '../components/common/SkeletonCard'
 import { RecommendRepoCard } from '../components/repo/RecommendRepoCard'
+import { PageContainer, PageHeader } from '../components/layout/PageLayout'
 
 /** 空态给的几个例句：比让用户对着空输入框想词有效得多 */
 const EXAMPLES = [
@@ -17,7 +18,7 @@ const EXAMPLES = [
 ]
 
 /**
- * 仓库推荐：一句话 → AI 翻译成搜索条件 → GitHub 搜索 → 结果可直接 Star。
+ * 发现仓库：一句话 → AI 翻译成搜索条件 → GitHub 搜索 → 结果可直接 Star。
  *
  * 输入与结果都放在 recommendStore（模块级），所以切到别的板块再切回来，
  * 输入框和上一次的结果都还在。
@@ -42,13 +43,12 @@ export function Discover(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
-      <header>
-        <h1 className="text-xl font-semibold">仓库推荐</h1>
-        <p className="mt-1 text-sm text-fg-muted">
-          用一句话描述你要找什么，AI 把它翻成 GitHub 搜索条件，结果可以直接 Star
-        </p>
-      </header>
+    <PageContainer>
+      <PageHeader
+        tab="recommend"
+        title="发现仓库"
+        subtitle="用一句话描述你要找什么，AI 把它翻成 GitHub 搜索条件，结果可以直接 Star"
+      />
 
       <form
         className="flex flex-wrap gap-2"
@@ -100,13 +100,28 @@ export function Discover(): React.JSX.Element {
           }
         />
       ) : results.length === 0 ? (
+        // ⚠️ 必须先看 searchError：出错时 store 会把 results 置空，
+        // 只看长度的话，下面那张红色报错卡的正下方会再长出一条
+        // 「没有找到与「q」匹配的仓库 / 换个说法试试」——把"根本没搜成"
+        // 说成"搜了但没结果"，用户于是去改词，而问题在于 Token 或限频。
+        // 口径与 Similar.tsx 对齐：没结果和没搜成是两种空态。
         <EmptyState
-          title={`没有找到与「${searchedQuery}」匹配的仓库`}
-          description="换个说法试试；已经 Star 过的仓库不会再出现在结果里"
+          title={
+            searchError === null
+              ? `没有找到与「${searchedQuery}」匹配的仓库`
+              : `「${searchedQuery}」这次没能搜成`
+          }
+          description={
+            searchError === null
+              ? '换个说法试试；已经 Star 过的仓库不会再出现在结果里'
+              : '先解决上面的报错（多半是 Token 或限频），再搜一次'
+          }
           action={
-            <Button size="sm" variant="ghost" onClick={() => run(EXAMPLES[0] ?? '')}>
-              试试示例
-            </Button>
+            searchError === null ? (
+              <Button size="sm" variant="ghost" onClick={() => run(EXAMPLES[0] ?? '')}>
+                试试示例
+              </Button>
+            ) : undefined
           }
         />
       ) : (
@@ -131,6 +146,6 @@ export function Discover(): React.JSX.Element {
           </div>
         </>
       )}
-    </div>
+    </PageContainer>
   )
 }

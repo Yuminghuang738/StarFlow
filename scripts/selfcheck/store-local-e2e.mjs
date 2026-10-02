@@ -3,8 +3,11 @@
 // 跑法：node scripts/selfcheck/store-local.mjs e2e
 // 前置：先跑 npm run build（本脚本验的是构建产物，不是源码）。
 import { spawn } from 'node:child_process'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { join } from 'node:path'
+import { freshProfileFlag } from './e2e-profile.mjs'
 
 const PORT = 9333
 let failures = 0
@@ -25,6 +28,9 @@ const child = spawn(
     'node_modules/electron/cli.js',
     '.',
     `--remote-debugging-port=${PORT}`,
+    // 必须隔离 userData：本脚本会真写 token 与 updateLocalState，默认会打到
+    // 开发者自己的 starflow.db.json 上（详见 e2e-profile.mjs）。顺带保证可重复。
+    freshProfileFlag('e2e-mock'),
     '--no-sandbox',
     '--disable-gpu-sandbox',
     ...(extraFlags.length > 0 ? extraFlags : ['--in-process-gpu'])
@@ -144,9 +150,20 @@ async function main() {
   check('IPC local:chooseDir 返回目录', typeof workDir === 'string' && workDir.length > 0, String(workDir))
 
   const target = repos?.first
+
+  // ⚠️ 克隆路径必须指向一个**真实存在**的目录，不能随便写个 /tmp/e2e。
+  // 应用启动时渲染进程的 load() 末尾会跑一次 clone 对账（pruneLocalClones）：
+  // 主进程把 cloned_path 指向、但磁盘上找不到、而**父目录在**的记录清掉
+  // （local.listMissingCloneRecords 的判据就是这个）。/tmp 存在、/tmp/e2e 不存在，
+  // 于是那条记录一定会被清——是否清在我们写之前，纯看两次 IPC 谁先到。
+  // 这条断言以前就是这么红的（约 1/13），而且红得像"undefined 抹掉了值"，
+  // 其实跟 undefined 毫无关系。现在用一个真的存在的目录，这条断言才是确定的。
+  const clonePath = mkdtempSync(join(tmpdir(), 'sf-e2e-clone-'))
+  const bogusPath = join(clonePath, 'definitely-not-here')
+
   await unwrap(
     'IPC updateLocalState 写 cloned_path',
-    `window.api.store.updateLocalState(${JSON.stringify(target)}, {cloned_path: "/tmp/e2e"}).then(r => r.ok)`
+    `window.api.store.updateLocalState(${JSON.stringify(target)}, {cloned_path: ${JSON.stringify(clonePath)}}).then(r => r.ok)`
   )
   await unwrap(
     'IPC updateLocalState 写 forked_full_name',
@@ -162,8 +179,34 @@ async function main() {
   )
   check(
     'IPC 两个字段都在且 undefined 没抹掉值',
-    after?.cloned_path === '/tmp/e2e' && after?.forked_full_name === 'me/e2e',
+    after?.cloned_path === clonePath && after?.forked_full_name === 'me/e2e',
     JSON.stringify(after)
+  )
+
+  // 把上面那个原因直接钉成一条断言：对账**确实**会清掉"父目录在、自己不在"的记录。
+  // 有这条，将来谁再往这里写一个不存在的路径，就有一处显式的说明告诉他为什么不行；
+  // 也顺带证明了 pruneClones 这条 IPC 真的在工作（它平时是静默的，界面上看不见）。
+  await unwrap(
+    'IPC updateLocalState 写一个不存在的 cloned_path',
+    `window.api.store.updateLocalState(${JSON.stringify(target)}, {cloned_path: ${JSON.stringify(bogusPath)}}).then(r => r.ok)`
+  )
+  const pruned = await unwrap(
+    'IPC local:pruneClones 对账',
+    'window.api.local.pruneClones().then(r => r.ok ? r.data : r.error)'
+  )
+  check(
+    'IPC 对账清掉了磁盘上不存在的 cloned_path',
+    Array.isArray(pruned) && pruned.includes(target),
+    JSON.stringify(pruned)
+  )
+  const afterPrune = await unwrap(
+    'IPC getRepos 读回对账后的状态',
+    `window.api.store.getRepos().then(r => r.data.find(x => x.full_name === ${JSON.stringify(target)}).local)`
+  )
+  check(
+    'IPC 对账只清 cloned_path，fork 标记保留',
+    afterPrune?.cloned_path === undefined && afterPrune?.forked_full_name === 'me/e2e',
+    JSON.stringify(afterPrune)
   )
 
   const clonedDir = await unwrap(
@@ -186,6 +229,13 @@ async function main() {
 
   ws.close()
   child.kill()
+  // 这个目录是给 cloned_path 当"真实存在的克隆目录"用的，跑完就清掉。
+  // 套 try：清理失败（杀进程时的占用之类）不该把一轮全绿的断言变成红的。
+  try {
+    rmSync(clonePath, { recursive: true, force: true })
+  } catch {
+    console.warn('[e2e] 临时克隆目录未能清理：', clonePath)
+  }
   console.log(`\n== ${failures === 0 ? '端到端全部通过' : failures + ' 项失败'} ==`)
   process.exit(failures === 0 ? 0 : 1)
 }

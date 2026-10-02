@@ -41,6 +41,11 @@ let mainWindow: BrowserWindow | null = null
 // 每个 handler 自己的参数类型。
 type AnyFn<T> = (...args: never[]) => Promise<T> | T
 
+/** 统一的错误文案取法：IPC 包装器和下面几个"部分成功"的 handler 都要用 */
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
 function handle<T>(channel: string, fn: AnyFn<T>): void {
   ipcMain.handle(channel, async (_event, ...args: unknown[]): Promise<IpcResult<T>> => {
     try {
@@ -48,7 +53,7 @@ function handle<T>(channel: string, fn: AnyFn<T>): void {
       const data = await (fn as (...a: unknown[]) => Promise<T> | T)(...args)
       return { ok: true, data }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = errText(err)
       console.error(`[ipc] ${channel} 失败:`, message)
       return { ok: false, error: message }
     }
@@ -56,7 +61,8 @@ function handle<T>(channel: string, fn: AnyFn<T>): void {
 }
 
 // ============================================================
-// 41 个通道，一个都不能少也不能多
+// 43 个通道，一个都不能少也不能多
+// （自检办法：src/shared/ipc.ts 里的通道数与本文件的 handle() 调用数必须相等）
 // ============================================================
 
 function registerHandlers(): void {
@@ -68,10 +74,22 @@ function registerHandlers(): void {
 
   // unstar 是破坏性操作，"unstar 成功后从本地列表移除"这条规则由主进程保证，
   // 前端不需要自己删。前端仍负责二次确认弹窗（那是 UI 职责）。
+  //
+  // ⚠️ GitHub 那一步与本地落盘那一步必须分开报错。合在一个 catch 里的话，
+  // 「取消失败」会同时覆盖"GitHub 上没取消"和"GitHub 上取消了、只是本地列表没写进去"
+  // 两种情况——后者的真相是操作**已经生效**，用户看到"失败"会去重试、去 GitHub 核对，
+  // 而列表里那张卡还在，反而更像"没生效"。
   handle<void>(IPC.GITHUB_UNSTAR, async (fullName: string) => {
     await github.unstar(fullName)
-    const repos = await store.getRepos()
-    await store.saveRepos(repos.filter((r) => r.full_name !== fullName))
+    try {
+      const repos = await store.getRepos()
+      await store.saveRepos(repos.filter((r) => r.full_name !== fullName))
+    } catch (err) {
+      throw new Error(
+        `已经在 GitHub 上取消了 ${fullName} 的 Star，但本地列表没能更新（${errText(err)}）。` +
+          ' 到「收藏管理」点一次「从 GitHub 同步」，这一条就会从列表里消失。'
+      )
+    }
   })
   handle(IPC.GITHUB_FORK, (fullName: string) => github.fork(fullName))
 
@@ -79,12 +97,21 @@ function registerHandlers(): void {
   // 都由主进程保证，渲染进程只负责按钮上的忙碌态。
   // GitHub 的 PUT 是幂等的，重复 Star 不报错，所以这里必须防重——另一端 Star 过、
   // 或用户连点两次，都会走到这条分支，不防就是两张一样的卡片。
+  // 分两段 try 的理由同 unstar：Star 已经在 GitHub 上成立了，本地落盘失败不能报成
+  // "Star 失败"（github.star() 内部的回读失败也已经单独说清了）。
   handle(IPC.GITHUB_STAR, async (fullName: string) => {
     const repo = await github.star(fullName)
-    const repos = await store.getRepos()
-    if (repos.some((r) => r.full_name === repo.full_name)) return repo
-    // 新 Star 的排在最前：列表的既有顺序是 starred_at 倒序
-    await store.saveRepos([repo, ...repos])
+    try {
+      const repos = await store.getRepos()
+      if (repos.some((r) => r.full_name === repo.full_name)) return repo
+      // 新 Star 的排在最前：列表的既有顺序是 starred_at 倒序
+      await store.saveRepos([repo, ...repos])
+    } catch (err) {
+      throw new Error(
+        `已经在 GitHub 上 Star 了 ${repo.full_name}，但本地列表没能更新（${errText(err)}）。` +
+          ' 到「收藏管理」点一次「从 GitHub 同步」就会出现在列表里。'
+      )
+    }
     return repo
   })
 
@@ -128,9 +155,16 @@ function registerHandlers(): void {
     return names
   })
 
-  // Phase 0 占位：local.cancelClone 现在恒返回 false（"没有人在跑"），
-  // 真正的实现在取消克隆那个 PR 里补。与 LOCAL_REMOVE_CLONE 一样是幂等语义——
-  // 界面认为在跑、主进程这边已经结束的情况不算错，所以不抛。
+  // 取消克隆：真的会中止正在跑的 git 子进程（local.cancelClone 拿着 AbortController
+  // 调 abort，simple-git 在 spawn.before 挂了监听、对子进程发 SIGINT）。
+  // true = 确实中止了一个；**false 只表示"那一刻没有人在跑"**，界面以为在跑、主进程
+  // 这边刚好收摊，属于正常竞态，不是错误——与 LOCAL_REMOVE_CLONE 一样是幂等语义，
+  // 所以这里不抛错、也不加工返回值。
+  //
+  // ⚠️ 这条注释原来写的是「Phase 0 占位：cancelClone 现在恒返回 false，真正的实现
+  // 在取消克隆那个 PR 里补」——那个 PR 早就落地了，注释没跟着改。危害和 R43 修掉的
+  // docs/module-signatures.md 里那三行一模一样：照它读代码的人会以为取消是个空操作，
+  // 从而绕开它自己造一套（或在 UI 上干脆不给取消入口）。
   handle(IPC.LOCAL_CANCEL_CLONE, (fullName: string) => local.cancelClone(fullName))
 
   // AI
@@ -141,6 +175,9 @@ function registerHandlers(): void {
   // 探针不抛错：失败也以 { ok: true, data: { ok: false, message } } 正常返回，
   // 让设置页能直接把 message 渲染成一行提示，而不是走 IpcResult 的 error 分支弹红 toast。
   handle(IPC.AI_TEST_CONNECTION, () => ai.testConnection())
+  // 收藏画像：同样是「不抛错」的那一类——失败 / 未配置都以 { text: '', hint } 返回，
+  // 总览页把 hint 渲染成一行说明即可，不该因为没配 Key 就弹 toast。
+  handle(IPC.AI_ANALYZE_COLLECTION, (digest: string) => ai.analyzeCollection(digest))
 
   // 存储
   handle(IPC.STORE_GET_REPOS, () => store.getRepos())
@@ -171,6 +208,8 @@ function registerHandlers(): void {
   // 推荐
   handle(IPC.RECOMMEND_SIMILAR, (fullName: string) => recommend.similar(fullName))
   handle(IPC.RECOMMEND_FOR_QUERY, (query: string) => recommend.forQuery(query))
+  // 为你推荐：种子不在入参里，主进程按整份收藏的画像拼查询；offset 是「换一批」的位移
+  handle(IPC.RECOMMEND_FOR_YOU, (offset: number) => recommend.forYou(offset))
 
   // 定时追踪。刻意不在启动时自动 start，由前端显式调用
   handle(IPC.TRACKER_START, () => tracker.start())
@@ -263,15 +302,21 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
+function bootstrap(): void {
   console.log(`[main] MOCK_MODE = ${isMockMode()}`)
 
   // frame:false 之后菜单栏本来也看不见了，但它的快捷键还活着（Ctrl+W 关窗、Ctrl+R 刷新、
   // Ctrl+Shift+I 开发者工具…），"没有菜单栏"必须是连快捷键一起没有，才叫真的去掉。
   Menu.setApplicationMenu(null)
 
-  // AI 配置预热：把 store 里存的 key 灌进 config.ts 的覆盖层，之后 ai.client() 仍是同步的。
-  // Phase 0 里这是个空函数（见 ai.ts 的说明），调用点先钉在这里，填实现的 PR 不用再动本文件。
+  // AI 配置预热：把 store 里存的 key / baseUrl / model 灌进 config.ts 的覆盖层，
+  // 之后 ai.client() 就能保持同步、且用户改完不用重启。
+  // 签名是同步 void（冻结），读盘却在函数内部异步进行，失败只打日志、绝不阻断启动
+  // ——启动路径上抛错等于应用打不开（细节见 ai.refreshAiConfigCache 的说明）。
+  //
+  // ⚠️ 这条注释原来写着「Phase 0 里这是个空函数、填实现的 PR 不用再动本文件」，
+  // 实现落地后没改。留着会让人以为这里什么也没做，于是「配置了 key 却没生效」
+  // 这类问题排查时第一个就把这条路径排除掉。
   ai.refreshAiConfigCache()
 
   registerHandlers()
@@ -280,7 +325,34 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
-})
+}
+
+/**
+ * 单实例锁。**这是数据安全问题，不是体验问题**，所以宁可打断第二次启动也要拦。
+ *
+ * 整个应用的状态是「一份内存态 + 单文件全量落盘」：`store` 里既有 `db.data.repos`，
+ * 还有一份 `reposCache`，而写盘用的都是「调用方手里那份快照整体替换」。两个进程各持有
+ * 一份这样的状态、指向同一个 `starflow.db.json`，谁后写谁覆盖谁——A 进程刚同步回来的
+ * 收藏、刚记下的 clone 路径、刚跑完的 AI 结果，会被 B 进程的下一次写整份抹掉。
+ * `steno` 的 temp+rename 只保证**文件不会写坏**，保证不了**内容不丢**。
+ *
+ * 必须在 `whenReady` 之前拿：拿到锁才有资格把窗口和 handler 建起来。
+ * 拿不到的那个进程直接退出（它的窗口一个都不该出现），让已经开着的那个接管。
+ */
+if (app.requestSingleInstanceLock()) {
+  // 这个监听器在**持有锁的那个进程**里触发（不是第二次启动的进程），
+  // 所以这里能安全地引用 mainWindow。
+  app.on('second-instance', () => {
+    if (mainWindow === null) return
+    // 最小化 / 被挡住时用户双击图标得不到任何反馈，所以还原并抬到最前
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  })
+  app.whenReady().then(bootstrap)
+} else {
+  app.quit()
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

@@ -16,6 +16,8 @@ import type {
   AiConfigPatch,
   AiConnectionResult
 } from '@shared/types'
+import type { CollectionAnalysis } from '@shared/ai-providers'
+import type { RecommendForYou } from '@shared/recommend'
 
 const api = {
   github: {
@@ -64,7 +66,10 @@ const api = {
       ipcRenderer.invoke(IPC.AI_GENERATE_REPORT, repos),
     // 探针：不抛错，失败也以 { ok: false, message } 正常返回
     testConnection: (): Promise<IpcResult<AiConnectionResult>> =>
-      ipcRenderer.invoke(IPC.AI_TEST_CONNECTION)
+      ipcRenderer.invoke(IPC.AI_TEST_CONNECTION),
+    // 收藏画像：入参是渲染进程算好的统计摘要，不是仓库列表
+    analyzeCollection: (digest: string): Promise<IpcResult<CollectionAnalysis>> =>
+      ipcRenderer.invoke(IPC.AI_ANALYZE_COLLECTION, digest)
   },
   store: {
     getRepos: (): Promise<IpcResult<Repo[]>> => ipcRenderer.invoke(IPC.STORE_GET_REPOS),
@@ -91,7 +96,10 @@ const api = {
       ipcRenderer.invoke(IPC.RECOMMEND_SIMILAR, fullName),
     // 一句话找仓库。AI 的搜索计划不跨进程，这里只传原句、只回结果
     forQuery: (query: string): Promise<IpcResult<Repo[]>> =>
-      ipcRenderer.invoke(IPC.RECOMMEND_FOR_QUERY, query)
+      ipcRenderer.invoke(IPC.RECOMMEND_FOR_QUERY, query),
+    // 为你推荐。不传种子仓库，主进程按整份收藏的画像去搜；offset 是「换一批」的位移
+    forYou: (offset: number): Promise<IpcResult<RecommendForYou>> =>
+      ipcRenderer.invoke(IPC.RECOMMEND_FOR_YOU, offset)
   },
   tracker: {
     start: (): Promise<IpcResult<void>> => ipcRenderer.invoke(IPC.TRACKER_START),

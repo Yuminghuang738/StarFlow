@@ -53,6 +53,38 @@ function dbFilePath(): string {
   return join(app.getPath('userData'), fileName)
 }
 
+/** 库文件的初始内容。**不做深合并**（见下面 getDb 的说明），所以每个键都要给全 */
+function defaultDb(): DbSchema {
+  return {
+    repos: [],
+    token: null,
+    // AI 三键：旧库文件里没有这三个键时，db.data 上的值就是 undefined
+    // （lowdb 的 read() 是**整份替换**，不是深合并——别指望这里能补齐旧文件），
+    // 所以读取处一律 `?? ''` / `?? null` 兜底。
+    aiKey: null,
+    aiBaseUrl: '',
+    aiModel: ''
+  }
+}
+
+/**
+ * 打开库文件。
+ *
+ * 读失败时唯一要做的事是**把错误说清楚**——尤其是文件路径，用户得知道该去哪儿看。
+ * JSON 解析失败是最可能的一种（外部工具改过 / 磁盘写坏），报出来的原文是一句
+ * "Unexpected token …"，单看它根本不知道是哪个文件出的事。
+ */
+function openDbFile(file: string): Promise<Low<DbSchema>> {
+  return JSONFilePreset<DbSchema>(file, defaultDb()).catch((err: unknown): never => {
+    const message = err instanceof Error ? err.message : String(err)
+    throw new Error(
+      `本地数据文件读不出来（${file}）：${message}。` +
+        ' 文件内容不是合法 JSON 时就是这样——把它改名或删掉再重启，即可从空库重新开始。' +
+        ' 应用不会自动删除或覆盖它。'
+    )
+  })
+}
+
 function getDb(): Promise<Low<DbSchema>> {
   if (!dbPromise) {
     // 惰性初始化：必须等 app ready 之后才会调用到，所以这里取 userData 是安全的。
@@ -65,14 +97,20 @@ function getDb(): Promise<Low<DbSchema>> {
       throw new Error(`创建数据目录失败：${message}`)
     }
     // 原子写交给 lowdb 7 的 JSONFile 适配器（内部用 steno），不要自己写 tmp + rename
-    dbPromise = JSONFilePreset<DbSchema>(file, {
-      repos: [],
-      token: null,
-      // AI 三键必须给默认值：JSONFilePreset 会把默认对象与磁盘内容做深合并，
-      // 旧库文件缺这些键时就靠这里补齐（补上之后读取处仍要 ?? 兜底，防御更早版本的库）。
-      aiKey: null,
-      aiBaseUrl: '',
-      aiModel: ''
+    const opened = openDbFile(file)
+    dbPromise = opened
+    /**
+     * ⚠️ 失败的 Promise 绝不能被缓存到进程结束。
+     *
+     * 这里缓存的是 Promise 本身，而"文件读不出来"是一个**可以自愈**的状态：用户把
+     * 坏文件挪走、或者换台机器把文件放回去，下一次读就该成功。可是缓存住的那个
+     * rejected Promise 会让之后每一次 getDb() 直接拿到同一个拒绝——用户把文件
+     * 修好了、删掉了，应用照旧全盘报错，只能重启。所以失败后把缓存清空，
+     * 下一次调用重新读一次盘（下一次会拿到新的错误或成功）。
+     */
+    opened.catch((err: unknown) => {
+      if (dbPromise === opened) dbPromise = null
+      console.error('[store] 打开库文件失败，已允许重试：', err instanceof Error ? err.message : err)
     })
   }
   return dbPromise
@@ -192,12 +230,36 @@ export async function getToken(): Promise<string | null> {
 
 /** 渲染进程只需要判断"要不要让用户填 token"，返回布尔值即可，不要把 token 本身送过去 */
 export async function hasToken(): Promise<boolean> {
+  let stored: string | null = null
   try {
     // 内存里有就直接返回，省掉一次读盘（getToken() 内部也是内存优先，这里只是短路）
-    return memoryToken !== null || (await getToken()) !== null
+    if (memoryToken !== null) return true
+    if ((await getToken()) !== null) return true
+    // 走到这里说明 getToken() 给的是 null，而 null 有两种含义，**只有一种能说成"未配置"**：
+    //   ① 文件里本来就没有 token（无 keyring 的机器重启后就是这样）→ 确实没配过；
+    //   ② 文件里有密文、只是这一次解不开（换机器 / 系统密钥环变更）→ 配过，读不出来。
+    // getToken() 把 ② 降级成 null 是**它那一侧**的取舍：它的调用方是 github.client()，
+    // 对"发不发得出请求"来说 ① ② 没有区别。可设置页问的是另一个问题——「用户到底配过
+    // 没有」——把 ② 说成「未配置」，就是本项目最忌讳的那类谎：用户以为自己从没配过，
+    // 会去重填一遍（倒是能自愈），但真正的原因（密钥环变了）从头到尾没被说出来。
+    //
+    // 所以这里把 ② 抛出去。抛错是这个函数**本来就有**的行为（读盘失败也走 fail()），
+    // 渲染进程那套三态徽章早就接住了：IPC 包装器把它变成 { ok: false }，渲染进程的
+    // hasToken() 返回 null → 显示「读不到」+ 一条写明原因的红 toast + 重试按钮。
+    stored = (await getDb()).data.token ?? null
   } catch (err) {
     return fail('检查 Token', err)
   }
+
+  if (stored) {
+    // 刻意在 try 外面抛：让这条消息原样透给用户，不被 fail() 再包一层
+    //（与 saveToken 拒绝空 token 时同一个理由）。
+    throw new Error(
+      '本地存着一条 GitHub Token，但这一次解不开它（换机器、或系统密钥环变更之后就会这样）。' +
+        '先点一次「重试」再读一遍；还是不行就重新填一次 Token，覆盖掉这条读不出来的记录。'
+    )
+  }
+  return false
 }
 
 /**

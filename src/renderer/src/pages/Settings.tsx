@@ -10,6 +10,7 @@ import { GithubLoginCard } from '../components/auth/GithubLoginCard'
 import { ThemeCard } from '../components/settings/ThemeCard'
 import { AiKeyGuide } from '../components/settings/AiKeyGuide'
 import { AiProviderPicker } from '../components/settings/AiProviderPicker'
+import { PageContainer, PageHeader } from '../components/layout/PageLayout'
 import { checkBaseUrl, isLocalEndpoint, matchPreset } from '@shared/ai-providers'
 import type { AiConfigView } from '@shared/types'
 
@@ -23,12 +24,16 @@ const SOURCE_LABEL: Record<AiConfigView['source'], string> = {
 export function Settings(): React.JSX.Element {
   const [token, setToken] = useState('')
   const [showToken, setShowToken] = useState(false)
+  /** null + tokenChecked === false = 还没读完；null + true = 这一次没读到（不是"没配置"） */
   const [hasToken, setHasToken] = useState<boolean | null>(null)
+  const [tokenChecked, setTokenChecked] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   // —— AI 配置卡片 ——
   const [aiConfig, setAiConfig] = useState<AiConfigView | null>(null)
+  /** null + aiConfigChecked === false = 还没读完；null + true = 这一次没读到（不是"没配置"） */
+  const [aiConfigChecked, setAiConfigChecked] = useState(false)
   const [apiKey, setApiKey] = useState('')
   const [showApiKey, setShowApiKey] = useState(false)
   const [aiBaseUrl, setAiBaseUrl] = useState('')
@@ -48,13 +53,22 @@ export function Settings(): React.JSX.Element {
   const enrich = useRepoStore((s) => s.enrich)
   const saveToken = useRepoStore((s) => s.saveToken)
 
+  // 状态徽章的取值只有一处：它**不会抛错**（hasToken 内部把失败收成 null），
+  // 所以这里不需要 try/catch，只需要记得把"读完了"也标上。
+  async function refreshTokenStatus(): Promise<void> {
+    setHasToken(await useRepoStore.getState().hasToken())
+    setTokenChecked(true)
+  }
+
   useEffect(() => {
     let cancelled = false
-    useRepoStore
+    void useRepoStore
       .getState()
       .hasToken()
       .then((v) => {
-        if (!cancelled) setHasToken(v)
+        if (cancelled) return
+        setHasToken(v)
+        setTokenChecked(true)
       })
     return () => {
       cancelled = true
@@ -73,7 +87,10 @@ export function Settings(): React.JSX.Element {
         setAiBaseUrl(cfg.baseUrl)
         setAiModel(cfg.model)
       } catch {
-        // unwrap 已经弹过 toast，这里不再重复
+        // unwrap 已经弹过 toast，这里不再重复；但要标记"读过了"，否则徽章会一直停在「未知」，
+        // 而「未知」和「读不到」对用户的含义不同（前者是还没读，后者是需要重试）。
+      } finally {
+        if (!cancelled) setAiConfigChecked(true)
       }
     })()
     return () => {
@@ -84,14 +101,13 @@ export function Settings(): React.JSX.Element {
   async function save(): Promise<void> {
     const trimmed = token.trim()
     if (!trimmed) return
-    await saveToken(trimmed)
-    setToken('')
-    setHasToken(await useRepoStore.getState().hasToken())
-  }
-
-  /** 登录 / 退出之后要让上面的 token 状态徽章跟着变 */
-  async function refreshTokenStatus(): Promise<void> {
-    setHasToken(await useRepoStore.getState().hasToken())
+    const saved = await saveToken(trimmed)
+    // ⚠️ 只有真的存进去了才把输入框清空。清空本身就是一句"成了"——保存失败
+    // （写库出错之类）时照样清空的话，用户刚粘进来的那串 token 就没了，而界面上
+    // 与成功长得一模一样，他只能回去再拷一遍。失败时留着原文，改完再点一次即可；
+    // 到底是成是败由 toast 与下面的状态徽章说。
+    if (saved) setToken('')
+    await refreshTokenStatus()
   }
 
   async function test(): Promise<void> {
@@ -107,12 +123,28 @@ export function Settings(): React.JSX.Element {
     }
   }
 
-  /** 重新拉视图：保存 / 清除之后刷新来源与 hasKey 徽章 */
-  async function reloadAiConfig(): Promise<void> {
-    const cfg = await unwrap(window.api.store.getAiConfig())
-    setAiConfig(cfg)
-    setAiBaseUrl(cfg.baseUrl)
-    setAiModel(cfg.model)
+  /**
+   * 重新拉视图：保存 / 清除之后刷新来源与 hasKey 徽章，也供卡片上的「重试」用。
+   *
+   * **不抛错**，返回值表示"这一次读到了没有"。两个理由：
+   *   ① 保存/清除的成功与"随后读一次状态"的成败是两件事——保存明明成功了，
+   *      却因为这一次读失败而把整个操作显示成失败，是在说反话；
+   *   ② 卡片上的「重试」按钮是 onClick 直接调的，抛出去就是一个没人接的
+   *      unhandled rejection（unwrap 已经弹过 toast）。
+   */
+  async function reloadAiConfig(): Promise<boolean> {
+    try {
+      const cfg = await unwrap(window.api.store.getAiConfig())
+      setAiConfig(cfg)
+      setAiBaseUrl(cfg.baseUrl)
+      setAiModel(cfg.model)
+      setAiConfigChecked(true)
+      return true
+    } catch {
+      // 读不到：aiConfig 保持 null（徽章据此显示「读不到」+ 重试），只是把"读过了"标上
+      setAiConfigChecked(true)
+      return false
+    }
   }
 
   async function saveAi(): Promise<void> {
@@ -153,8 +185,9 @@ export function Settings(): React.JSX.Element {
       )
       autoTest = key !== '' || nextBase !== initialBase || nextModel !== initialModel
       setApiKey('')
-      await reloadAiConfig()
-      setAiNotice('AI 配置已保存')
+      // 「保存成功」与「随后把状态读回来」分开说：读失败不该把保存说成失败
+      const reread = await reloadAiConfig()
+      setAiNotice(reread ? 'AI 配置已保存' : 'AI 配置已保存，但状态这一次没读回来，点「重试」再读一次。')
       setAiJustSaved(true)
     } catch (e) {
       setAiNoticeError(true)
@@ -175,8 +208,12 @@ export function Settings(): React.JSX.Element {
     try {
       await unwrap(window.api.store.clearAiKey())
       setApiKey('')
-      await reloadAiConfig()
-      setAiNotice('已清除界面保存的密钥（若 .env 里有 key 会回退到它）')
+      const reread = await reloadAiConfig()
+      setAiNotice(
+        reread
+          ? '已清除界面保存的密钥（若 .env 里有 key 会回退到它）'
+          : '已清除界面保存的密钥，但状态这一次没读回来，点「重试」再读一次。'
+      )
     } catch (e) {
       setAiNoticeError(true)
       setAiNotice(ipcErrorMessage(e))
@@ -213,18 +250,20 @@ export function Settings(): React.JSX.Element {
       : '模型名（自定义端点必填）'
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <h1 className="text-xl font-semibold">设置</h1>
+    <PageContainer width="narrow">
+      <PageHeader tab="settings" title="设置" />
 
       <GithubLoginCard onAuthChange={() => void refreshTokenStatus()} />
 
       <ThemeCard />
 
-      <Card className="mt-4">
+      <Card>
         <h2 className="text-sm font-medium text-fg">GitHub Token</h2>
         <p className="mt-1 text-xs text-fg-subtle">
           Token 需要 <code className="rounded bg-surface-2 px-1">public_repo</code> scope；
-          主进程用 safeStorage 加密后存在 userData 目录，不会明文落盘。
+          主进程用 safeStorage 加密后存在 userData 目录，不会明文落盘。这台机器若没有可用的
+          系统密钥环，Token 只留在主进程内存里、一个字节都不写盘，重启后需要重新填写
+          （宁可让你重填，也不把明文写到磁盘上）。
         </p>
         <p className="mt-1 text-xs text-danger">
           注意：unstar 是破坏性操作，会真正取消你 GitHub 上的 Star。
@@ -247,17 +286,35 @@ export function Settings(): React.JSX.Element {
         </div>
         <div className="mt-3 flex items-center gap-2">
           <span className="text-sm text-fg-muted">状态：</span>
-          {hasToken === null ? (
+          {/* 三态而不是两态：'未配置' 是一个结论，只有在**确实读到了空**时才能下。
+              读取失败（库文件坏了 / 主进程没起来）走中间的「读不到」，否则用户会去
+              重填一遍其实已经存好的 token，而真正的问题一直没被说出来。 */}
+          {!tokenChecked ? (
             <Badge tone="muted">未知</Badge>
+          ) : hasToken === null ? (
+            <Badge tone="warning">读不到</Badge>
           ) : hasToken ? (
             <Badge tone="success">已配置</Badge>
           ) : (
             <Badge tone="muted">未配置</Badge>
           )}
         </div>
+        {tokenChecked && hasToken === null ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <p className="text-xs text-fg-subtle">
+              本地数据这一次没读到，<span className="text-fg">不代表你没配过</span>
+              ——Token 可能好好地存着。
+            </p>
+            {/* 得给一个重试入口：设置页是保活的（切换页面不卸载），不给的话
+                这个徽章会一直停在「读不到」，唯一出路是重启应用。 */}
+            <Button size="sm" variant="ghost" onClick={() => void refreshTokenStatus()}>
+              重试
+            </Button>
+          </div>
+        ) : null}
       </Card>
 
-      <Card className="mt-4">
+      <Card>
         <h2 className="text-sm font-medium text-fg">AI 配置</h2>
         <p className="mt-1 text-xs text-fg-subtle">
           支持任何 OpenAI 格式的端点（DeepSeek、智谱、通义、Kimi、中转，以及本地
@@ -265,7 +322,8 @@ export function Settings(): React.JSX.Element {
           三项对上即可。在这里填一次就行，不用去改项目根目录的{' '}
           <code className="rounded bg-surface-2 px-1">.env</code>
           。保存后立即生效、无需重启；API Key 经 safeStorage 加密后存在 userData 目录，
-          永不回显，留空保存表示不修改已有 Key。
+          永不回显，留空保存表示不修改已有 Key；没有可用密钥环时与 Token 一样只留内存，
+          重启后需重填。
         </p>
 
         <div className="mt-3">
@@ -346,8 +404,13 @@ export function Settings(): React.JSX.Element {
 
         <div className="mt-3 flex items-center gap-2">
           <span className="text-sm text-fg-muted">状态：</span>
-          {aiConfig === null ? (
+          {/* 与上面 Token 徽章同一套三态：'未配置' 是一个结论，只有在**确实读到了空**
+              时才能下。读不到（库文件坏了 / 主进程没起来）显示「读不到」，否则用户会
+              去重填一遍其实已经存好的 Key，而真正的问题一直没被说出来。 */}
+          {!aiConfigChecked ? (
             <Badge tone="muted">未知</Badge>
+          ) : aiConfig === null ? (
+            <Badge tone="warning">读不到</Badge>
           ) : aiConfig.hasKey ? (
             <Badge tone="success">已配置</Badge>
           ) : isLocalEndpoint(aiConfig.baseUrl) ? (
@@ -362,6 +425,21 @@ export function Settings(): React.JSX.Element {
             </Badge>
           ) : null}
         </div>
+
+        {aiConfigChecked && aiConfig === null ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <p className="text-xs text-fg-subtle">
+              这一次没读到你的 AI 配置，<span className="text-fg">不代表你没配过</span>
+              ——Key 可能好好地存着。
+            </p>
+            {/* 设置页是保活的（切换页面不卸载），没有这个按钮徽章会一直停在「读不到」，
+                唯一出路是重启应用。与 Token 那个「重试」各管各的：两者的读取路径不同，
+                失败原因也可能只影响其中一个。 */}
+            <Button size="sm" variant="ghost" onClick={() => void reloadAiConfig()}>
+              重试
+            </Button>
+          </div>
+        ) : null}
 
         {/* 最容易让人困惑的一种状态：界面显示"已配置"，但 Key 其实来自 .env，
             在这里填会被界面值覆盖、且清除界面密钥后又会回落回去。 */}
@@ -407,16 +485,30 @@ export function Settings(): React.JSX.Element {
         ) : null}
       </Card>
 
-      <Card className="mt-4">
+      <Card>
         <h2 className="text-sm font-medium text-fg">数据与 AI</h2>
         <p className="mt-1 text-xs text-fg-subtle">
           同步会保留已 Fork / 已 clone / 已分类的标记；AI 补全只填空缺的摘要与分类。
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <Button variant="primary" onClick={() => void refreshFromGitHub()} loading={loading}>
+          {/* ⚠️ 这两个必须互斥。enrich() 在**发请求那一刻**取 get().repos 当输入，
+              而同步会把它整份换掉；两边能同时跑的话，先完成的同步结果会被
+              后完成的补全用旧列表覆盖——用户看到「已同步 N 个」的提示，
+              列表里却少了刚同步回来的仓库，而且主进程也把这份旧列表落了盘。
+              Manage.tsx 的 headerBusy 早就这么做了，这里原来是漏的。 */}
+          <Button
+            variant="primary"
+            onClick={() => void refreshFromGitHub()}
+            loading={loading}
+            disabled={loading || enriching}
+          >
             从 GitHub 同步
           </Button>
-          <Button onClick={() => void enrich()} loading={enriching}>
+          <Button
+            onClick={() => void enrich()}
+            loading={enriching}
+            disabled={loading || enriching}
+          >
             AI 补全分类
           </Button>
           <Button onClick={() => void test()} loading={testing}>
@@ -430,10 +522,10 @@ export function Settings(): React.JSX.Element {
         ) : null}
       </Card>
 
-      <p className="mt-4 text-xs text-fg-subtle">
+      <p className="text-xs text-fg-subtle">
         当前运行模式由项目根目录{' '}
         <code className="rounded bg-surface-2 px-1">.env</code> 的 MOCK_MODE 控制。
       </p>
-    </div>
+    </PageContainer>
   )
 }

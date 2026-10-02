@@ -1,6 +1,7 @@
 import { motion, type Transition } from 'framer-motion'
 import { cn } from '../../lib/cn'
 import { NAV_ITEMS, type AppTab } from './nav'
+import { NAV_ICONS } from './navIcons'
 
 /**
  * 左侧导航。
@@ -37,14 +38,21 @@ export function Sidebar({
 }): React.JSX.Element {
   return (
     <nav className="flex w-56 shrink-0 flex-col border-r border-border bg-surface/60 p-3 backdrop-blur-xl">
-      <div className="flex items-center gap-2 px-2 py-3">
+      <div className="flex items-center gap-2.5 px-2 py-3">
         <LogoMark />
         <span className="text-lg font-semibold tracking-tight">StarFlow</span>
       </div>
 
-      <div className="mt-2 flex flex-col gap-1">
+      {/* 分组标题。六个入口平铺时全是同级文字，看不出这是一组导航；
+          加一行小标题之后视觉上有了「结构」，也让上方 Logo 区与功能区分开。 */}
+      <div className="mt-3 px-3 pb-1.5 text-[11px] font-medium uppercase tracking-wider text-fg-subtle">
+        导航
+      </div>
+
+      <div className="flex flex-col gap-0.5">
         {NAV_ITEMS.map((item) => {
           const active = item.key === current
+          const Icon = NAV_ICONS[item.key]
           return (
             <button
               key={item.key}
@@ -53,10 +61,8 @@ export function Sidebar({
               aria-current={active ? 'page' : undefined}
               onClick={() => onNavigate(item.key)}
               className={cn(
-                'relative rounded-xl px-3 py-2 text-left text-sm transition-colors',
-                active
-                  ? 'font-medium text-solid-fg'
-                  : 'text-fg-muted hover:bg-surface-2 hover:text-fg'
+                'relative flex items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm transition-colors',
+                active ? 'font-medium text-solid-fg' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'
               )}
             >
               {active ? (
@@ -67,17 +73,24 @@ export function Sidebar({
                   aria-hidden
                 />
               ) : null}
-              {/* 相对定位把文字抬到 pill 之上；pill 是 absolute 的，不占布局 */}
-              <span className="relative">{item.label}</span>
+              {/* 相对定位把图标与文字抬到 pill 之上；pill 是 absolute 的，不占布局。
+                  图标用 currentColor，颜色跟着按钮的选中/悬停态走，不需要单独判一次 active。 */}
+              <span className="relative flex shrink-0 items-center">
+                <Icon />
+              </span>
+              <span className="relative truncate">{item.label}</span>
             </button>
           )
         })}
       </div>
 
-      <div className="mt-auto border-t border-border px-2 pt-3">
-        <div className="text-xs font-medium text-fg-muted">v0.1.0</div>
-        <div className="text-[11px] text-fg-subtle">Hackathon Build</div>
+      <div className="mt-auto px-2 pt-3">
+        <div className="rounded-lg border border-border bg-surface-2/60 px-3 py-2">
+          <div className="text-xs font-medium text-fg-muted">v0.1.0</div>
+          <div className="text-[11px] text-fg-subtle">Hackathon Build</div>
+        </div>
       </div>
     </nav>
   )
 }
+

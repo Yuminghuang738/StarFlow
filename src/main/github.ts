@@ -8,9 +8,26 @@ import { isMockMode } from './config'
 import * as store from './store'
 import { mockStarred, mockReadme, mockReleases, mockCommits, mockUnstar, mockFork, mockSearch, mockStar } from './mock'
 
-/** 分页：每页 100（GitHub 上限），最多 3 页 = 300 条，首页加载不能被无限翻页拖死 */
+/**
+ * 分页：每页 100（GitHub 上限）。翻到"这一页不满"就停（见下面的 break），
+ * MAX_PAGES 只是防病态账号的阀门，不是"我们打算取多少条"。
+ *
+ * ⚠️ 这个数原来写的是 3（=300 条），依据是"首页加载不能被无限翻页拖死"——那条理由
+ * **不成立**：首屏那一次读的是本地库（store.getRepos），fetchStarred 只在用户点
+ * 「从 GitHub 同步」和设置页「测试连接」时被调用，两次都是显式动作，多翻几页只多花
+ * 几秒。而 300 这个上限的代价是实打实的：
+ *   ① 收藏超过 300 个的人，同步拿到的是**被截断的列表**，界面上那句
+ *      "已从 GitHub 同步 300 个仓库"看不出它是截断的；
+ *   ② 更糟的是 mergeRepos 以远端为基准（见 renderer 的 repoStore.ts），
+ *      第 300 名之外的仓库会被当成"已经不在 GitHub 上了"从本地列表里消失，
+ *      连它们的 cloned_path / forked_full_name 一起丢——那是真的数据丢失，
+ *      而主进程的磁盘对账（数据源正是这份记录）也救不回来。
+ * 2000 条（20 页）足够覆盖个人账号，最坏 20 次串行请求，对一次显式同步可以接受。
+ * 真撞上阀门时仍会截断，所以命中时留一条明确的日志（见下面那条 warn），不要让它
+ * 悄悄发生。
+ */
+const MAX_PAGES = 20
 const PER_PAGE = 100
-const MAX_PAGES = 3
 /** 详情页最多取 10 条 Release / Commit */
 const LIST_LIMIT = 10
 /** README 截断阈值，防止极端仓库把内存撑爆 */
@@ -25,7 +42,12 @@ let cachedOctokit: Octokit | null = null
 
 async function client(): Promise<Octokit> {
   const token = await store.getToken()
-  if (!token) throw new Error('未配置 GitHub Token，请到设置页填入后重试')
+  // 说「没有读到」而不是「未配置」：getToken() 在密文解不开时（换机器 / 密钥环变更）
+  // 同样返回 null，那一条不能被说成"你从没配过"——设置页会用 hasToken() 把这种
+  // 情况单独显示成「读不到」并说明原因，这里只要别把用户指错方向就行。
+  if (!token) {
+    throw new Error('没有读到 GitHub Token（未配置，或本地那条记录解不开），请到设置页确认后重试')
+  }
   if (!cachedOctokit || cachedToken !== token) {
     cachedToken = token
     cachedOctokit = new Octokit({ auth: token })
@@ -161,6 +183,16 @@ export async function fetchStarred(): Promise<Repo[]> {
 
       // 不满一页说明已经是最后一页
       if (items.length < PER_PAGE) break
+    }
+
+    // 撞上阀门（而不是因为翻到最后一页）时，返回的列表是不完整的——调用方看不出来
+    // （fetchStarred 的返回类型被契约冻结成一个纯数组，没有"还有更多"的位置可放），
+    // 所以至少要在这里留下痕迹，别让它悄悄发生。
+    if (pages === MAX_PAGES && all.length === MAX_PAGES * PER_PAGE) {
+      console.warn(
+        `[github] Star 列表达到 ${MAX_PAGES} 页上限（${all.length} 条），后面还有没拉；` +
+          '调用方会把这份不完整的列表当成完整列表用于同步'
+      )
     }
 
     all.sort((a, b) => toTimestamp(b.starred_at) - toTimestamp(a.starred_at))
@@ -384,9 +416,20 @@ export async function star(fullName: string): Promise<Repo> {
 
   const { owner, repo } = splitFullName(fullName)
   const octokit = await client()
+
   try {
     // PUT 是幂等的：已经 Star 过也返回 204，不会报错
     await octokit.rest.activity.starRepoForAuthenticatedUser({ owner, repo })
+  } catch (err) {
+    throw toReadableError(err, `Star ${fullName}`)
+  }
+
+  // ⚠️ 从这一行往下，**Star 这件事已经真的成立了**（204 就是成功）。
+  // 下面的回读纯粹是为了拿到仓库数据，它失败绝不能报成"Star 失败"——
+  // 那是把一次成功说成失败：用户会以为自己没 Star 上（去重试、去翻 GitHub），
+  // 而真相是这个操作早就生效了。所以两段 try 必须分开，报错文案也要说清
+  // "已经 Star 了，只是详情没读回来"，并给出正确的下一步（同步一次即可）。
+  try {
     // Star 接口本身只有 204、没有响应体，要拿仓库数据必须再读一次
     const res = await octokit.rest.repos.get({ owner, repo })
     const d = res.data
@@ -409,6 +452,10 @@ export async function star(fullName: string): Promise<Repo> {
     console.log(`[github] 已 Star: ${fullName}`)
     return starred
   } catch (err) {
-    throw toReadableError(err, `Star ${fullName}`)
+    const reason = toReadableError(err, `读取 ${fullName} 的信息`).message
+    throw new Error(
+      `已经在 GitHub 上 Star 了 ${fullName}，但没能读回它的详细信息（${reason}）。` +
+        ' 到「收藏管理」点一次「从 GitHub 同步」就能把它拉进列表。'
+    )
   }
 }
